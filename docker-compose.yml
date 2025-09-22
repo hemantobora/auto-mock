@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  mockserver:
+    image: mockserver/mockserver:5.15.0
+    container_name: automock-local-server
+    ports:
+      - "1080:1080"  # MockServer port
+    environment:
+      - MOCKSERVER_LOG_LEVEL=INFO
+      - MOCKSERVER_SERVER_PORT=1080
+      - MOCKSERVER_INITIALIZATION_JSON_PATH=/config/expectations.json
+      - MOCKSERVER_WATCH_INITIALIZATION_JSON=true
+    volumes:
+      - ./imei-expectations.json:/config/expectations.json:ro
+    restart: unless-stopped
+    command: -serverPort 1080 -logLevel INFO
+
+  # Optional: MockServer UI (Web Dashboard)
+  mockserver-ui:
+    image: mockserver/mockserver:5.15.0
+    container_name: automock-ui
+    ports:
+      - "1090:1090"
+    environment:
+      - MOCKSERVER_LOG_LEVEL=INFO
+    command: -serverPort 1090 -proxyRemotePort 1080 -proxyRemoteHost mockserver
+    depends_on:
+      - mockserver
+    profiles:
+      - ui  # Only start with: docker-compose --profile ui up
