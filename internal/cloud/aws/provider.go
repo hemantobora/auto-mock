@@ -1,4 +1,3 @@
-
 // internal/cloud/aws/provider.go
 package aws
 
@@ -86,7 +85,15 @@ func NewProvider(profile, projectName string) (*Provider, error) {
 }
 
 // InitProject creates an S3 bucket for the project if it does not exist
+// Optionally can deploy complete infrastructure if requested
 func (p *Provider) InitProject() error {
+	// For now, keep the existing S3-only behavior
+	// Users can optionally upgrade to complete infrastructure
+	return p.initS3Project()
+}
+
+// initS3Project creates just the S3 bucket (existing behavior)
+func (p *Provider) initS3Project() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -94,7 +101,8 @@ func (p *Provider) InitProject() error {
 		Bucket: &p.BucketName,
 	})
 	if err == nil {
-		fmt.Println("✅ Project already initialized:", p.BucketName)
+		cleanName := utils.ExtractUserProjectName(p.ProjectName)
+		fmt.Printf("✅ Project already initialized: %s\n", cleanName)
 		return nil
 	}
 
@@ -120,7 +128,8 @@ func (p *Provider) InitProject() error {
 		if errors.As(err, &apiErr) {
 			switch apiErr.ErrorCode() {
 			case "BucketAlreadyOwnedByYou":
-				fmt.Println("✅ Project already initialized:", p.BucketName)
+				cleanName := utils.ExtractUserProjectName(p.ProjectName)
+				fmt.Printf("✅ Project already initialized: %s\n", cleanName)
 				return nil
 			case "BucketAlreadyExists":
 				return fmt.Errorf("❌ bucket name '%s' already taken globally — choose a more unique project name", p.BucketName)
@@ -131,20 +140,4 @@ func (p *Provider) InitProject() error {
 
 	fmt.Println("✅ Project initialized:", utils.ExtractUserProjectName(p.ProjectName))
 	return nil
-}
-
-// DeleteProject deletes the S3 bucket for the project (implements cloud.Provider)
-func (p *Provider) DeleteProject() error {
-   bucket := p.BucketName
-   ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-   defer cancel()
-   _, err := p.S3Client.DeleteBucket(ctx, &s3.DeleteBucketInput{
-	   Bucket: &bucket,
-   })
-   if err != nil {
-	   return fmt.Errorf("failed to delete project bucket: %w", err)
-   }
-   fmt.Println("🗑️ Deleted project:", utils.ExtractUserProjectName(p.ProjectName))
-   fmt.Println("ℹ️ TTL Lambda deletion skipped — not yet provisioned in current MVP")
-   return nil
 }
