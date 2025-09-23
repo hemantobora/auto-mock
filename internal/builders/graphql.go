@@ -8,11 +8,16 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 )
 
-// BuildGraphQLExpectation builds a single GraphQL mock expectation using specialized 7-step process
+// BuildGraphQLExpectation builds a single GraphQL mock expectation using enhanced 8-step process
 func BuildGraphQLExpectation() (MockExpectation, error) {
+	return BuildGraphQLExpectationWithContext([]MockExpectation{})
+}
+
+// BuildGraphQLExpectationWithContext builds a GraphQL expectation with context of existing expectations
+func BuildGraphQLExpectationWithContext(existingExpectations []MockExpectation) (MockExpectation, error) {
 	var expectation MockExpectation
 
-	fmt.Println("🚀 Starting 7-Step GraphQL Expectation Builder")
+	fmt.Println("🚀 Starting Enhanced 8-Step GraphQL Expectation Builder")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	steps := []struct {
@@ -20,6 +25,9 @@ func BuildGraphQLExpectation() (MockExpectation, error) {
 		fn   func(*MockExpectation) error
 	}{
 		{"GraphQL Operation Details", collectGraphQLOperationDetails},
+		{"Expectation Identification", func(exp *MockExpectation) error {
+			return CollectExpectationName(exp, existingExpectations)
+		}},
 		{"Query/Mutation Content", collectGraphQLQueryContent},
 		{"Variable Matching", collectGraphQLVariableMatching},
 		{"Request Header Matching", collectRequestHeaderMatching}, // Reuse from REST
@@ -325,15 +333,19 @@ func collectGraphQLResponseDefinition(expectation *MockExpectation) error {
 	return nil
 }
 
-// Step 7: Review and Confirm (GraphQL specific)
+// Step 8: Review and Confirm (GraphQL specific)
 func reviewGraphQLConfirm(expectation *MockExpectation) error {
-	fmt.Println("\n🔄 Step 7: Review and Confirm")
+	fmt.Println("\n🔄 Step 8: Review and Confirm")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	operationType := expectation.Headers["X-GraphQL-Operation-Type"]
 
 	// Display summary
 	fmt.Printf("\n📋 GraphQL Expectation Summary:\n")
+	fmt.Printf("   Name: %s\n", expectation.Name)
+	if expectation.Description != "" {
+		fmt.Printf("   Description: %s\n", expectation.Description)
+	}
 	fmt.Printf("   Operation Type: %s\n", operationType)
 	fmt.Printf("   Endpoint: %s %s\n", expectation.Method, expectation.Path)
 	fmt.Printf("   Status Code: %d\n", expectation.StatusCode)
@@ -357,7 +369,7 @@ func reviewGraphQLConfirm(expectation *MockExpectation) error {
 		return fmt.Errorf("expectation creation cancelled by user")
 	}
 
-	fmt.Printf("\n✅ GraphQL Expectation Created: %s operation\n", operationType)
+	fmt.Printf("\n✅ GraphQL Expectation Created: %s\n", expectation.Name)
 	return nil
 }
 

@@ -13,7 +13,6 @@ func StartInteractiveBuilder(projectName string) (string, error) {
 	fmt.Println("🔧 Interactive Builder (7-Step Process)")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("📝 Step-by-step endpoint building with validation")
-	fmt.Println("🚫 No AI involved - Pure user-driven configuration")
 	fmt.Println()
 
 	// Step 0: Choose API Type (REST vs GraphQL)

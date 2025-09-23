@@ -37,11 +37,16 @@ func parsePathAndQueryParams(fullPath string) (cleanPath string, queryParams map
 	return cleanPath, queryParams
 }
 
-// BuildRESTExpectation builds a single REST mock expectation using the 7-step process
+// BuildRESTExpectation builds a single REST mock expectation using the enhanced 8-step process
 func BuildRESTExpectation() (MockExpectation, error) {
+	return BuildRESTExpectationWithContext([]MockExpectation{})
+}
+
+// BuildRESTExpectationWithContext builds a REST expectation with context of existing expectations
+func BuildRESTExpectationWithContext(existingExpectations []MockExpectation) (MockExpectation, error) {
 	var expectation MockExpectation
 
-	fmt.Println("🚀 Starting 7-Step REST Expectation Builder")
+	fmt.Println("🚀 Starting Enhanced 8-Step REST Expectation Builder")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	steps := []struct {
@@ -49,6 +54,9 @@ func BuildRESTExpectation() (MockExpectation, error) {
 		fn   func(*MockExpectation) error
 	}{
 		{"API Details", collectRESTAPIDetails},
+		{"Expectation Identification", func(exp *MockExpectation) error {
+			return CollectExpectationName(exp, existingExpectations)
+		}},
 		{"Query Parameter Matching", collectQueryParameterMatching},
 		{"Path Matching Strategy", collectPathMatchingStrategy},
 		{"Request Header Matching", collectRequestHeaderMatching},
@@ -2120,13 +2128,17 @@ func configureTestingScenarios(expectation *MockExpectation) error {
 	return nil
 }
 
-// Step 7: Review and Confirm
+// Step 8: Review and Confirm
 func reviewAndConfirm(expectation *MockExpectation) error {
-	fmt.Println("\n🔄 Step 7: Review and Confirm")
+	fmt.Println("\n🔄 Step 8: Review and Confirm")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// Display summary
 	fmt.Printf("\n📋 Expectation Summary:\n")
+	fmt.Printf("   Name: %s\n", expectation.Name)
+	if expectation.Description != "" {
+		fmt.Printf("   Description: %s\n", expectation.Description)
+	}
 	fmt.Printf("   Method: %s\n", expectation.Method)
 	fmt.Printf("   Path: %s\n", expectation.Path)
 	fmt.Printf("   Status Code: %d\n", expectation.StatusCode)
@@ -2155,7 +2167,7 @@ func reviewAndConfirm(expectation *MockExpectation) error {
 		return fmt.Errorf("expectation creation cancelled by user")
 	}
 
-	fmt.Printf("\n✅ REST Expectation Created: %s %s\n", expectation.Method, expectation.Path)
+	fmt.Printf("\n✅ REST Expectation Created: %s\n", expectation.Name)
 	return nil
 }
 

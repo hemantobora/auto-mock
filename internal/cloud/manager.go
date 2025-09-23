@@ -9,6 +9,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 
 	awscloud "github.com/hemantobora/auto-mock/internal/cloud/aws"
+	"github.com/hemantobora/auto-mock/internal/collections"
+	"github.com/hemantobora/auto-mock/internal/expectations"
 	"github.com/hemantobora/auto-mock/internal/provider"
 	"github.com/hemantobora/auto-mock/internal/repl"
 	"github.com/hemantobora/auto-mock/internal/utils"
@@ -84,6 +86,13 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 		// Handle special case: project deletion completed
 		if strings.Contains(err.Error(), "PROJECT_DELETED") {
 			return nil // Exit cleanly after successful deletion
+		}
+		// Handle special case: view/download/edit/remove completed
+		if strings.Contains(err.Error(), "VIEW_COMPLETED") ||
+			strings.Contains(err.Error(), "DOWNLOAD_COMPLETED") ||
+			strings.Contains(err.Error(), "EDIT_COMPLETED") ||
+			strings.Contains(err.Error(), "REMOVE_COMPLETED") {
+			return nil // Exit cleanly after successful operation
 		}
 		return err
 	}
@@ -173,20 +182,64 @@ func (m *CloudManager) handleExistingProjectAction(projectName string) (string, 
 	action := repl.SelectProjectAction(projectName)
 	cleanName := utils.ExtractUserProjectName(projectName)
 
+	// Create expectation manager for operations that need it
+	expManager, err := expectations.NewExpectationManager(projectName)
+	if err != nil {
+		return "", fmt.Errorf("failed to create expectation manager: %w", err)
+	}
+
 	switch action {
-	case "Generate":
+	case "view":
+		fmt.Printf("👁️  Viewing expectations for project: %s\n", cleanName)
+		if err := expManager.ViewExpectations(); err != nil {
+			return "", fmt.Errorf("view failed: %w", err)
+		}
+		fmt.Printf("✅ View completed successfully!\n")
+		return "", fmt.Errorf("VIEW_COMPLETED")
+
+	case "download":
+		fmt.Printf("💾 Downloading expectations for project: %s\n", cleanName)
+		if err := expManager.DownloadExpectations(); err != nil {
+			return "", fmt.Errorf("download failed: %w", err)
+		}
+		fmt.Printf("✅ Download completed successfully!\n")
+		return "", fmt.Errorf("DOWNLOAD_COMPLETED")
+
+	case "generate":
 		fmt.Printf("🚀 Proceeding with mock generation for project: %s\n", cleanName)
 		return projectName, nil
 
-	case "Edit":
-		fmt.Printf("🛠️ Edit stubs for project '%s' coming soon...\n", cleanName)
-		return "", fmt.Errorf("edit functionality not implemented yet")
+	case "edit":
+		fmt.Printf("🛠️ Starting expectation editor for project: %s\n", cleanName)
+		if err := expManager.EditExpectations(); err != nil {
+			return "", fmt.Errorf("edit failed: %w", err)
+		}
+		fmt.Printf("✅ Edit completed successfully!\n")
+		return "", fmt.Errorf("EDIT_COMPLETED")
 
-	case "Delete":
+	case "replace":
+		fmt.Printf("🔄 Replacing expectations for project: %s\n", cleanName)
+		if err := expManager.ReplaceExpectations(); err != nil {
+			return "", fmt.Errorf("replace cancelled: %w", err)
+		}
+		return projectName, nil // Continue to generation flow
+
+	case "remove":
+		fmt.Printf("🗑️ Removing expectations for project: %s\n", cleanName)
+		if err := expManager.RemoveExpectations(); err != nil {
+			return "", fmt.Errorf("remove failed: %w", err)
+		}
+		fmt.Printf("✅ Remove completed successfully!\n")
+		return "", fmt.Errorf("REMOVE_COMPLETED")
+
+	case "delete":
 		fmt.Printf("🗑️ Deleting project: %s\n", cleanName)
-		return "", m.deleteProject(projectName)
+		if err := expManager.DeleteProject(); err != nil {
+			return "", fmt.Errorf("delete failed: %w", err)
+		}
+		return "", fmt.Errorf("PROJECT_DELETED") // Special code for clean exit
 
-	case "Cancel":
+	case "cancel":
 		return "", fmt.Errorf("operation cancelled by user")
 
 	default:
@@ -239,9 +292,14 @@ func (m *CloudManager) handleCollectionMode(projectName string, cliContext *CLIC
 		return fmt.Errorf("collection-type is required when using collection-file")
 	}
 
-	// The actual collection processing will be handled by REPL with pre-loaded context
-	// This allows the AI to still ask intelligent questions about the collection
-	return repl.StartCollectionImportREPL(projectName, cliContext.CollectionFile, cliContext.CollectionType)
+	// Create collection processor
+	processor, err := collections.NewCollectionProcessor(projectName, cliContext.CollectionType)
+	if err != nil {
+		return fmt.Errorf("failed to create collection processor: %w", err)
+	}
+
+	// Process the collection using the full workflow
+	return processor.ProcessCollection(cliContext.CollectionFile)
 }
 
 // handleInteractiveMode starts the interactive REPL experience
@@ -275,23 +333,6 @@ func (m *CloudManager) findExistingProject(buckets []string, projectName string)
 func (m *CloudManager) generateNewProject(projectName string) string {
 	suffix, _ := utils.GenerateRandomSuffix()
 	return fmt.Sprintf("%s-%s", projectName, suffix)
-}
-
-// deleteProject removes a project and its infrastructure
-func (m *CloudManager) deleteProject(projectName string) error {
-	awsProvider, err := awscloud.NewProvider(m.profile, projectName)
-	if err != nil {
-		return fmt.Errorf("failed to initialize AWS provider for deletion: %w", err)
-	}
-
-	var prov provider.Provider = awsProvider
-	if err := prov.DeleteProject(); err != nil {
-		return fmt.Errorf("failed to delete project: %w", err)
-	}
-
-	// Project deleted successfully - exit the program cleanly
-	fmt.Println("✅ Project deletion completed successfully!")
-	return fmt.Errorf("PROJECT_DELETED") // Special error code to signal completion
 }
 
 // checkAWSCredentials verifies if AWS credentials are configured and valid

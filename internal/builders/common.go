@@ -2,11 +2,19 @@ package builders
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
+	"strings"
+
+	"github.com/AlecAivazis/survey/v2"
 )
 
 // MockExpectation represents a complete mock server expectation
 type MockExpectation struct {
+	// Identification
+	Name        string `json:"name,omitempty"`        // User-friendly name for identification
+	Description string `json:"description,omitempty"` // Optional detailed description
+
 	// Request matching
 	Method         string                       `json:"method"`
 	Path           string                       `json:"path"`
@@ -137,6 +145,11 @@ func buildHttpRequest(expectation MockExpectation) map[string]interface{} {
 	request := map[string]interface{}{
 		"method": expectation.Method,
 		"path":   expectation.Path,
+	}
+
+	// Add name for identification (not part of MockServer spec but used for management)
+	if expectation.Name != "" {
+		request["name"] = expectation.Name
 	}
 
 	// Add query parameters if present
@@ -428,6 +441,105 @@ func GetRegexDescription(pattern string) (description string, examples []string)
 		return info.desc, info.examples
 	}
 	return "Custom regex pattern", []string{"pattern specific examples"}
+}
+
+// CollectExpectationName collects a unique name for the expectation
+// This function enforces uniqueness and uses a single identifier (no separate description)
+func CollectExpectationName(expectation *MockExpectation, existingExpectations []MockExpectation) error {
+	// Check if this method+path combination already exists
+	hasDuplicate := false
+	for _, existing := range existingExpectations {
+		if existing.Method == expectation.Method && existing.Path == expectation.Path {
+			hasDuplicate = true
+			break
+		}
+	}
+
+	// Generate default name based on method and path
+	defaultName := fmt.Sprintf("%s %s", expectation.Method, expectation.Path)
+
+	fmt.Println("\n🏷️  Expectation Identification")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	if hasDuplicate {
+		fmt.Printf("⚠️  Duplicate path detected: %s %s\n", expectation.Method, expectation.Path)
+		fmt.Println("📝 A unique name is required to distinguish this expectation from others")
+		fmt.Println("💡 Examples: 'Get User Success', 'Get User Not Found', 'Create User Validation Error'")
+
+		// Enforce name requirement for duplicates
+		for {
+			var name string
+			if err := survey.AskOne(&survey.Input{
+				Message: "Enter a unique name for this expectation (required):",
+				Help:    "This name will help you identify this expectation when editing or removing it",
+			}, &name); err != nil {
+				return err
+			}
+
+			name = strings.TrimSpace(name)
+			if name == "" {
+				fmt.Println("❌ Name cannot be empty for duplicate paths. Please provide a unique name.")
+				continue
+			}
+
+			// Check if this name is already used
+			nameExists := false
+			for _, existing := range existingExpectations {
+				if strings.EqualFold(existing.Name, name) {
+					nameExists = true
+					break
+				}
+			}
+
+			if nameExists {
+				fmt.Printf("❌ Name '%s' is already used. Please choose a different name.\n", name)
+				continue
+			}
+
+			expectation.Name = name
+			fmt.Printf("✅ Unique name set: %s\n", name)
+			break
+		}
+	} else {
+		// No duplicate, name is optional
+		fmt.Printf("💡 Default identification: %s\n", defaultName)
+
+		var name string
+		if err := survey.AskOne(&survey.Input{
+			Message: "Enter a name for this expectation (optional, press Enter to use default):",
+			Help:    "This name will help you identify this expectation when editing or removing it",
+			Default: "",
+		}, &name); err != nil {
+			return err
+		}
+
+		name = strings.TrimSpace(name)
+		if name == "" {
+			// Use the method+path as the name
+			expectation.Name = defaultName
+			fmt.Printf("✅ Using default name: %s\n", defaultName)
+		} else {
+			// Check if this name is already used
+			nameExists := false
+			for _, existing := range existingExpectations {
+				if strings.EqualFold(existing.Name, name) {
+					nameExists = true
+					break
+				}
+			}
+
+			if nameExists {
+				fmt.Printf("⚠️  Name '%s' is already used. Using default name instead.\n", name)
+				expectation.Name = defaultName
+				fmt.Printf("✅ Using default name: %s\n", defaultName)
+			} else {
+				expectation.Name = name
+				fmt.Printf("✅ Custom name set: %s\n", name)
+			}
+		}
+	}
+
+	return nil
 }
 
 // AdvancedFeatureCategories returns organized advanced feature categories

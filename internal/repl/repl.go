@@ -8,7 +8,11 @@ import (
 	"time"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/hemantobora/auto-mock/internal/collections"
 	"github.com/hemantobora/auto-mock/internal/mcp"
+	"github.com/hemantobora/auto-mock/internal/state"
 	"github.com/hemantobora/auto-mock/internal/utils"
 )
 
@@ -86,6 +90,12 @@ func StartMockGenerationREPL(projectName string) error {
 		return fmt.Errorf("failed to generate configuration: %w", err)
 	}
 
+	// Handle case where collection processing completed without returning JSON
+	if mockServerJSON == "" {
+		fmt.Println("\n✅ Configuration processing completed successfully!")
+		return nil
+	}
+
 	// Display the result
 	displayResult(mockServerJSON)
 
@@ -107,8 +117,8 @@ func handleFinalResult(mockServerJSON, projectName string) error {
 	if err := survey.AskOne(&survey.Select{
 		Message: "What would you like to do with this configuration?",
 		Options: []string{
-			"save - Save to file",
-			"deploy - Deploy ECS Fargate infrastructure",
+			"save - Save the expectation file",
+			"deploy - Create mock server infrastructure",
 			"local - Start MockServer locally",
 			"exit - Exit without saving",
 		},
@@ -131,24 +141,45 @@ func handleFinalResult(mockServerJSON, projectName string) error {
 	return nil
 }
 
-// Save configuration to file
+// Save configuration to S3
 func saveToFile(mockServerJSON, projectName string) error {
+	ctx := context.Background()
 	cleanName := utils.ExtractUserProjectName(projectName)
-	defaultFilename := fmt.Sprintf("%s-expectations.json", cleanName)
-
-	var filename string
-	if err := survey.AskOne(&survey.Input{
-		Message: "Filename:",
-		Default: defaultFilename,
-	}, &filename); err != nil {
-		return err
+	
+	fmt.Println("\n☁️ Saving to S3 Storage")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	
+	// Initialize AWS S3 client
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to load AWS config: %w", err)
 	}
-
-	if err := os.WriteFile(filename, []byte(mockServerJSON), 0644); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
+	
+	s3Client := s3.NewFromConfig(cfg)
+	store := state.NewS3Store(s3Client, projectName)
+	
+	// Parse MockServer JSON to MockConfiguration format
+	mockConfig, err := state.ParseMockServerJSON(mockServerJSON)
+	if err != nil {
+		return fmt.Errorf("failed to parse mock server JSON: %w", err)
 	}
-
-	fmt.Printf("\n✅ MockServer configuration saved to: %s\n", filename)
+	
+	// Set metadata
+	mockConfig.Metadata.ProjectID = cleanName
+	mockConfig.Metadata.Provider = "auto-mock-cli"
+	mockConfig.Metadata.Description = "Generated via interactive mock generation"
+	mockConfig.Metadata.Version = fmt.Sprintf("v%d", time.Now().Unix())
+	mockConfig.Metadata.CreatedAt = time.Now()
+	mockConfig.Metadata.UpdatedAt = time.Now()
+	
+	// Save to S3
+	if err := store.SaveConfig(ctx, cleanName, mockConfig); err != nil {
+		return fmt.Errorf("failed to save to S3: %w", err)
+	}
+	
+	fmt.Printf("\n✅ MockServer configuration saved to cloud storage!\n")
+	fmt.Printf("📁 Project: %s\n", cleanName)
+	fmt.Printf("🔗 Configuration stored for team access\n")
 	return nil
 }
 
@@ -488,14 +519,65 @@ func createNewProject() (string, bool, error) {
 	return fmt.Sprintf("%s-%s", name, suffix), false, nil
 }
 
+// CheckExpectationsExist checks if expectations already exist for a project
+func CheckExpectationsExist(projectName string) bool {
+	ctx := context.Background()
+	cleanName := utils.ExtractUserProjectName(projectName)
+	
+	// Initialize AWS S3 client
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		fmt.Printf("Warning: Failed to load AWS config for expectation check: %v\n", err)
+		return false
+	}
+	
+	s3Client := s3.NewFromConfig(cfg)
+	store := state.NewS3Store(s3Client, projectName)
+	
+	// Try to get existing config
+	_, err = store.GetConfig(ctx, cleanName)
+	if err != nil {
+		// Config doesn't exist or error occurred
+		return false
+	}
+	
+	return true
+}
+
 func SelectProjectAction(projectName string) string {
 	cleanName := utils.ExtractUserProjectName(projectName)
 	var action string
+	
+	// Check if expectations already exist
+	expectationsExist := CheckExpectationsExist(projectName)
+	
+	var options []string
+	if expectationsExist {
+		// When expectations exist: management operations + view/download
+		options = []string{
+			"view - View expectations or entire configuration file",
+			"download - Download the entire expectations file",
+			"edit - Edit a particular expectation (modify method, path, response, etc.)",
+			"remove - Remove specific expectations while keeping others",
+			"replace - Replace ALL existing expectations with new ones",
+			"delete - Delete the entire project and tear down infrastructure",
+			"cancel - Cancel the operation and exit",
+		}
+	} else {
+		// When no expectations exist: only generation (no management operations)
+		options = []string{
+			"generate - Create a set of expectations from API documentation or examples",
+			"cancel - Cancel the operation and exit",
+		}
+	}
+	
 	survey.AskOne(&survey.Select{
-		Message: fmt.Sprintf("Project: %s", cleanName),
-		Options: []string{"Generate", "Edit", "Delete", "Cancel"},
+		Message: fmt.Sprintf("Project: %s - What would you like to do?", cleanName),
+		Options: options,
 	}, &action)
-	return action
+	
+	// Extract the action keyword (first word before " - ")
+	return strings.Split(action, " ")[0]
 }
 
 // generateMockConfiguration uses the MCP engine to generate configurations
@@ -600,38 +682,19 @@ func generateFromCollection(ctx context.Context, projectName string) (string, er
 		return "", err
 	}
 	
-	// Read collection file
-	collectionData, err := os.ReadFile(filePath)
+	// Use the new collection processor
+	processor, err := collections.NewCollectionProcessor(projectName, collectionType)
 	if err != nil {
-		return "", fmt.Errorf("failed to read collection file: %w", err)
+		return "", fmt.Errorf("failed to create collection processor: %w", err)
 	}
 	
-	// Generate based on collection type
-	var result *mcp.GenerationResult
-	switch collectionType {
-	case "postman":
-		result, err = mcp.GenerateFromPostman(ctx, collectionData, projectName)
-	case "bruno":
-		result, err = mcp.GenerateFromBruno(ctx, collectionData, projectName)
-	case "insomnia":
-		result, err = mcp.GenerateFromInsomnia(ctx, collectionData, projectName)
-	default:
-		return "", fmt.Errorf("unsupported collection type: %s", collectionType)
+	// Process the collection - this will save directly to S3
+	if err := processor.ProcessCollection(filePath); err != nil {
+		return "", fmt.Errorf("collection processing failed: %w", err)
 	}
 	
-	if err != nil {
-		return "", fmt.Errorf("collection import failed: %w", err)
-	}
-	
-	// Show security info
-	if result.CredentialsSanitized > 0 {
-		fmt.Printf("🔒 Sanitized %d credentials from collection\n", result.CredentialsSanitized)
-	}
-	for _, warning := range result.SecurityWarnings {
-		fmt.Printf("⚠️  Security: %s\n", warning)
-	}
-	
-	return result.MockServerJSON, nil
+	// Return empty string since expectations are already saved
+	return "", nil
 }
 
 // generateFromTemplate uses quick templates
