@@ -12,28 +12,28 @@ import (
 // parsePathAndQueryParams intelligently separates path from query parameters
 func parsePathAndQueryParams(fullPath string) (cleanPath string, queryParams map[string]string) {
 	queryParams = make(map[string]string)
-	
+
 	// Ensure path starts with /
 	if !strings.HasPrefix(fullPath, "/") {
 		fullPath = "/" + fullPath
 	}
-	
+
 	// Parse URL to separate path and query
 	parsedURL, err := url.Parse(fullPath)
 	if err != nil {
 		// If parsing fails, return as-is
 		return fullPath, queryParams
 	}
-	
+
 	cleanPath = parsedURL.Path
-	
+
 	// Extract query parameters
 	for name, values := range parsedURL.Query() {
 		if len(values) > 0 {
 			queryParams[name] = values[0] // Take first value
 		}
 	}
-	
+
 	return cleanPath, queryParams
 }
 
@@ -109,7 +109,7 @@ func collectRESTAPIDetails(expectation *MockExpectation) error {
 		for name, value := range detectedParams {
 			fmt.Printf("   %s=%s\n", name, value)
 		}
-		
+
 		var useDetected bool
 		if err := survey.AskOne(&survey.Confirm{
 			Message: "Auto-configure these query parameters for matching?",
@@ -117,7 +117,7 @@ func collectRESTAPIDetails(expectation *MockExpectation) error {
 		}, &useDetected); err != nil {
 			return err
 		}
-		
+
 		if useDetected {
 			expectation.QueryParams = detectedParams
 			fmt.Printf("✅ Pre-configured %d query parameters\n", len(detectedParams))
@@ -1007,7 +1007,7 @@ func collectQueryParameterMatching(expectation *MockExpectation) error {
 	// Check if already configured from path parsing
 	if len(expectation.QueryParams) > 0 {
 		fmt.Printf("ℹ️  Already configured %d query parameters from path\n", len(expectation.QueryParams))
-		
+
 		var addMore bool
 		if err := survey.AskOne(&survey.Confirm{
 			Message: "Add additional query parameters?",
@@ -1015,7 +1015,7 @@ func collectQueryParameterMatching(expectation *MockExpectation) error {
 		}, &addMore); err != nil {
 			return err
 		}
-		
+
 		if !addMore {
 			fmt.Printf("✅ Query Parameters: %d configured\n", len(expectation.QueryParams))
 			return nil
@@ -1034,7 +1034,7 @@ func collectQueryParameterMatching(expectation *MockExpectation) error {
 			fmt.Println("ℹ️  No query parameter matching configured")
 			return nil
 		}
-		
+
 		expectation.QueryParams = make(map[string]string)
 	}
 
@@ -1156,7 +1156,7 @@ func collectRequestHeaderMatching(expectation *MockExpectation) error {
 		}
 
 		isRegex := strings.HasPrefix(matchingType, "regex")
-		
+
 		// NOW ask for value with appropriate context
 		var prompt string
 		var helpText string
@@ -1229,7 +1229,7 @@ func collectStatusCode(expectation *MockExpectation) error {
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	statusCodes := CommonStatusCodes()
-	
+
 	// Step 1: Choose category
 	var categories []string
 	for category := range statusCodes {
@@ -1239,8 +1239,8 @@ func collectStatusCode(expectation *MockExpectation) error {
 	var selectedCategory string
 	if err := survey.AskOne(&survey.Select{
 		Message: "Select status code category:",
-		Options:  categories,
-		Default:  "2xx Success",
+		Options: categories,
+		Default: "2xx Success",
 	}, &selectedCategory); err != nil {
 		return err
 	}
@@ -1255,7 +1255,7 @@ func collectStatusCode(expectation *MockExpectation) error {
 	var selectedCode string
 	if err := survey.AskOne(&survey.Select{
 		Message: "Select specific status code:",
-		Options:  codeOptions,
+		Options: codeOptions,
 	}, &selectedCode); err != nil {
 		return err
 	}
@@ -1281,10 +1281,10 @@ func collectResponseBody(expectation *MockExpectation) error {
 		Message: "How do you want to provide the response body?",
 		Options: []string{
 			"template - Generate from template",
-			"json - Type/paste JSON directly", 
+			"json - Type/paste JSON directly",
 			"empty - No response body (204 No Content)",
 		},
-		Default: "template - Generate from template",
+		Default: "json - Type/paste JSON directly",
 	}, &bodyChoice); err != nil {
 		return err
 	}
@@ -1296,7 +1296,7 @@ func collectResponseBody(expectation *MockExpectation) error {
 		if err := generateResponseTemplate(expectation); err != nil {
 			return err
 		}
-		
+
 	case "json":
 		var responseJSON string
 		if err := survey.AskOne(&survey.Multiline{
@@ -1333,7 +1333,7 @@ func collectResponseBody(expectation *MockExpectation) error {
 		// Format and store JSON
 		formattedJSON, _ := FormatJSON(responseJSON)
 		expectation.ResponseBody = formattedJSON
-		
+
 	case "empty":
 		expectation.ResponseBody = ""
 		expectation.StatusCode = 204 // No Content
@@ -1382,7 +1382,7 @@ func collectAdvancedFeatures(expectation *MockExpectation) error {
 	fmt.Println("\n👉 Navigation: Use SPACE to select/deselect, ARROW KEYS to navigate, ENTER to confirm")
 	if err := survey.AskOne(&survey.MultiSelect{
 		Message: "Select feature categories to configure:",
-		Options:  categoryOptions,
+		Options: categoryOptions,
 		Help:    "IMPORTANT: Use SPACE (not ENTER) to select items, then ENTER to confirm",
 	}, &selectedCategories); err != nil {
 		return err
@@ -1422,7 +1422,7 @@ func collectAdvancedFeatures(expectation *MockExpectation) error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -1477,7 +1477,7 @@ func collectResponseDelay(expectation *MockExpectation) error {
 		}, &minDelay); err != nil {
 			return err
 		}
-		
+
 		var maxDelay string
 		if err := survey.AskOne(&survey.Input{
 			Message: "Maximum delay (ms):",
@@ -1485,7 +1485,7 @@ func collectResponseDelay(expectation *MockExpectation) error {
 		}, &maxDelay); err != nil {
 			return err
 		}
-		
+
 		// Enhanced random delay for MockServer with proper format
 		if expectation.Times == nil {
 			expectation.Times = &Times{}
@@ -1493,7 +1493,7 @@ func collectResponseDelay(expectation *MockExpectation) error {
 		// Store as range format for MockServer
 		expectation.ResponseDelay = fmt.Sprintf("%s-%s", minDelay, maxDelay)
 		fmt.Printf("✅ Random delay configured: %s-%s ms\n", minDelay, maxDelay)
-		
+
 		// Add MockServer-specific documentation
 		fmt.Println("\n📚 MockServer Delay Documentation:")
 		fmt.Println("   Delay Configuration: https://mock-server.com/mock_server/response_delays.html")
@@ -1539,17 +1539,17 @@ func collectResponseLimits(expectation *MockExpectation) error {
 	}
 
 	fmt.Printf("✅ Response limit: %d times\n", times)
-	
+
 	// Add advanced rate limiting guidance
 	fmt.Println("\n📚 Advanced Rate Limiting Patterns:")
 	fmt.Println("   • Create additional expectation for post-limit behavior")
 	fmt.Println("   • Use 429 status code for rate limit exceeded responses")
 	fmt.Println("   • Include Retry-After header for client guidance")
-	
+
 	fmt.Println("\n📚 MockServer Times Documentation:")
 	fmt.Println("   Times Configuration: https://mock-server.com/mock_server/times.html")
 	fmt.Println("   Rate Limiting Guide: https://mock-server.com/mock_server/response_delays.html")
-	
+
 	return nil
 }
 
@@ -1663,7 +1663,7 @@ func collectResponseTemplating(expectation *MockExpectation) error {
 	fmt.Println("   Template Variables: https://mock-server.com/mock_server/response_templates.html#template-variables")
 	fmt.Println("   Advanced Examples: https://mock-server.com/mock_server/response_templates.html#template-examples")
 	fmt.Println("   JavaScript Processing: https://mock-server.com/mock_server/response_templates.html#javascript-templating")
-	
+
 	fmt.Println("\n🔥 Pro Templating Tips:")
 	fmt.Println("   • Use ${if(condition,value1,value2)} for conditional responses")
 	fmt.Println("   • Combine ${request.pathParameters.id} with ${uuid} for realistic data")
@@ -1745,18 +1745,18 @@ func collectResponseSequence(expectation *MockExpectation) error {
 		fmt.Println("\n✅ Success-Then-Error Pattern:")
 		fmt.Println("   Call 1: 200 OK with data")
 		fmt.Println("   Call 2+: 503 Service Unavailable")
-		
+
 		// This would require creating multiple expectations
 		fmt.Println("\n📝 Implementation Note:")
 		fmt.Println("   This pattern requires multiple MockServer expectations.")
 		fmt.Println("   The first expectation has times: {remainingTimes: 1}")
 		fmt.Println("   The second expectation handles all subsequent calls.")
-		
+
 	case "slow-then-fast":
 		fmt.Println("\n🐌 Slow-Then-Fast Pattern:")
 		fmt.Println("   Call 1: 3000ms delay")
 		fmt.Println("   Call 2+: 100ms delay")
-		
+
 		// Configure first call with slow delay
 		expectation.ResponseDelay = "3000"
 		if expectation.Times == nil {
@@ -1764,11 +1764,11 @@ func collectResponseSequence(expectation *MockExpectation) error {
 		}
 		expectation.Times.RemainingTimes = 1
 		expectation.Times.Unlimited = false
-		
+
 		fmt.Println("\n📝 Implementation Note:")
 		fmt.Println("   Current expectation configured for first slow call.")
 		fmt.Println("   Create a second expectation for fast subsequent calls.")
-		
+
 	case "custom":
 		fmt.Println("\n🛠️  Custom Sequence Guide:")
 		fmt.Println("   1. Create multiple expectations with same request criteria")
@@ -1807,7 +1807,7 @@ func collectCircuitBreakerBehavior(expectation *MockExpectation) error {
 	fmt.Printf("\n🔧 Circuit Breaker Configuration:\n")
 	fmt.Printf("   Failure Rate: %s%%\n", failureRate)
 	fmt.Printf("   Failure Status: %s\n", failureResponse)
-	
+
 	fmt.Println("\n📝 Implementation Guide:")
 	fmt.Println("   Create two expectations:")
 	fmt.Printf("   1. Success case (70%% of the time) - Current expectation\n")
@@ -1846,7 +1846,7 @@ func collectRateLimitBehavior(expectation *MockExpectation) error {
 	fmt.Printf("\n🔧 Rate Limiting Configuration:\n")
 	fmt.Printf("   Allowed Requests: %s\n", allowedRequests)
 	fmt.Printf("   Rate Limit Response: 429 Too Many Requests\n")
-	
+
 	fmt.Println("\n📝 Implementation Guide:")
 	fmt.Println("   Current expectation configured for allowed requests.")
 	fmt.Printf("   Create a second expectation with same criteria but:\n")
@@ -1862,7 +1862,7 @@ func collectRateLimitBehavior(expectation *MockExpectation) error {
 func showCustomConditionalGuidance() error {
 	fmt.Println("\n🛠️  Custom Conditional Logic Guide")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	fmt.Println("\n🔧 Advanced Conditional Features:")
 	fmt.Println("   1. Request Count Based:")
 	fmt.Println("      'times': {'remainingTimes': 3, 'unlimited': false}")
@@ -1872,19 +1872,19 @@ func showCustomConditionalGuidance() error {
 	fmt.Println("      Different responses based on request headers")
 	fmt.Println("   4. JavaScript Callbacks:")
 	fmt.Println("      'callback': {'callbackClass': 'your.callback.Class'}")
-	
+
 	fmt.Println("\n📚 Advanced MockServer Documentation:")
 	fmt.Println("   Conditional Logic: https://mock-server.com/mock_server/expectations.html")
 	fmt.Println("   Times Configuration: https://mock-server.com/mock_server/times.html")
 	fmt.Println("   Callbacks: https://mock-server.com/mock_server/callbacks.html")
 	fmt.Println("   JavaScript Templates: https://mock-server.com/mock_server/response_templates.html#javascript-templating")
-	
+
 	fmt.Println("\n🔥 Professional Conditional Patterns:")
 	fmt.Println("   • Use priority to control expectation matching order")
 	fmt.Println("   • Combine times with different response bodies for sequences")
 	fmt.Println("   • Use JavaScript callbacks for complex conditional logic")
 	fmt.Println("   • Leverage template variables for dynamic conditional responses")
-	
+
 	return nil
 }
 
@@ -1901,13 +1901,13 @@ func enhanceResponseWithTemplating(originalResponse string, templateExamples map
 	if !strings.HasSuffix(enhanced, ",") && !strings.HasSuffix(enhanced, "{") {
 		enhanced += ","
 	}
-	
+
 	enhanced += "\n  \"templatedFields\": {\n"
 	for key, value := range templateExamples {
 		enhanced += fmt.Sprintf("    \"%s\": \"%s\",\n", key, value)
 	}
 	enhanced = strings.TrimSuffix(enhanced, ",\n") + "\n  }\n}"
-	
+
 	return enhanced
 }
 
@@ -2257,7 +2257,7 @@ func collectRegexPattern(expectation *MockExpectation) error {
 
 			if err := survey.AskOne(&survey.Select{
 				Message: "Select from complete library:",
-				Options:  patternOptions,
+				Options: patternOptions,
 			}, &selectedPattern); err != nil {
 				return err
 			}
@@ -2348,7 +2348,7 @@ func collectRegexPattern(expectation *MockExpectation) error {
 		fmt.Println("     Solution: Double escape in strings: \\\\d for digits")
 		fmt.Println("   • Invalid character classes: [z-a] (should be [a-z])")
 		fmt.Println("     Solution: Use proper ranges [a-z] [A-Z] [0-9]")
-		
+
 		fmt.Println("\n🔥 Pro Regex Tips:")
 		fmt.Println("   • Test complex patterns at https://regex101.com/")
 		fmt.Println("   • Use (?i) for case-insensitive matching")
@@ -2370,11 +2370,11 @@ func collectRegexPattern(expectation *MockExpectation) error {
 	// Store regex pattern with validation metadata
 	expectation.Path = regexPattern
 	fmt.Printf("✅ Enhanced regex pattern configured: %s\n", regexPattern)
-	
+
 	// Provide pattern analysis
 	fmt.Println("\n🔍 Pattern Analysis:")
 	analyzeRegexPattern(regexPattern)
-	
+
 	fmt.Println("\n📚 Professional Regex Resources:")
 	fmt.Println("   Interactive Testing: https://regex101.com/")
 	fmt.Println("   Learning Tutorial: https://regexone.com/")
@@ -2468,7 +2468,7 @@ func generateResponseTemplate(expectation *MockExpectation) error {
 // analyzeRegexPattern provides intelligent analysis of regex patterns
 func analyzeRegexPattern(pattern string) {
 	analysis := []string{}
-	
+
 	if strings.Contains(pattern, ".*") {
 		analysis = append(analysis, "• Uses wildcard matching (.*) - matches any characters")
 	}
@@ -2496,15 +2496,15 @@ func analyzeRegexPattern(pattern string) {
 	if strings.Contains(pattern, "[") {
 		analysis = append(analysis, "• Uses character classes [...] - matches specific character sets")
 	}
-	
+
 	if len(analysis) == 0 {
 		analysis = append(analysis, "• Simple literal pattern - matches exact text")
 	}
-	
+
 	for _, item := range analysis {
 		fmt.Printf("   %s\n", item)
 	}
-	
+
 	// Add MockServer-specific guidance
 	fmt.Println("\n🎯 MockServer Regex Tips:")
 	fmt.Println("   • Patterns are automatically anchored in MockServer")

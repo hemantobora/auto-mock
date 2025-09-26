@@ -20,7 +20,7 @@ import (
 type InitializationMode int
 
 const (
-	// ModeInteractive - Primary mode: REPL-driven with AI guidance (default)
+	// ModeInteractive - Primary mode: REPL-driven (default)
 	ModeInteractive InitializationMode = iota
 	// ModeCollection - Secondary mode: CLI-driven collection import
 	ModeCollection
@@ -83,15 +83,13 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 	// Step 2: Resolve project (CLI-driven or interactive)
 	projectName, err := m.resolveProject(cliContext)
 	if err != nil {
-		// Handle special case: project deletion completed
-		if strings.Contains(err.Error(), "PROJECT_DELETED") {
-			return nil // Exit cleanly after successful deletion
-		}
-		// Handle special case: view/download/edit/remove completed
+		// Handle special case: view/download/edit/remove/add completed
 		if strings.Contains(err.Error(), "VIEW_COMPLETED") ||
 			strings.Contains(err.Error(), "DOWNLOAD_COMPLETED") ||
 			strings.Contains(err.Error(), "EDIT_COMPLETED") ||
-			strings.Contains(err.Error(), "REMOVE_COMPLETED") {
+			strings.Contains(err.Error(), "REMOVE_COMPLETED") ||
+			strings.Contains(err.Error(), "PROJECT_DELETED") ||
+			strings.Contains(err.Error(), "ADD_COMPLETED") {
 			return nil // Exit cleanly after successful operation
 		}
 		return err
@@ -189,6 +187,10 @@ func (m *CloudManager) handleExistingProjectAction(projectName string) (string, 
 	}
 
 	switch action {
+	case "add":
+		fmt.Printf("➕ Adding new expectations to project: %s\n", cleanName)
+		return projectName, nil // Continue to generation flow
+
 	case "view":
 		fmt.Printf("👁️  Viewing expectations for project: %s\n", cleanName)
 		if err := expManager.ViewExpectations(); err != nil {

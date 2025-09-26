@@ -13,6 +13,9 @@ AutoMock is an AI-powered, multi-cloud-ready CLI tool that generates and deploys
 - ⏱️ **Auto teardown** using TTL-aware Lambda triggers
 - 🔁 **Stub operations**: create, update, delete, read
 - 📡 **One-command deployment** with minimal setup
+- 🎭 **Advanced scenario detection** - automatically handles multiple API variants
+- 📂 **Collection import support** - Postman, Bruno, Insomnia collections
+- 🎯 **Smart matching configuration** - intelligent MockServer expectation setup
 
 ---
 
@@ -41,37 +44,61 @@ auto-mock/
 
 ### 🆕 Initialize a New Project
 ```bash
-auto-mock init --project user-mock
+# Interactive mode (AI-guided mock generation)
+automock init --project user-mock
+
+# Collection import mode (Postman/Bruno/Insomnia)
+automock init --project user-mock --collection-file api.json --collection-type postman
 ```
+**Interactive Mode:**
 - Scans AWS credentials (default or `--profile`)
 - Prompts user to describe a mock endpoint
 - Generates YAML spec using AI
 - Creates a new S3 bucket: `auto-mock-user-mock`
 - Deploys infra with 12-hour TTL
 
+**Collection Import Mode:**
+- Parses Postman/Bruno/Insomnia collections
+- Executes APIs sequentially with variable resolution
+- Automatically detects multiple scenarios for same endpoint
+- Creates intelligent MockServer expectations with priorities
+- Handles auth variations, error responses, and edge cases
+
 ### ♻️ Resume Existing Project
 ```bash
-auto-mock resume
+automock init  # Interactive project selection
 ```
 - Lists available projects (`auto-mock-*` buckets)
-- Prompts for stub operations: add, update, delete, view
+- Prompts for operations: add, view, download, edit, replace, remove, delete
+- Supports both AI-guided generation and collection import for existing projects
 
 ### ❌ Delete Project
 ```bash
-auto-mock delete --project user-mock
+automock init  # Select project, then choose 'delete' action
 ```
 - Removes all resources, including bucket and teardown lambda
+- Available through interactive project management
 
 ---
 
-## 🔐 Credential Detection
+## 🔐 Credential Detection & Collection Support
 
+**Cloud Providers:**
 AutoMock automatically detects which cloud providers you have access to:
-- AWS (`~/.aws/credentials`)
-- GCP (`GOOGLE_APPLICATION_CREDENTIALS`)
-- Azure (`AZURE_CLIENT_ID`, etc.)
+- AWS (`~/.aws/credentials`) - Primary support
+- GCP (`GOOGLE_APPLICATION_CREDENTIALS`) - Planned
+- Azure (`AZURE_CLIENT_ID`, etc.) - Planned
 
-If credentials for multiple are found, you're prompted to choose your target platform.
+**Collection Formats:**
+- **Postman** - Collection v2.1 (.json)
+- **Bruno** - Collection format (.json)
+- **Insomnia** - Workspace format (.json)
+
+**Advanced Features:**
+- Sequential API execution with variable resolution
+- Pre/post-script processing
+- Automatic scenario detection (auth, errors, variants)
+- Intelligent MockServer expectation generation
 
 ---
 
@@ -79,8 +106,10 @@ If credentials for multiple are found, you're prompted to choose your target pla
 
 - Language: **Go** (fast, cross-platform CLI)
 - AWS SDK v2, S3, ECS, Lambda
-- AI: MCP-based prompt-to-YAML agent
+- AI: MCP-based prompt-to-YAML agent  
 - CLI: `urfave/cli` with interactive UX
+- MockServer: Advanced expectation management
+- Collection Processing: Postman/Bruno/Insomnia parsers
 
 ---
 
@@ -89,9 +118,14 @@ If credentials for multiple are found, you're prompted to choose your target pla
 - [x] AWS support for deployment + teardown
 - [x] S3-based state persistence
 - [x] AI-powered YAML generator
+- [x] Advanced scenario detection and handling
+- [x] Collection import (Postman/Bruno/Insomnia)
+- [x] Smart MockServer expectation configuration
+- [x] Interactive vs CLI-driven workflows
 - [ ] Azure and GCP provider support
 - [ ] TTL extension / reset
 - [ ] CI/CD integration
+- [ ] Bruno .bru file format support
 - [ ] Post-MVP: Auto-generate `locustfile.py` for load testing
 
 ---
