@@ -15,6 +15,7 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/hemantobora/auto-mock/internal/builders"
 	"github.com/hemantobora/auto-mock/internal/state"
 	"github.com/hemantobora/auto-mock/internal/utils"
 )
@@ -123,7 +124,8 @@ func (cp *CollectionProcessor) ProcessCollection(filePath string) error {
 	}
 
 	// Step 7: Save to S3
-	return cp.saveExpectations(expectations, executionNodes)
+	// return cp.saveExpectations(expectations, executionNodes)
+	return nil
 }
 
 // Step 1: Show security disclaimer
@@ -283,7 +285,7 @@ func (cp *CollectionProcessor) autoConfigureScenarioMatching(node *ExecutionNode
 }
 
 // handlePriorityBasedScenarios configures scenarios with priority-based matching
-func (cp *CollectionProcessor) handlePriorityBasedScenarios(scenarios []APIScenario, nodes []ExecutionNode) ([]map[string]interface{}, error) {
+func (cp *CollectionProcessor) handlePriorityBasedScenarios(scenarios []APIScenario, nodes []ExecutionNode) ([]builders.MockExpectation, error) {
 	fmt.Println("\n📊 Priority-Based Scenario Configuration")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("Scenarios will be configured with priority-based matching order.")
@@ -293,12 +295,14 @@ func (cp *CollectionProcessor) handlePriorityBasedScenarios(scenarios []APIScena
 }
 
 // configureIndividualMatching handles non-scenario APIs (renamed from original)
-func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode) ([]map[string]interface{}, error) {
+func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode) ([]builders.MockExpectation, error) {
 	fmt.Println("\n🔧 Individual API Matching Configuration")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("Configure matching for individual APIs (no scenarios detected)")
 
-	var expectations []map[string]interface{}
+	var exps []map[string]interface{}
+	var expectations []builders.MockExpectation
+	var mock_configurator builders.MockConfigurator
 
 	for _, node := range nodes {
 		if node.Response == nil {
@@ -309,7 +313,7 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 		// Build base expectation
-		expectation := map[string]interface{}{
+		exp := map[string]interface{}{
 			"httpRequest": map[string]interface{}{
 				"method": node.API.Method,
 				"path":   cp.extractPath(node.API.URL),
@@ -321,25 +325,50 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 			},
 		}
 
-		httpRequest := expectation["httpRequest"].(map[string]interface{})
+		path, queryParams := mock_configurator.ParsePathAndQueryParams(node.API.URL)
+		expectation := builders.MockExpectation{
+			Name:        node.API.Name,
+			Method:      node.API.Method,
+			Path:        path,
+			QueryParams: queryParams,
+			Headers:     node.API.Headers,
+			Body:        node.API.Body,
+
+			StatusCode:      node.Response.StatusCode,
+			ResponseHeaders: node.Response.Headers,
+			ResponseBody:    node.Response.Body,
+		}
+
+		// httpRequest := exp["httpRequest"].(map[string]interface{})
 
 		// Configure matching criteria for this individual API
-		if err := cp.collectQueryParameterMatching(&node, httpRequest); err != nil {
+		if err := mock_configurator.CollectQueryParameterMatching(&expectation); err != nil {
 			return nil, err
 		}
-
-		if err := cp.collectPathMatchingStrategy(&node, httpRequest); err != nil {
+		// if err := cp.collectQueryParameterMatching(&node, httpRequest); err != nil {
+		// 	return nil, err
+		// }
+		if err := mock_configurator.CollectPathMatchingStrategy(&expectation); err != nil {
 			return nil, err
 		}
-
-		if err := cp.collectRequestHeaderMatching(&node, httpRequest); err != nil {
+		// if err := cp.collectPathMatchingStrategy(&node, httpRequest); err != nil {
+		// 	return nil, err
+		// }
+		if err := mock_configurator.CollectRequestHeaderMatching(&expectation); err != nil {
 			return nil, err
 		}
+		// if err := cp.collectRequestHeaderMatching(&node, httpRequest); err != nil {
+		// 	return nil, err
+		// }
 
-		if err := cp.collectAdvancedConfiguration(&node, expectation); err != nil {
+		if err := mock_configurator.CollectAdvancedFeatures(&expectation); err != nil {
 			return nil, err
 		}
+		// if err := cp.collectAdvancedConfiguration(&node, exp); err != nil {
+		// 	return nil, err
+		// }
 
+		exps = append(exps, exp)
 		expectations = append(expectations, expectation)
 	}
 
@@ -347,7 +376,7 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 }
 
 // handleIndividualScenarioConfiguration asks user to configure each scenario
-func (cp *CollectionProcessor) handleIndividualScenarioConfiguration(scenarios []APIScenario, nodes []ExecutionNode) ([]map[string]interface{}, error) {
+func (cp *CollectionProcessor) handleIndividualScenarioConfiguration(scenarios []APIScenario, nodes []ExecutionNode) ([]builders.MockExpectation, error) {
 	fmt.Println("\n🔧 Individual Scenario Configuration")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("You will be asked to configure each scenario individually.")
@@ -1085,7 +1114,7 @@ func (cp *CollectionProcessor) configureMatchingCriteria(nodes []ExecutionNode) 
 }
 
 // configureMatchingCriteriaWithScenarios handles scenario detection and configuration
-func (cp *CollectionProcessor) configureMatchingCriteriaWithScenarios(nodes []ExecutionNode) ([]map[string]interface{}, error) {
+func (cp *CollectionProcessor) configureMatchingCriteriaWithScenarios(nodes []ExecutionNode) ([]builders.MockExpectation, error) {
 	fmt.Println("\n🎯 ENHANCED SCENARIO-AWARE MATCHING CONFIGURATION")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("Analyzing APIs for scenarios and configuring intelligent matching...")
@@ -1114,7 +1143,7 @@ func (cp *CollectionProcessor) configureMatchingCriteriaWithScenarios(nodes []Ex
 }
 
 // configureScenarioBasedMatching handles APIs with multiple scenarios
-func (cp *CollectionProcessor) configureScenarioBasedMatching(scenarios []APIScenario, nodes []ExecutionNode) ([]map[string]interface{}, error) {
+func (cp *CollectionProcessor) configureScenarioBasedMatching(scenarios []APIScenario, nodes []ExecutionNode) ([]builders.MockExpectation, error) {
 	fmt.Println("\n🎭 SCENARIO-BASED MATCHING CONFIGURATION")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
@@ -1148,13 +1177,15 @@ func (cp *CollectionProcessor) configureScenarioBasedMatching(scenarios []APISce
 }
 
 // handleCreateSeparateScenarios creates separate expectations for each scenario
-func (cp *CollectionProcessor) handleCreateSeparateScenarios(scenarios []APIScenario, nodes []ExecutionNode) ([]map[string]interface{}, error) {
+func (cp *CollectionProcessor) handleCreateSeparateScenarios(scenarios []APIScenario, nodes []ExecutionNode) ([]builders.MockExpectation, error) {
 	fmt.Println("\n✨ Creating Separate Scenario Expectations")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("Each scenario will be created as a separate expectation with appropriate priority.")
 
-	var expectations []map[string]interface{}
+	var exps []map[string]interface{}
+	var expectations []builders.MockExpectation
 	priority := 1
+	var mock_configurator builders.MockConfigurator
 
 	// Handle scenario-based APIs
 	for _, scenario := range scenarios {
@@ -1164,7 +1195,7 @@ func (cp *CollectionProcessor) handleCreateSeparateScenarios(scenarios []APIScen
 			fmt.Printf("  [%d] %s - %s\n", i+1, variant.Name, variant.Description)
 
 			// Create expectation for this variant
-			expectation := map[string]interface{}{
+			exp := map[string]interface{}{
 				"priority": priority,
 				"httpRequest": map[string]interface{}{
 					"method": variant.Node.API.Method,
@@ -1177,13 +1208,29 @@ func (cp *CollectionProcessor) handleCreateSeparateScenarios(scenarios []APIScen
 				},
 			}
 
-			httpRequest := expectation["httpRequest"].(map[string]interface{})
+			httpRequest := exp["httpRequest"].(map[string]interface{})
+
+			path, queryParams := mock_configurator.ParsePathAndQueryParams(variant.Node.API.URL)
+			expectation := builders.MockExpectation{
+				Name:        variant.Node.API.Name,
+				Method:      variant.Node.API.Method,
+				Path:        path,
+				QueryParams: queryParams,
+				Headers:     variant.Node.API.Headers,
+				Body:        variant.Node.API.Body,
+
+				StatusCode:      variant.Node.Response.StatusCode,
+				ResponseHeaders: variant.Node.Response.Headers,
+				ResponseBody:    variant.Node.Response.Body,
+				Priority:        priority,
+			}
 
 			// Auto-configure based on scenario difference
 			if err := cp.autoConfigureScenarioMatching(&variant.Node, httpRequest, variant.Difference); err != nil {
 				return nil, err
 			}
 
+			exps = append(exps, exp)
 			expectations = append(expectations, expectation)
 			priority++
 		}
@@ -1211,7 +1258,7 @@ func (cp *CollectionProcessor) handleCreateSeparateScenarios(scenarios []APIScen
 
 		if !handled {
 			// Create expectation for individual API
-			expectation := map[string]interface{}{
+			exp := map[string]interface{}{
 				"priority": priority,
 				"httpRequest": map[string]interface{}{
 					"method": node.API.Method,
@@ -1223,8 +1270,23 @@ func (cp *CollectionProcessor) handleCreateSeparateScenarios(scenarios []APIScen
 					"body":       node.Response.Body,
 				},
 			}
+			path, queryParams := mock_configurator.ParsePathAndQueryParams(node.API.URL)
+			expectation := builders.MockExpectation{
+				Name:        node.API.Name,
+				Method:      node.API.Method,
+				Path:        path,
+				QueryParams: queryParams,
+				Headers:     node.API.Headers,
+				Body:        node.API.Body,
+
+				StatusCode:      node.Response.StatusCode,
+				ResponseHeaders: node.Response.Headers,
+				ResponseBody:    node.Response.Body,
+				Priority:        priority,
+			}
 
 			expectations = append(expectations, expectation)
+			exps = append(exps, exp)
 			priority++
 		}
 	}
@@ -1767,7 +1829,7 @@ func (cp *CollectionProcessor) collectRequestHeaderMatching(node *ExecutionNode,
 }
 
 // Step 6: Enhanced Review expectations with configuration options
-func (cp *CollectionProcessor) reviewExpectations(expectations []map[string]interface{}) error {
+func (cp *CollectionProcessor) reviewExpectations(expectations []builders.MockExpectation) error {
 	fmt.Println("\n📋 ENHANCED EXPECTATIONS REVIEW")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
@@ -1775,24 +1837,9 @@ func (cp *CollectionProcessor) reviewExpectations(expectations []map[string]inte
 	fmt.Printf("✨ Successfully Generated %d Expectations!\n\n", len(expectations))
 	fmt.Println("📊 Summary:")
 	for i, exp := range expectations {
-		method := "Unknown"
-		path := "Unknown"
-		status := 200
-
-		if req, ok := exp["httpRequest"].(map[string]interface{}); ok {
-			if m, ok := req["method"].(string); ok {
-				method = m
-			}
-			if p, ok := req["path"].(string); ok {
-				path = p
-			}
-		}
-		if resp, ok := exp["httpResponse"].(map[string]interface{}); ok {
-			if s, ok := resp["statusCode"].(int); ok {
-				status = s
-			}
-		}
-
+		method := exp.Method
+		path := exp.Path
+		status := exp.StatusCode
 		fmt.Printf("   [%d] %s %s → %d\n", i+1, method, path, status)
 	}
 
