@@ -1,5 +1,5 @@
-# terraform/modules/automock-ecs/variables.tf
-# Input Variables for AutoMock ECS Module
+# terraform/variables.tf
+# Root Terraform Variables
 
 variable "project_name" {
   description = "AutoMock project name (user-friendly identifier)"
@@ -22,7 +22,7 @@ variable "environment" {
   }
 }
 
-variable "region" {
+variable "aws_region" {
   description = "AWS region"
   type        = string
   default     = "us-east-1"
@@ -40,7 +40,7 @@ variable "instance_size" {
 }
 
 variable "min_tasks" {
-  description = "Minimum number of ECS tasks (for load testing, use 10+)"
+  description = "Minimum number of ECS tasks"
   type        = number
   default     = 10
 
@@ -96,31 +96,8 @@ variable "notification_email" {
   default     = ""
 }
 
-variable "config_bucket_name" {
-  description = "S3 bucket name for configuration (from external S3 module)"
-  type        = string
-  default     = ""
-}
-
-variable "config_bucket_arn" {
-  description = "S3 bucket ARN for configuration"
-  type        = string
-  default     = ""
-}
-
-variable "s3_bucket_configuration" {
-  description = "S3 bucket configuration details"
-  type = object({
-    bucket_name       = string
-    expectations_path = string
-    metadata_path     = string
-    versions_prefix   = string
-  })
-  default = null
-}
-
-variable "tags" {
-  description = "Additional tags to apply to all resources"
-  type        = map(string)
-  default     = {}
+variable "create_state_backend" {
+  description = "Create S3 and DynamoDB for Terraform state backend"
+  type        = bool
+  default     = false
 }

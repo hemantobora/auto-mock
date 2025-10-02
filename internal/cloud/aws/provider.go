@@ -14,55 +14,54 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 
-	"github.com/hemantobora/auto-mock/internal/utils"
 	"github.com/hemantobora/auto-mock/internal/provider"
+	"github.com/hemantobora/auto-mock/internal/utils"
 )
-
 
 // Provider holds AWS-specific clients and config
 type Provider struct {
-   ProjectName string
-   BucketName  string
-   S3Client    *s3.Client
-   AWSConfig   aws.Config
+	ProjectName string
+	BucketName  string
+	S3Client    *s3.Client
+	AWSConfig   aws.Config
 }
 
 // loadAWSConfig loads AWS config with optional profile
 func loadAWSConfig(profile string) (aws.Config, error) {
-   optFns := []func(*config.LoadOptions) error{}
-   if profile != "" {
-	   optFns = append(optFns, config.WithSharedConfigProfile(profile))
-   }
-   cfg, err := config.LoadDefaultConfig(context.TODO(), optFns...)
-   if err != nil {
-	   return aws.Config{}, fmt.Errorf("failed to load AWS config: %w", err)
-   }
-   if cfg.Region == "" {
-	   cfg.Region = "us-east-1"
-   }
-   return cfg, nil
+	optFns := []func(*config.LoadOptions) error{}
+	if profile != "" {
+		optFns = append(optFns, config.WithSharedConfigProfile(profile))
+	}
+	cfg, err := config.LoadDefaultConfig(context.TODO(), optFns...)
+	if err != nil {
+		return aws.Config{}, fmt.Errorf("failed to load AWS config: %w", err)
+	}
+	if cfg.Region == "" {
+		cfg.Region = "us-east-1"
+	}
+	return cfg, nil
 }
 
 // Exported for use in manager.go
 var LoadAWSConfig = loadAWSConfig
 
 func ListBucketsWithPrefix(profile, prefix string) ([]string, error) {
-   cfg, err := loadAWSConfig(profile)
-   if err != nil {
-	   return nil, err
-   }
-   s3Client := s3.NewFromConfig(cfg)
-   out, err := s3Client.ListBuckets(context.TODO(), &s3.ListBucketsInput{})
-   if err != nil {
-	   return nil, err
-   }
-   var filtered []string
-   for _, bucket := range out.Buckets {
-	   if bucket.Name != nil && strings.HasPrefix(*bucket.Name, prefix) {
-		   filtered = append(filtered, *bucket.Name)
-	   }
-   }
-   return filtered, nil
+	cfg, err := loadAWSConfig(profile)
+	if err != nil {
+		return nil, err
+	}
+	s3Client := s3.NewFromConfig(cfg)
+	out, err := s3Client.ListBuckets(context.TODO(), &s3.ListBucketsInput{})
+	if err != nil {
+		return nil, err
+	}
+	var filtered []string
+	for _, bucket := range out.Buckets {
+		if bucket.Name != nil && strings.HasPrefix(*bucket.Name, prefix) {
+			filtered = append(filtered, *bucket.Name)
+		}
+	}
+	return filtered, nil
 }
 
 // Ensure aws.Provider implements provider.Provider
@@ -70,18 +69,18 @@ var _ provider.Provider = (*Provider)(nil)
 
 // NewProvider initializes the AWS SDK and returns an AWS Provider instance
 func NewProvider(profile, projectName string) (*Provider, error) {
-   cfg, err := loadAWSConfig(profile)
-   if err != nil {
-	   return nil, err
-   }
-   s3Client := s3.NewFromConfig(cfg)
-   bucketName := utils.GetBucketName(strings.ToLower(projectName))
-   return &Provider{
-	   ProjectName: projectName,
-	   BucketName:  bucketName,
-	   S3Client:    s3Client,
-	   AWSConfig:   cfg,
-   }, nil
+	cfg, err := loadAWSConfig(profile)
+	if err != nil {
+		return nil, err
+	}
+	s3Client := s3.NewFromConfig(cfg)
+	bucketName := utils.GetBucketName(strings.ToLower(projectName))
+	return &Provider{
+		ProjectName: projectName,
+		BucketName:  bucketName,
+		S3Client:    s3Client,
+		AWSConfig:   cfg,
+	}, nil
 }
 
 // InitProject creates an S3 bucket for the project if it does not exist
@@ -121,7 +120,6 @@ func (p *Provider) initS3Project() error {
 	}
 
 	_, err = p.S3Client.CreateBucket(ctx, input)
-
 
 	if err != nil {
 		var apiErr smithy.APIError

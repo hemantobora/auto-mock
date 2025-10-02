@@ -1,22 +1,21 @@
-
 package utils
 
 import (
-    "crypto/rand"
-    "math/big"
+	"crypto/rand"
+	"math/big"
 )
 
-const base62Charset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+const base36Charset = "0123456789abcdefghijklmnopqrstuvwxyz"
 
-// GenerateRandomSuffix returns a 7-character random base62 string.
+// GenerateRandomSuffix returns a 7-character random base36 string.
 func GenerateRandomSuffix() (string, error) {
-    var result string
-    for i := 0; i < 7; i++ {
-        n, err := rand.Int(rand.Reader, big.NewInt(int64(len(base62Charset))))
-        if err != nil {
-            return "", err
-        }
-        result += string(base62Charset[n.Int64()])
-    }
-    return result, nil
+	var result string
+	for range 8 {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(base36Charset))))
+		if err != nil {
+			return "", err
+		}
+		result += string(base36Charset[n.Int64()])
+	}
+	return result, nil
 }

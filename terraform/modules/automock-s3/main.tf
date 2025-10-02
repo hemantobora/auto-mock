@@ -59,11 +59,17 @@ variable "ecs_service_name" {
   default     = ""
 }
 
+variable "tags" {
+  description = "Additional tags to apply to all resources"
+  type        = map(string)
+  default     = {}
+}
+
 # Local values
 locals {
   name_prefix = "automock-${var.project_name}-${var.environment}"
   
-  common_tags = {
+  base_tags = {
     Project     = "AutoMock"
     ProjectName = var.project_name
     Environment = var.environment
@@ -77,6 +83,9 @@ locals {
     TTLExpiry  = timeadd(timestamp(), "${var.ttl_hours}h")
     AutoDelete = "true"
   } : {}
+  
+  # Merge passed tags with base tags
+  common_tags = merge(local.base_tags, var.tags)
 }
 
 # Random suffix for unique naming

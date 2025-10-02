@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/AlecAivazis/survey/v2"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/hemantobora/auto-mock/internal/state"
 	"github.com/hemantobora/auto-mock/internal/utils"
 )
@@ -35,13 +33,11 @@ type APIExpectation struct {
 func NewExpectationManager(projectName string) (*ExpectationManager, error) {
 	ctx := context.Background()
 
-	cfg, err := config.LoadDefaultConfig(ctx)
+	// Initialize S3 store using factory
+	store, err := state.StoreForProject(ctx, projectName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+		return nil, fmt.Errorf("failed to create store: %w", err)
 	}
-
-	s3Client := s3.NewFromConfig(cfg)
-	store := state.NewS3Store(s3Client, projectName)
 
 	return &ExpectationManager{
 		store:       store,
@@ -54,41 +50,41 @@ func NewExpectationManager(projectName string) (*ExpectationManager, error) {
 func (em *ExpectationManager) ViewExpectations() error {
 	fmt.Println("\n👁️  VIEW EXPECTATIONS")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	// Load existing expectations
 	expectations, err := em.loadExpectations()
 	if err != nil {
 		return fmt.Errorf("failed to load expectations: %w", err)
 	}
-	
+
 	if len(expectations) == 0 {
 		fmt.Println("📫 No expectations found for this project.")
 		return nil
 	}
-	
+
 	// If only one expectation, directly show it
 	if len(expectations) == 1 {
 		fmt.Printf("🔍 Found 1 expectation\n\n")
 		return em.displayFullConfiguration()
 	}
-	
+
 	// Multiple expectations - show each as an option + "view all"
 	fmt.Printf("🔍 Found %d expectations\n\n", len(expectations))
-	
+
 	for {
 		// Build options list with each expectation + view all option
 		apiList := em.buildAPIList(expectations)
 		options := make([]string, 0, len(apiList)+2)
-		
+
 		// Add each expectation as an option
 		for _, api := range apiList {
 			options = append(options, api)
 		}
-		
+
 		// Add "view all" and "back" options
 		options = append(options, "📜 View All - Show complete configuration file")
 		options = append(options, "🔙 Back - Return to main menu")
-		
+
 		var selected string
 		if err := survey.AskOne(&survey.Select{
 			Message: "Select expectation to view:",
@@ -96,7 +92,7 @@ func (em *ExpectationManager) ViewExpectations() error {
 		}, &selected); err != nil {
 			return err
 		}
-		
+
 		// Handle "View All"
 		if strings.Contains(selected, "View All") {
 			if err := em.displayFullConfiguration(); err != nil {
@@ -104,12 +100,12 @@ func (em *ExpectationManager) ViewExpectations() error {
 			}
 			continue // Show menu again
 		}
-		
+
 		// Handle "Back"
 		if strings.Contains(selected, "Back") {
 			return nil
 		}
-		
+
 		// Find and display selected expectation
 		for i, api := range apiList {
 			if api == selected {
@@ -126,36 +122,36 @@ func (em *ExpectationManager) ViewExpectations() error {
 func (em *ExpectationManager) DownloadExpectations() error {
 	fmt.Println("\n💾 DOWNLOAD EXPECTATIONS")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	ctx := context.Background()
-	
+
 	// Get configuration from S3
 	config, err := em.store.GetConfig(ctx, em.cleanName)
 	if err != nil {
 		return fmt.Errorf("failed to load expectations: %w", err)
 	}
-	
+
 	// Convert to MockServer JSON
 	mockServerJSON, err := config.ToMockServerJSON()
 	if err != nil {
 		return fmt.Errorf("failed to convert to MockServer JSON: %w", err)
 	}
-	
+
 	// Generate filename
 	filename := fmt.Sprintf("%s-expectations.json", em.cleanName)
-	
+
 	// Write to file
 	if err := os.WriteFile(filename, []byte(mockServerJSON), 0644); err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
-	
+
 	fmt.Printf("\n✅ Expectations downloaded successfully!\n")
 	fmt.Printf("📁 File: %s\n", filename)
 	fmt.Printf("📊 Expectations: %d\n", len(config.Expectations))
 	fmt.Printf("💾 Size: %d bytes\n", len(mockServerJSON))
 	fmt.Printf("\n💡 You can now use this file with MockServer:\n")
 	fmt.Printf("   curl -X PUT http://localhost:1080/mockserver/expectation -d @%s\n", filename)
-	
+
 	return nil
 }
 
@@ -163,16 +159,16 @@ func (em *ExpectationManager) DownloadExpectations() error {
 func (em *ExpectationManager) displaySingleExpectation(expectation *APIExpectation) error {
 	fmt.Println("\n📝 EXPECTATION DETAILS")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	// Convert to JSON for display
 	jsonBytes, err := json.MarshalIndent(expectation.Raw, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to format expectation: %w", err)
 	}
-	
+
 	fmt.Printf("\n%s\n\n", string(jsonBytes))
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	// Get name from httpRequest if available
 	name := fmt.Sprintf("%s %s", expectation.Method, expectation.Path)
 	if httpReq, ok := expectation.Raw["httpRequest"].(map[string]interface{}); ok {
@@ -182,7 +178,7 @@ func (em *ExpectationManager) displaySingleExpectation(expectation *APIExpectati
 	}
 	fmt.Printf("🏷️  Name: %s\n", name)
 	fmt.Printf("🔗 Method: %s %s\n", expectation.Method, expectation.Path)
-	
+
 	// Get status code
 	statusCode := "?"
 	if httpResp, ok := expectation.Raw["httpResponse"].(map[string]interface{}); ok {
@@ -193,33 +189,33 @@ func (em *ExpectationManager) displaySingleExpectation(expectation *APIExpectati
 		}
 	}
 	fmt.Printf("📊 Status: %s\n", statusCode)
-	
+
 	return nil
 }
 
 // displayFullConfiguration displays the complete configuration file
 func (em *ExpectationManager) displayFullConfiguration() error {
 	ctx := context.Background()
-	
+
 	// Get configuration from S3
 	config, err := em.store.GetConfig(ctx, em.cleanName)
 	if err != nil {
 		return fmt.Errorf("failed to load expectations: %w", err)
 	}
-	
+
 	// Convert to MockServer JSON
 	mockServerJSON, err := config.ToMockServerJSON()
 	if err != nil {
 		return fmt.Errorf("failed to convert to MockServer JSON: %w", err)
 	}
-	
+
 	fmt.Println("\n📝 COMPLETE CONFIGURATION FILE")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("\n%s\n\n", mockServerJSON)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("📊 Total Expectations: %d\n", len(config.Expectations))
 	fmt.Printf("💾 Configuration Size: %d bytes\n", len(mockServerJSON))
-	
+
 	return nil
 }
 

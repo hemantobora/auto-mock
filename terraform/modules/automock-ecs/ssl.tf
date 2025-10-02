@@ -1,5 +1,5 @@
 # terraform/modules/automock-ecs/ssl.tf
-# SSL Certificate and Domain Configuration
+# SSL Certificate, Domain Configuration, and ALB Listeners
 
 # ACM Certificate for custom domain
 resource "aws_acm_certificate" "main" {
@@ -77,7 +77,7 @@ resource "aws_route53_record" "ipv6" {
   }
 }
 
-# ALB Listeners
+# HTTP Listener (port 80)
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = "80"
@@ -108,7 +108,8 @@ resource "aws_lb_listener" "http" {
   tags = merge(local.common_tags, local.ttl_tags)
 }
 
-resource "aws_lb_listener" "https" {
+# HTTPS Listener for API (port 443) - Only if custom domain
+resource "aws_lb_listener" "https_api" {
   count = var.custom_domain != "" ? 1 : 0
 
   load_balancer_arn = aws_lb.main.arn
@@ -125,9 +126,41 @@ resource "aws_lb_listener" "https" {
   tags = merge(local.common_tags, local.ttl_tags)
 }
 
-# ALB Listener Rules for Dashboard
-resource "aws_lb_listener_rule" "dashboard" {
-  listener_arn = var.custom_domain != "" ? aws_lb_listener.https[0].arn : aws_lb_listener.http.arn
+# Dashboard Listener (separate port for UI)
+resource "aws_lb_listener" "http_dashboard" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = "8080"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.mockserver_dashboard.arn
+  }
+
+  tags = merge(local.common_tags, local.ttl_tags)
+}
+
+# HTTPS Listener for Dashboard - Only if custom domain
+resource "aws_lb_listener" "https_dashboard" {
+  count = var.custom_domain != "" ? 1 : 0
+
+  load_balancer_arn = aws_lb.main.arn
+  port              = "8443"
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS-1-2-2017-01"
+  certificate_arn   = aws_acm_certificate_validation.main[0].certificate_arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.mockserver_dashboard.arn
+  }
+
+  tags = merge(local.common_tags, local.ttl_tags)
+}
+
+# Listener Rules for path-based routing on main listener
+resource "aws_lb_listener_rule" "dashboard_path" {
+  listener_arn = var.custom_domain != "" ? aws_lb_listener.https_api[0].arn : aws_lb_listener.http.arn
   priority     = 100
 
   action {

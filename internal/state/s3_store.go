@@ -22,8 +22,8 @@ type S3Store struct {
 	bucketName string
 }
 
-// NewS3Store creates a new S3-based store
-func NewS3Store(client *s3.Client, projectName string) *S3Store {
+// CreateS3Store creates a new S3-based store
+func CreateS3Store(client *s3.Client, projectName string) *S3Store {
 	return &S3Store{
 		client:     client,
 		bucketName: utils.GetBucketName(projectName),
@@ -201,6 +201,12 @@ func (s *S3Store) DeleteConfig(ctx context.Context, projectID string) error {
 	_, _ = s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(s.bucketName),
 		Key:    aws.String(metadataKey),
+	})
+
+	// Delete the bucket if empty (optional)
+	// Note: This is a no-op if the bucket is not empty
+	_, _ = s.client.DeleteBucket(ctx, &s3.DeleteBucketInput{
+		Bucket: aws.String(s.bucketName),
 	})
 
 	return nil

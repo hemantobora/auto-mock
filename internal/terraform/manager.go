@@ -105,7 +105,6 @@ func (m *Manager) Deploy(options *DeploymentOptions) (*InfrastructureOutputs, er
 	}
 
 	// Step 4: Plan infrastructure
-	fmt.Println("📋 Planning infrastructure changes...")
 	if err := m.planTerraform(); err != nil {
 		return nil, fmt.Errorf("terraform plan failed: %w", err)
 	}
@@ -120,6 +119,12 @@ func (m *Manager) Deploy(options *DeploymentOptions) (*InfrastructureOutputs, er
 	outputs, err := m.getOutputs()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get terraform outputs: %w", err)
+	}
+
+	// Step 7: Save deployment metadata
+	if err := m.saveDeploymentMetadata(outputs, options); err != nil {
+		fmt.Printf("⚠️  Warning: Failed to save deployment metadata: %v\n", err)
+		// Don't fail deployment if metadata save fails
 	}
 
 	fmt.Printf("✅ Infrastructure deployed successfully for project: %s\n", m.ProjectName)
@@ -218,11 +223,18 @@ func (m *Manager) copyFile(src, dst string) error {
 // initTerraform initializes the Terraform working directory
 func (m *Manager) initTerraform() error {
 	fmt.Println("🔧 Initializing Terraform...")
+	
+	// Start progress indicator
+	done := make(chan bool)
+	go m.showProgress("Initializing", done)
+	
 	cmd := exec.Command("terraform", "init")
 	cmd.Dir = m.WorkingDir
 	cmd.Env = append(os.Environ(), m.getTerraformEnv()...)
 
 	output, err := cmd.CombinedOutput()
+	done <- true
+	
 	if err != nil {
 		return fmt.Errorf("terraform init failed: %w\nOutput: %s", err, string(output))
 	}
@@ -260,12 +272,24 @@ enable_ttl_cleanup = %t
 
 // planTerraform runs terraform plan
 func (m *Manager) planTerraform() error {
+	fmt.Println("📋 Planning infrastructure changes...")
+	
+	// Start progress indicator
+	done := make(chan bool)
+	go m.showProgress("Planning", done)
+	
 	cmd := exec.Command("terraform", "plan", "-out=tfplan")
 	cmd.Dir = m.WorkingDir
 	cmd.Env = append(os.Environ(), m.getTerraformEnv()...)
 
-	// Stream output to user
-	return m.runCommandWithOutput(cmd)
+	output, err := cmd.CombinedOutput()
+	done <- true
+	
+	if err != nil {
+		return fmt.Errorf("%w\nOutput: %s", err, string(output))
+	}
+
+	return nil
 }
 
 // applyTerraform runs terraform apply
@@ -425,4 +449,23 @@ func CheckTerraformInstalled() error {
 	fmt.Printf("🔧 Found %s\n", version)
 
 	return nil
+}
+
+// showProgress displays a spinner/progress indicator during long operations
+func (m *Manager) showProgress(action string, done chan bool) {
+	spinners := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠇", "⠏", "⠉"}
+	i := 0
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-done:
+			fmt.Printf("\r✓ %s complete\n", action)
+			return
+		case <-ticker.C:
+			fmt.Printf("\r%s %s...", spinners[i%len(spinners)], action)
+			i++
+		}
+	}
 }

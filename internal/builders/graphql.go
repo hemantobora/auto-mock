@@ -16,6 +16,7 @@ func BuildGraphQLExpectation() (MockExpectation, error) {
 // BuildGraphQLExpectationWithContext builds a GraphQL expectation with context of existing expectations
 func BuildGraphQLExpectationWithContext(existingExpectations []MockExpectation) (MockExpectation, error) {
 	var expectation MockExpectation
+	var mock_configurator MockConfigurator
 
 	fmt.Println("🚀 Starting Enhanced 8-Step GraphQL Expectation Builder")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -30,9 +31,9 @@ func BuildGraphQLExpectationWithContext(existingExpectations []MockExpectation) 
 		}},
 		{"Query/Mutation Content", collectGraphQLQueryContent},
 		{"Variable Matching", collectGraphQLVariableMatching},
-		{"Request Header Matching", collectRequestHeaderMatching}, // Reuse from REST
+		{"Request Header Matching", mock_configurator.CollectRequestHeaderMatching}, // Reuse from REST
 		{"GraphQL Response Definition", collectGraphQLResponseDefinition},
-		{"Advanced Features", collectAdvancedFeatures}, // Enhanced advanced features
+		{"Advanced Features", mock_configurator.CollectAdvancedFeatures}, // Enhanced advanced features
 		{"Review and Confirm", reviewGraphQLConfirm},
 	}
 
@@ -146,7 +147,7 @@ func collectGraphQLQueryContent(expectation *MockExpectation) error {
 	} else {
 		requestBodyMap["operationName"] = nil
 	}
-	
+
 	// Add empty variables placeholder
 	requestBodyMap["variables"] = map[string]interface{}{}
 
@@ -217,12 +218,12 @@ func collectGraphQLVariableMatching(expectation *MockExpectation) error {
 	if err := json.Unmarshal([]byte(expectation.Body.(string)), &existingBody); err != nil {
 		return fmt.Errorf("failed to parse existing request body: %w", err)
 	}
-	
+
 	queryContent := ""
 	if q, ok := existingBody["query"].(string); ok {
 		queryContent = q
 	}
-	
+
 	if on, ok := existingBody["operationName"].(string); ok {
 		operationName = on
 	}
@@ -235,9 +236,9 @@ func collectGraphQLVariableMatching(expectation *MockExpectation) error {
 
 	// Create new request body with variables
 	requestBodyMap := map[string]interface{}{
-		"query": queryContent,
+		"query":         queryContent,
 		"operationName": operationName,
-		"variables": variables,
+		"variables":     variables,
 	}
 
 	requestBodyJSON, err := json.MarshalIndent(requestBodyMap, "", "  ")
@@ -446,12 +447,12 @@ func generateGraphQLTemplate(operationType string) (string, string, error) {
 			}, &customQuery); err != nil {
 				return "", "", err
 			}
-			
+
 			template = strings.TrimSpace(customQuery)
 			if template == "" {
 				return "", "", fmt.Errorf("custom query cannot be empty")
 			}
-			
+
 			// Try to extract operation name
 			operationName = extractOperationName(template)
 			if operationName == "" {
@@ -533,12 +534,12 @@ func generateGraphQLTemplate(operationType string) (string, string, error) {
 			}, &customMutation); err != nil {
 				return "", "", err
 			}
-			
+
 			template = strings.TrimSpace(customMutation)
 			if template == "" {
 				return "", "", fmt.Errorf("custom mutation cannot be empty")
 			}
-			
+
 			// Try to extract operation name
 			operationName = extractOperationName(template)
 			if operationName == "" {

@@ -4,147 +4,230 @@ package terraform
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
-// DisplayInfrastructureInfo shows detailed infrastructure information
-func DisplayInfrastructureInfo(projectName string, outputs *InfrastructureOutputs) {
-	fmt.Println("\n" + strings.Repeat("=", 70))
-	fmt.Printf("📊 INFRASTRUCTURE STATUS: %s\n", projectName)
-	fmt.Println(strings.Repeat("=", 70))
-	
-	// Basic information
-	if outputs.MockServerURL != "" {
-		fmt.Printf("🔗 API Endpoint: %s\n", outputs.MockServerURL)
+// DisplayDeploymentResults shows a formatted summary of the infrastructure deployment
+func DisplayDeploymentResults(outputs *InfrastructureOutputs, projectName string) {
+	fmt.Println()
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Println("  INFRASTRUCTURE DEPLOYMENT SUCCESSFUL")
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Println()
+
+	// Project Information
+	fmt.Println("PROJECT DETAILS:")
+	fmt.Printf("  Name:        %s\n", projectName)
+
+	if _, ok := outputs.InfrastructureSummary["project"].(string); ok {
+		fmt.Printf("  Environment: %s\n", outputs.InfrastructureSummary["environment"])
+		fmt.Printf("  Region:      %s\n", outputs.InfrastructureSummary["region"])
 	}
-	
-	if outputs.DashboardURL != "" {
-		fmt.Printf("📊 Dashboard: %s\n", outputs.DashboardURL)
+	fmt.Println()
+
+	// Endpoints
+	fmt.Println("ENDPOINTS:")
+	fmt.Printf("  MockServer API:   %s\n", outputs.MockServerURL)
+	fmt.Printf("  Dashboard:        %s\n", outputs.DashboardURL)
+	fmt.Println()
+
+	// Infrastructure Summary
+	if compute, ok := outputs.InfrastructureSummary["compute"].(map[string]interface{}); ok {
+		fmt.Println("COMPUTE RESOURCES:")
+		fmt.Printf("  ECS Cluster:      %s\n", compute["cluster"])
+		fmt.Printf("  ECS Service:      %s\n", compute["service"])
+		fmt.Printf("  Instance Size:    %s\n", compute["instance_size"])
+		fmt.Printf("  Task Count:       %v (min: %v, max: %v)\n",
+			compute["current_tasks"], compute["min_tasks"], compute["max_tasks"])
+		fmt.Println()
 	}
-	
-	if outputs.ConfigBucket != "" {
-		fmt.Printf("🪣 Config Bucket: %s\n", outputs.ConfigBucket)
-	}
-	
-	// Integration summary
-	if outputs.IntegrationSummary != nil {
-		fmt.Println("\n📋 Integration Status:")
-		
-		if bucket, ok := outputs.IntegrationSummary["s3_bucket"].(string); ok {
-			fmt.Printf("   S3 Bucket: %s\n", bucket)
-		}
-		
-		if cluster, ok := outputs.IntegrationSummary["ecs_cluster_arn"].(string); ok {
-			clusterName := extractClusterName(cluster)
-			fmt.Printf("   ECS Cluster: %s\n", clusterName)
-		}
-		
-		if service, ok := outputs.IntegrationSummary["ecs_service_name"].(string); ok {
-			fmt.Printf("   ECS Service: %s\n", service)
-		}
-		
-		if method, ok := outputs.IntegrationSummary["config_reload_method"].(string); ok {
-			fmt.Printf("   Config Reload: %s\n", method)
-		}
-	}
-	
-	// Quick commands
-	if outputs.CLICommands != nil && len(outputs.CLICommands) > 0 {
-		fmt.Println("\n🔧 Quick Commands:")
-		
-		if cmd, ok := outputs.CLICommands["upload_config"]; ok {
-			fmt.Printf("   Upload Config: %s\n", cmd)
-		}
-		
-		if cmd, ok := outputs.CLICommands["reload_service"]; ok {
-			fmt.Printf("   Reload Service: %s\n", cmd)
-		}
-		
-		if cmd, ok := outputs.CLICommands["view_logs"]; ok {
-			fmt.Printf("   View Logs: %s\n", cmd)
+
+	// Storage
+	fmt.Println("STORAGE:")
+	fmt.Printf("  Config Bucket:    %s\n", outputs.ConfigBucket)
+	fmt.Println()
+
+	// TTL Information
+	if ttl, ok := outputs.InfrastructureSummary["ttl"].(map[string]interface{}); ok {
+		if enabled, ok := ttl["enabled"].(bool); ok && enabled {
+			fmt.Println("AUTO-TEARDOWN:")
+			fmt.Printf("  Enabled:          Yes\n")
+			fmt.Printf("  TTL:              %v hours\n", ttl["hours"])
+			fmt.Printf("  Expires at:       %v\n", ttl["expiry"])
+			fmt.Println()
+			fmt.Println("  Note: Infrastructure will be automatically deleted when TTL expires.")
+			fmt.Println("        Use 'automock extend-ttl' to extend if needed.")
+			fmt.Println()
 		}
 	}
-	
-	fmt.Println(strings.Repeat("=", 70) + "\n")
+
+	// Quick Start Commands
+	fmt.Println("QUICK START:")
+	fmt.Println("  Health Check:")
+	if cmd, ok := outputs.CLICommands["health_check"]; ok {
+		fmt.Printf("    %s\n", cmd)
+	}
+	fmt.Println()
+	fmt.Println("  View Expectations:")
+	if cmd, ok := outputs.CLICommands["list_expectations"]; ok {
+		fmt.Printf("    %s\n", cmd)
+	}
+	fmt.Println()
+
+	// Management Commands
+	fmt.Println("MANAGEMENT:")
+	if integration, ok := outputs.IntegrationSummary["upload_command"].(string); ok {
+		fmt.Println("  Upload new expectations:")
+		fmt.Printf("    %s\n", integration)
+		fmt.Println()
+	}
+
+	if cmd, ok := outputs.CLICommands["view_logs"]; ok {
+		fmt.Println("  View logs:")
+		fmt.Printf("    %s\n", cmd)
+		fmt.Println()
+	}
+
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Println()
 }
 
-// DisplayProjectOptions shows available actions for an existing project
-func DisplayProjectOptions(projectName string, outputs *InfrastructureOutputs) {
-	fmt.Println("\n" + strings.Repeat("=", 70))
-	fmt.Printf("🎛️  PROJECT OPTIONS: %s\n", projectName)
-	fmt.Println(strings.Repeat("=", 70))
-	
-	fmt.Println("Available actions:")
-	fmt.Println("1. 🧠 Generate new mock configuration")
-	fmt.Println("2. ✏️  Edit existing configuration")
-	fmt.Println("3. 📊 View infrastructure status")
-	fmt.Println("4. 🗑️  Destroy infrastructure")
-	fmt.Println("5. ❌ Cancel")
-	
-	fmt.Println(strings.Repeat("=", 70) + "\n")
+// DisplayDeploymentProgress shows progress during deployment
+func DisplayDeploymentProgress(stage string, message string) {
+	timestamp := time.Now().Format("15:04:05")
+	fmt.Printf("[%s] %s: %s\n", timestamp, stage, message)
 }
 
-// DisplayConfigurationUpload shows information about uploading configuration
-func DisplayConfigurationUpload(bucketName string, expectations interface{}) {
-	fmt.Println("\n" + strings.Repeat("-", 50))
-	fmt.Println("📤 UPLOADING CONFIGURATION")
-	fmt.Println(strings.Repeat("-", 50))
-	
-	fmt.Printf("Target: s3://%s/expectations.json\n", bucketName)
-	fmt.Printf("Status: Uploading...\n")
+// DisplayDestroyConfirmation shows a confirmation prompt before destroying
+func DisplayDestroyConfirmation(projectName string) {
+	fmt.Println()
+	fmt.Println(strings.Repeat("!", 80))
+	fmt.Println("  WARNING: INFRASTRUCTURE DELETION")
+	fmt.Println(strings.Repeat("!", 80))
+	fmt.Println()
+	fmt.Printf("You are about to PERMANENTLY DELETE all infrastructure for project: %s\n", projectName)
+	fmt.Println()
+	fmt.Println("This will delete:")
+	fmt.Println("  - ECS Cluster and Service")
+	fmt.Println("  - Application Load Balancer")
+	fmt.Println("  - VPC and Networking Resources")
+	fmt.Println("  - S3 Configuration Bucket (and all data)")
+	fmt.Println("  - CloudWatch Logs")
+	fmt.Println("  - TTL Cleanup Lambda Function")
+	fmt.Println()
+	fmt.Println("THIS ACTION CANNOT BE UNDONE!")
+	fmt.Println()
 }
 
-// DisplayConfigurationUploaded shows successful upload confirmation
-func DisplayConfigurationUploaded(bucketName string, reloadCommand string) {
-	fmt.Println("✅ Configuration uploaded successfully!")
-	fmt.Printf("📍 Location: s3://%s/expectations.json\n", bucketName)
-	
-	if reloadCommand != "" {
-		fmt.Println("\n🔄 To activate the new configuration, run:")
-		fmt.Printf("   %s\n", reloadCommand)
+// DisplayDestroyResults shows results after infrastructure destruction
+func DisplayDestroyResults(projectName string, success bool) {
+	fmt.Println()
+	if success {
+		fmt.Println(strings.Repeat("=", 80))
+		fmt.Println("  INFRASTRUCTURE DESTROYED SUCCESSFULLY")
+		fmt.Println(strings.Repeat("=", 80))
+		fmt.Println()
+		fmt.Printf("All infrastructure for project '%s' has been deleted.\n", projectName)
+		fmt.Println()
+		fmt.Println("Estimated monthly cost savings: ~$61")
+		fmt.Println()
+	} else {
+		fmt.Println(strings.Repeat("!", 80))
+		fmt.Println("  INFRASTRUCTURE DESTRUCTION FAILED")
+		fmt.Println(strings.Repeat("!", 80))
+		fmt.Println()
+		fmt.Println("Some resources may not have been deleted.")
+		fmt.Println("Please check your AWS console and manually delete remaining resources.")
+		fmt.Println()
 	}
-	
-	fmt.Println(strings.Repeat("-", 50) + "\n")
 }
 
-// extractClusterName extracts the cluster name from an ARN
-func extractClusterName(clusterArn string) string {
-	parts := strings.Split(clusterArn, "/")
-	if len(parts) > 1 {
-		return parts[len(parts)-1]
+// DisplayCostEstimate shows estimated monthly costs
+func DisplayCostEstimate(minTasks, maxTasks int, ttlHours int) {
+	fmt.Println()
+	fmt.Println("COST ESTIMATE:")
+
+	// Base cost calculation (simplified)
+	baseCost := float64(minTasks) * 0.12 * 24 * 30 // $0.12/hour per task
+	albCost := 16.0
+	dataCost := 9.0
+	storageCost := 1.0
+
+	totalMonthlyCost := baseCost + albCost + dataCost + storageCost
+
+	fmt.Printf("  Base (24/7, %d tasks):  $%.2f/month\n", minTasks, baseCost)
+	fmt.Printf("  ALB:                    $%.2f/month\n", albCost)
+	fmt.Printf("  Data Transfer:          $%.2f/month\n", dataCost)
+	fmt.Printf("  Storage & Logs:         $%.2f/month\n", storageCost)
+	fmt.Printf("  ---------------------------------\n")
+	fmt.Printf("  Total:                  $%.2f/month\n", totalMonthlyCost)
+	fmt.Println()
+
+	if ttlHours > 0 {
+		actualCost := totalMonthlyCost * (float64(ttlHours) / 730.0) // 730 hours per month
+		fmt.Printf("  Actual cost (TTL=%dh):  $%.2f\n", ttlHours, actualCost)
+		fmt.Println()
 	}
-	return clusterArn
-}
 
-// DisplayTerraformError shows formatted Terraform errors
-func DisplayTerraformError(operation string, err error) {
-	fmt.Println("\n" + strings.Repeat("❌", 20))
-	fmt.Printf("TERRAFORM %s FAILED\n", strings.ToUpper(operation))
-	fmt.Println(strings.Repeat("❌", 20))
-	
-	fmt.Printf("Error: %v\n", err)
-	
-	fmt.Println("\n💡 Troubleshooting:")
-	fmt.Println("1. Check your AWS credentials are configured")
-	fmt.Println("2. Ensure Terraform is installed and in PATH")
-	fmt.Println("3. Verify you have necessary AWS permissions")
-	fmt.Println("4. Check for resource naming conflicts")
-	
-	fmt.Println(strings.Repeat("=", 50) + "\n")
-}
-
-// DisplayTerraformSuccess shows successful Terraform operations
-func DisplayTerraformSuccess(operation string, projectName string) {
-	fmt.Println("\n" + strings.Repeat("✅", 20))
-	fmt.Printf("TERRAFORM %s COMPLETED\n", strings.ToUpper(operation))
-	fmt.Println(strings.Repeat("✅", 20))
-	
-	fmt.Printf("Project: %s\n", projectName)
-	fmt.Printf("Operation: %s\n", operation)
-	
-	if operation == "destroy" {
-		fmt.Println("🧹 All infrastructure has been removed")
-		fmt.Println("💰 No further AWS charges will be incurred")
+	if maxTasks > minTasks {
+		fmt.Printf("  Note: Costs may increase during auto-scaling (up to %d tasks)\n", maxTasks)
+		fmt.Printf("        Peak cost estimate: $%.2f/hour\n", float64(maxTasks)*0.12)
+		fmt.Println()
 	}
-	
-	fmt.Println(strings.Repeat("=", 50) + "\n")
+}
+
+// DisplayTerraformVersion shows Terraform version info
+func DisplayTerraformVersion(version string) {
+	fmt.Printf("Using Terraform version: %s\n", version)
+}
+
+// DisplayValidationErrors shows validation errors in a user-friendly way
+func DisplayValidationErrors(errors []string) {
+	fmt.Println()
+	fmt.Println(strings.Repeat("!", 80))
+	fmt.Println("  VALIDATION ERRORS")
+	fmt.Println(strings.Repeat("!", 80))
+	fmt.Println()
+
+	for i, err := range errors {
+		fmt.Printf("%d. %s\n", i+1, err)
+	}
+
+	fmt.Println()
+	fmt.Println("Please fix the above errors and try again.")
+	fmt.Println()
+}
+
+// DisplayStatusInfo shows current infrastructure status
+func DisplayStatusInfo(outputs *InfrastructureOutputs) {
+	fmt.Println()
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Println("  INFRASTRUCTURE STATUS")
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Println()
+
+	// Basic info
+	if summary, ok := outputs.InfrastructureSummary["compute"].(map[string]interface{}); ok {
+		fmt.Printf("Cluster:      %s\n", summary["cluster"])
+		fmt.Printf("Service:      %s\n", summary["service"])
+		fmt.Printf("Tasks:        %v/%v running\n", summary["current_tasks"], summary["max_tasks"])
+	}
+
+	fmt.Printf("API Endpoint: %s\n", outputs.MockServerURL)
+	fmt.Printf("Dashboard:    %s\n", outputs.DashboardURL)
+	fmt.Println()
+
+	// TTL info
+	if ttl, ok := outputs.InfrastructureSummary["ttl"].(map[string]interface{}); ok {
+		if enabled, ok := ttl["enabled"].(bool); ok && enabled {
+			fmt.Printf("TTL:          %v hours remaining (expires: %v)\n",
+				ttl["hours"], ttl["expiry"])
+		} else {
+			fmt.Println("TTL:          Disabled (no auto-teardown)")
+		}
+	}
+
+	fmt.Println()
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Println()
 }

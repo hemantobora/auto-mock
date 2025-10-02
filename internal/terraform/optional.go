@@ -37,29 +37,29 @@ func NewOptionalDeployment(projectName, awsProfile string) *OptionalDeployment {
 // PromptForInfrastructureLevel asks user what level of infrastructure they want
 func (od *OptionalDeployment) PromptForInfrastructureLevel() InfrastructureLevel {
 	cleanName := utils.ExtractUserProjectName(od.ProjectName)
-	
+
 	fmt.Printf("\n🏗️  Infrastructure Options for '%s':\n", cleanName)
 	fmt.Println(strings.Repeat("=", 50))
-	
+
 	fmt.Println("1. 📦 Basic (S3 Only)")
 	fmt.Println("   • S3 bucket for configuration storage")
 	fmt.Println("   • Manual MockServer deployment")
 	fmt.Println("   • Free tier compatible")
 	fmt.Println("   • Quick setup (30 seconds)")
-	
-	fmt.Println("\n2. 🚀 Complete Infrastructure") 
+
+	fmt.Println("\n2. 🚀 Complete Infrastructure")
 	fmt.Println("   • S3 bucket + ECS Fargate + Application Load Balancer")
 	fmt.Println("   • Auto-scaling MockServer with SSL")
 	fmt.Println("   • Production-ready with monitoring")
 	fmt.Println("   • TTL auto-cleanup for dev environments")
 	fmt.Println("   • Setup time (3-5 minutes)")
-	
+
 	fmt.Println(strings.Repeat("=", 50))
 	fmt.Print("Choose infrastructure level (1 for Basic, 2 for Complete): ")
-	
+
 	var choice string
 	fmt.Scanln(&choice)
-	
+
 	switch strings.TrimSpace(choice) {
 	case "2", "complete", "full":
 		od.Level = LevelComplete
@@ -74,12 +74,12 @@ func (od *OptionalDeployment) PromptForInfrastructureLevel() InfrastructureLevel
 func (od *OptionalDeployment) DeployBasic() error {
 	cleanName := utils.ExtractUserProjectName(od.ProjectName)
 	fmt.Printf("📦 Deploying basic infrastructure (S3 only) for '%s'...\n", cleanName)
-	
+
 	// This would call the existing S3 bucket creation logic
 	// The current AWS provider already does this
 	fmt.Printf("✅ Basic infrastructure ready for '%s'\n", cleanName)
 	fmt.Println("💡 You can upgrade to complete infrastructure anytime with: automock upgrade --project " + cleanName)
-	
+
 	return nil
 }
 
@@ -87,7 +87,7 @@ func (od *OptionalDeployment) DeployBasic() error {
 func (od *OptionalDeployment) DeployComplete() error {
 	cleanName := utils.ExtractUserProjectName(od.ProjectName)
 	fmt.Printf("🚀 Deploying complete infrastructure for '%s'...\n", cleanName)
-	
+
 	// Check if Terraform is installed
 	if err := CheckTerraformInstalled(); err != nil {
 		fmt.Println("❌ Terraform not found. Installing complete infrastructure requires Terraform.")
@@ -95,7 +95,7 @@ func (od *OptionalDeployment) DeployComplete() error {
 		fmt.Printf("📦 Falling back to basic infrastructure for '%s'...\n", cleanName)
 		return od.DeployBasic()
 	}
-	
+
 	// Deploy complete infrastructure
 	config := CreateProjectConfig(od.ProjectName, od.AWSProfile)
 	outputs, err := DeployInfrastructure(config)
@@ -104,10 +104,10 @@ func (od *OptionalDeployment) DeployComplete() error {
 		fmt.Printf("📦 Falling back to basic infrastructure for '%s'...\n", cleanName)
 		return od.DeployBasic()
 	}
-	
+
 	// Show success information
 	displayInfrastructureSuccess(cleanName, outputs)
-	
+
 	return nil
 }
 
@@ -116,19 +116,19 @@ func displayInfrastructureSuccess(projectName string, outputs *InfrastructureOut
 	fmt.Println("\n" + strings.Repeat("🎉", 25))
 	fmt.Printf("COMPLETE INFRASTRUCTURE DEPLOYED: %s\n", projectName)
 	fmt.Println(strings.Repeat("🎉", 25))
-	
+
 	if outputs.MockServerURL != "" {
 		fmt.Printf("🔗 API Endpoint: %s\n", outputs.MockServerURL)
 	}
-	
+
 	if outputs.DashboardURL != "" {
 		fmt.Printf("📊 Dashboard: %s\n", outputs.DashboardURL)
 	}
-	
+
 	if outputs.ConfigBucket != "" {
 		fmt.Printf("🪣 Config Bucket: %s\n", outputs.ConfigBucket)
 	}
-	
+
 	fmt.Println("\n💡 Your infrastructure is production-ready!")
 	fmt.Println("📋 Continue with mock configuration generation...")
 	fmt.Println(strings.Repeat("=", 60) + "\n")
@@ -138,7 +138,7 @@ func displayInfrastructureSuccess(projectName string, outputs *InfrastructureOut
 func (od *OptionalDeployment) UpgradeToComplete() error {
 	cleanName := utils.ExtractUserProjectName(od.ProjectName)
 	fmt.Printf("⬆️  Upgrading '%s' to complete infrastructure...\n", cleanName)
-	
+
 	// Deploy complete infrastructure (will integrate with existing S3 bucket)
 	return od.DeployComplete()
 }
@@ -150,7 +150,7 @@ func (od *OptionalDeployment) GetInfrastructureInfo() (*InfrastructureOutputs, e
 	if err == nil {
 		return outputs, nil
 	}
-	
+
 	// If that fails, return basic info (S3 bucket only)
 	return &InfrastructureOutputs{
 		ConfigBucket: utils.GetBucketName(strings.ToLower(od.ProjectName)),

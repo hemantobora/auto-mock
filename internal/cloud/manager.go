@@ -301,7 +301,11 @@ func (m *CloudManager) handleCollectionMode(projectName string, cliContext *CLIC
 	}
 
 	// Process the collection using the full workflow
-	return processor.ProcessCollection(cliContext.CollectionFile)
+	_, err = processor.ProcessCollection(cliContext.CollectionFile)
+	if err != nil {
+		return fmt.Errorf("failed to create expectations: %w", err)
+	}
+	return nil
 }
 
 // handleInteractiveMode starts the interactive REPL experience

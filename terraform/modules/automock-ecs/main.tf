@@ -11,60 +11,6 @@ terraform {
   required_version = ">= 1.0"
 }
 
-# Variables
-variable "project_name" {
-  description = "AutoMock project name"
-  type        = string
-}
-
-variable "environment" {
-  description = "Environment (dev, staging, prod)"
-  type        = string
-  default     = "dev"
-}
-
-variable "region" {
-  description = "AWS region"
-  type        = string
-  default     = "us-east-1"
-}
-
-variable "ttl_hours" {
-  description = "Infrastructure TTL in hours (0 = no TTL)"
-  type        = number
-  default     = 4
-}
-
-variable "custom_domain" {
-  description = "Custom domain for the API (optional)"
-  type        = string
-  default     = ""
-}
-
-variable "hosted_zone_id" {
-  description = "Route53 hosted zone ID for custom domain"
-  type        = string
-  default     = ""
-}
-
-variable "instance_size" {
-  description = "ECS task size (small, medium, large, xlarge)"
-  type        = string
-  default     = "small"
-}
-
-variable "enable_ttl_cleanup" {
-  description = "Enable automatic infrastructure cleanup"
-  type        = bool
-  default     = true
-}
-
-variable "notification_email" {
-  description = "Email for TTL notifications"
-  type        = string
-  default     = ""
-}
-
 # Local values
 locals {
   name_prefix = "automock-${var.project_name}-${var.environment}"
