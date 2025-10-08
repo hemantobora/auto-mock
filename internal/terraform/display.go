@@ -20,7 +20,6 @@ func DisplayDeploymentResults(outputs *InfrastructureOutputs, projectName string
 	fmt.Printf("  Name:        %s\n", projectName)
 
 	if _, ok := outputs.InfrastructureSummary["project"].(string); ok {
-		fmt.Printf("  Environment: %s\n", outputs.InfrastructureSummary["environment"])
 		fmt.Printf("  Region:      %s\n", outputs.InfrastructureSummary["region"])
 	}
 	fmt.Println()
@@ -129,7 +128,7 @@ func DisplayDestroyResults(projectName string, success bool) {
 		fmt.Println()
 		fmt.Printf("All infrastructure for project '%s' has been deleted.\n", projectName)
 		fmt.Println()
-		fmt.Println("Estimated monthly cost savings: ~$61")
+		fmt.Println("Estimated monthly cost savings: ~$93")
 		fmt.Println()
 	} else {
 		fmt.Println(strings.Repeat("!", 80))
@@ -150,13 +149,15 @@ func DisplayCostEstimate(minTasks, maxTasks int, ttlHours int) {
 	// Base cost calculation (simplified)
 	baseCost := float64(minTasks) * 0.12 * 24 * 30 // $0.12/hour per task
 	albCost := 16.0
+	natCost := 32.40 // Single NAT Gateway: $0.045/hour * 24 * 30
 	dataCost := 9.0
 	storageCost := 1.0
 
-	totalMonthlyCost := baseCost + albCost + dataCost + storageCost
+	totalMonthlyCost := baseCost + albCost + natCost + dataCost + storageCost
 
 	fmt.Printf("  Base (24/7, %d tasks):  $%.2f/month\n", minTasks, baseCost)
 	fmt.Printf("  ALB:                    $%.2f/month\n", albCost)
+	fmt.Printf("  NAT Gateway (1x):       $%.2f/month\n", natCost)
 	fmt.Printf("  Data Transfer:          $%.2f/month\n", dataCost)
 	fmt.Printf("  Storage & Logs:         $%.2f/month\n", storageCost)
 	fmt.Printf("  ---------------------------------\n")

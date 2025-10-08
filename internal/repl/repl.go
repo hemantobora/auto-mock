@@ -15,7 +15,6 @@ import (
 // DeploymentConfig contains complete deployment configuration for ECS
 type DeploymentConfig struct {
 	ProjectName  string        `json:"project_name"`
-	Environment  string        `json:"environment"`
 	Provider     string        `json:"provider"`
 	MockConfig   string        `json:"mock_config"`
 	TTL          *TTLConfig    `json:"ttl"`
@@ -45,7 +44,6 @@ type DomainConfig struct {
 type DeploymentResult struct {
 	DeploymentID   string    `json:"deployment_id"`
 	ProjectName    string    `json:"project_name"`
-	Environment    string    `json:"environment"`
 	Provider       string    `json:"provider"`
 	MockServerURL  string    `json:"mockserver_url"`
 	DashboardURL   string    `json:"dashboard_url"`

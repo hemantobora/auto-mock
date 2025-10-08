@@ -59,7 +59,7 @@ func (m *Manager) GetInfrastructureSummary() (map[string]interface{}, error) {
 	summary := make(map[string]interface{})
 
 	// Check ECS cluster
-	clusterName := fmt.Sprintf("automock-%s-%s", m.ProjectName, m.Environment)
+	clusterName := fmt.Sprintf("automock-%s", m.ProjectName)
 	cmd := exec.Command("aws", "ecs", "describe-clusters",
 		"--clusters", clusterName,
 		"--region", m.Region,

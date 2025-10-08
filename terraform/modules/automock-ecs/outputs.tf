@@ -91,16 +91,10 @@ output "project_name" {
   value       = var.project_name
 }
 
-output "environment" {
-  description = "Environment"
-  value       = var.environment
-}
-
 output "infrastructure_summary" {
   description = "Complete infrastructure summary"
   value = {
     project     = var.project_name
-    environment = var.environment
     region      = var.region
     endpoints = {
       api       = var.custom_domain != "" ? "https://${var.custom_domain}" : "http://${aws_lb.main.dns_name}"

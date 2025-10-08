@@ -39,3 +39,30 @@ func StoreForProjectWithProfile(ctx context.Context, projectName, awsProfile str
 	// Create and return store
 	return CreateS3Store(s3Client, projectName), nil
 }
+
+// CreateS3StoreWithBucket creates a new S3Store instance with a specific bucket name
+// Use this when you already know the exact bucket name (e.g., from Terraform outputs)
+func CreateS3StoreWithBucket(ctx context.Context, projectName, bucketName, awsProfile string) (*S3Store, error) {
+	// Load AWS configuration
+	var cfg aws.Config
+	var err error
+
+	if awsProfile != "" {
+		cfg, err = config.LoadDefaultConfig(ctx, config.WithSharedConfigProfile(awsProfile))
+	} else {
+		cfg, err = config.LoadDefaultConfig(ctx)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS configuration: %w", err)
+	}
+
+	// Create S3 client
+	s3Client := s3.NewFromConfig(cfg)
+
+	// Create store with specific bucket name
+	return &S3Store{
+		client:     s3Client,
+		bucketName: bucketName,
+	}, nil
+}

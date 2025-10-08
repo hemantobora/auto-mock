@@ -11,21 +11,21 @@ variable "project_name" {
   }
 }
 
-variable "environment" {
-  description = "Environment (dev, staging, prod)"
-  type        = string
-  default     = "dev"
-
-  validation {
-    condition     = contains(["dev", "staging", "prod"], var.environment)
-    error_message = "Environment must be one of: dev, staging, prod."
-  }
-}
 
 variable "aws_region" {
   description = "AWS region"
   type        = string
   default     = "us-east-1"
+}
+
+variable "existing_bucket_name" {
+  description = "Name of existing S3 bucket created by automock init"
+  type        = string
+  
+  validation {
+    condition     = can(regex("^auto-mock-.+", var.existing_bucket_name))
+    error_message = "Bucket name must start with 'auto-mock-'."
+  }
 }
 
 variable "instance_size" {
@@ -98,6 +98,18 @@ variable "notification_email" {
 
 variable "create_state_backend" {
   description = "Create S3 and DynamoDB for Terraform state backend"
+  type        = bool
+  default     = false
+}
+
+variable "cleanup_role_arn" {
+  description = "IAM role ARN for cleanup Lambda (if user-provided)"
+  type        = string
+  default     = ""
+}
+
+variable "create_cleanup_roles" {
+  description = "Whether to create IAM roles for cleanup"
   type        = bool
   default     = false
 }

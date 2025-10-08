@@ -125,20 +125,3 @@ func startLocalMockServer(mockServerJSON, projectName string) error {
 	fmt.Println("4. View dashboard: http://localhost:1080/mockserver/dashboard")
 	return nil
 }
-
-// Environment selection
-func selectEnvironment() (string, error) {
-	var environment string
-	if err := survey.AskOne(&survey.Select{
-		Message: "Select deployment environment:",
-		Options: []string{
-			"dev - Development (minimal resources)",
-			"staging - Staging (load testing capable)",
-			"prod - Production (high availability)",
-		},
-		Default: "dev - Development (minimal resources)",
-	}, &environment); err != nil {
-		return "", err
-	}
-	return strings.Split(environment, " ")[0], nil
-}

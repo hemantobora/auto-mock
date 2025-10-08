@@ -14,8 +14,20 @@ import (
 func (m *Manager) saveDeploymentMetadata(outputs *InfrastructureOutputs, options *DeploymentOptions) error {
 	ctx := context.Background()
 	
-	// Create S3 store
-	store, err := state.StoreForProject(ctx, m.ProjectName)
+	// Use the actual config bucket from deployment outputs, not a generated name
+	// The bucket may have a random suffix (e.g., auto-mock-project-abc123)
+	bucketName := outputs.ConfigBucket
+	if bucketName == "" {
+		// Fallback to existing bucket name from manager
+		bucketName = m.ExistingBucketName
+	}
+	
+	if bucketName == "" {
+		return fmt.Errorf("no config bucket available for metadata")
+	}
+	
+	// Create S3 store with actual bucket name
+	store, err := state.CreateS3StoreWithBucket(ctx, m.ProjectName, bucketName, m.AWSProfile)
 	if err != nil {
 		return fmt.Errorf("failed to create store: %w", err)
 	}

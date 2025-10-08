@@ -7,13 +7,18 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+    }
   }
   required_version = ">= 1.0"
 }
 
 # Local values
 locals {
-  name_prefix = "automock-${var.project_name}-${var.environment}"
+  # Use auto-mock- prefix to match bucket naming convention
+  name_prefix = "auto-mock-${var.project_name}"
   
   # ECS task sizing
   task_config = {
@@ -29,7 +34,6 @@ locals {
   common_tags = {
     Project     = "AutoMock"
     ProjectName = var.project_name
-    Environment = var.environment
     ManagedBy   = "Terraform"
     CreatedAt   = timestamp()
     Region      = var.region
@@ -123,27 +127,24 @@ resource "aws_subnet" "private" {
   })
 }
 
-# NAT Gateway for private subnet internet access
+# Single NAT Gateway for cost optimization
+# Both private subnets will route through this one NAT
 resource "aws_eip" "nat" {
-  count = 2
-
   domain = "vpc"
   depends_on = [aws_internet_gateway.main]
 
   tags = merge(local.common_tags, local.ttl_tags, {
-    Name = "${local.name_prefix}-nat-eip-${count.index + 1}"
+    Name = "${local.name_prefix}-nat-eip"
   })
 }
 
 resource "aws_nat_gateway" "main" {
-  count = 2
-
-  allocation_id = aws_eip.nat[count.index].id
-  subnet_id     = aws_subnet.public[count.index].id
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public[0].id
   depends_on    = [aws_internet_gateway.main]
 
   tags = merge(local.common_tags, local.ttl_tags, {
-    Name = "${local.name_prefix}-nat-${count.index + 1}"
+    Name = "${local.name_prefix}-nat"
   })
 }
 
@@ -161,6 +162,7 @@ resource "aws_route_table" "public" {
   })
 }
 
+# Private route tables - both point to single NAT Gateway
 resource "aws_route_table" "private" {
   count = 2
 
@@ -168,7 +170,7 @@ resource "aws_route_table" "private" {
 
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main[count.index].id
+    nat_gateway_id = aws_nat_gateway.main.id
   }
 
   tags = merge(local.common_tags, local.ttl_tags, {

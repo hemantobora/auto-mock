@@ -63,7 +63,6 @@ output "bucket_configuration" {
     bucket_arn     = aws_s3_bucket.config.arn
     region         = var.region
     project_name   = var.project_name
-    environment    = var.environment
     
     # File paths
     expectations_path = "expectations.json"
@@ -122,7 +121,6 @@ output "ecs_environment_variables" {
     AUTOMOCK_CONFIG_KEY    = "expectations.json"
     AUTOMOCK_METADATA_KEY  = "project-metadata.json"
     AUTOMOCK_PROJECT_NAME  = var.project_name
-    AUTOMOCK_ENVIRONMENT   = var.environment
     AUTOMOCK_REGION        = var.region
   }
 }

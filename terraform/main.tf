@@ -33,20 +33,34 @@ provider "aws" {
 
 # Local variables
 locals {
-  name_prefix = "automock-${var.project_name}-${var.environment}"
+  name_prefix = "automock-${var.project_name}"
   
   common_tags = {
     Project     = "AutoMock"
     ProjectName = var.project_name
-    Environment = var.environment
     Region      = var.aws_region
     CreatedAt   = timestamp()
+  }
+  
+  # S3 configuration using existing bucket
+  s3_config = {
+    bucket_name       = data.aws_s3_bucket.config.id
+    bucket_arn        = data.aws_s3_bucket.config.arn
+    expectations_path = "expectations.json"
+    metadata_path     = "deployment-metadata.json"
+    versions_prefix   = "versions/"
   }
 }
 
 # Data sources
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
+
+# Reference existing S3 bucket created by 'automock init'
+# DO NOT create a new bucket - use the one that already exists
+data "aws_s3_bucket" "config" {
+  bucket = var.existing_bucket_name
+}
 
 # State Backend Module (creates S3 + DynamoDB for Terraform state)
 module "state_backend" {
@@ -58,49 +72,30 @@ module "state_backend" {
   tags   = local.common_tags
 }
 
-# S3 Configuration Bucket Module
-module "s3_config" {
-  source = "./modules/automock-s3"
-
-  project_name = var.project_name
-  environment  = var.environment
-  region       = var.aws_region
-  ttl_hours    = var.ttl_hours
-
-  tags = local.common_tags
-}
-
 # ECS Infrastructure Module (VPC, ALB, ECS, Auto-Scaling, TTL)
 module "ecs_infrastructure" {
   source = "./modules/automock-ecs"
 
   project_name  = var.project_name
-  environment   = var.environment
   region        = var.aws_region
   instance_size = var.instance_size
   min_tasks     = var.min_tasks
   max_tasks     = var.max_tasks
 
   # TTL Configuration
-  ttl_hours         = var.ttl_hours
+  ttl_hours          = var.ttl_hours
   enable_ttl_cleanup = var.enable_ttl_cleanup
   notification_email = var.notification_email
+  cleanup_role_arn   = var.cleanup_role_arn
 
   # Custom Domain Configuration (optional)
-  custom_domain    = var.custom_domain
-  hosted_zone_id   = var.hosted_zone_id
+  custom_domain  = var.custom_domain
+  hosted_zone_id = var.hosted_zone_id
 
-  # S3 Configuration from module output
-  config_bucket_name       = module.s3_config.bucket_name
-  config_bucket_arn        = module.s3_config.bucket_arn
-  s3_bucket_configuration  = {
-    bucket_name       = module.s3_config.bucket_name
-    expectations_path = module.s3_config.expectations_key
-    metadata_path     = module.s3_config.metadata_key
-    versions_prefix   = module.s3_config.versions_prefix
-  }
+  # S3 Configuration from data source
+  config_bucket_name      = local.s3_config.bucket_name
+  config_bucket_arn       = local.s3_config.bucket_arn
+  s3_bucket_configuration = local.s3_config
 
   tags = local.common_tags
-
-  depends_on = [module.s3_config]
 }

@@ -11,17 +11,6 @@ variable "project_name" {
   }
 }
 
-variable "environment" {
-  description = "Environment (dev, staging, prod)"
-  type        = string
-  default     = "dev"
-
-  validation {
-    condition     = contains(["dev", "staging", "prod"], var.environment)
-    error_message = "Environment must be one of: dev, staging, prod."
-  }
-}
-
 variable "region" {
   description = "AWS region"
   type        = string
@@ -92,6 +81,12 @@ variable "hosted_zone_id" {
 
 variable "notification_email" {
   description = "Email for TTL expiration notifications"
+  type        = string
+  default     = ""
+}
+
+variable "cleanup_role_arn" {
+  description = "IAM role ARN for cleanup Lambda (if user-provided)"
   type        = string
   default     = ""
 }

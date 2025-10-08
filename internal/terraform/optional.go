@@ -51,7 +51,7 @@ func (od *OptionalDeployment) PromptForInfrastructureLevel() InfrastructureLevel
 	fmt.Println("   • S3 bucket + ECS Fargate + Application Load Balancer")
 	fmt.Println("   • Auto-scaling MockServer with SSL")
 	fmt.Println("   • Production-ready with monitoring")
-	fmt.Println("   • TTL auto-cleanup for dev environments")
+	fmt.Println("   • TTL auto-cleanup")
 	fmt.Println("   • Setup time (3-5 minutes)")
 
 	fmt.Println(strings.Repeat("=", 50))

@@ -6,32 +6,43 @@ locals {
   create_ttl = var.ttl_hours > 0 && var.enable_ttl_cleanup
 }
 
-# Lambda function for TTL cleanup
-resource "aws_lambda_function" "ttl_cleanup" {
+# Archive Lambda source code
+data "archive_file" "ttl_cleanup" {
   count = local.create_ttl ? 1 : 0
 
-  filename      = "${path.module}/scripts/ttl_cleanup.zip"
-  function_name = "${local.name_prefix}-ttl-cleanup"
-  role          = aws_iam_role.lambda_ttl_cleanup[0].arn
-  handler       = "ttl_cleanup.lambda_handler"
-  runtime       = "python3.11"
-  timeout       = 900 # 15 minutes
-  memory_size   = 256
+  type        = "zip"
+  source_file = "${path.module}/scripts/ttl_cleanup.py"
+  output_path = "${path.module}/scripts/ttl_cleanup.zip"
+}
+
+# Lambda function for TTL cleanup
+resource "aws_lambda_function" "ttl_cleanup" {
+  count = var.ttl_hours > 0 && var.enable_ttl_cleanup ? 1 : 0
+
+  filename         = data.archive_file.ttl_cleanup[0].output_path
+  source_code_hash = data.archive_file.ttl_cleanup[0].output_base64sha256
+  function_name    = "${local.name_prefix}-ttl-cleanup"
+  role             = aws_iam_role.lambda_ttl_cleanup[0].arn
+  handler          = "ttl_cleanup.lambda_handler"
+  runtime          = "python3.11"
+  timeout          = 900 # 15 minutes
+  memory_size      = 256
 
   environment {
     variables = {
-      PROJECT_NAME         = var.project_name
-      ENVIRONMENT          = var.environment
-      CLUSTER_NAME         = aws_ecs_cluster.main.name
-      SERVICE_NAME         = aws_ecs_service.mockserver.name
-      ALB_ARN              = aws_lb.main.arn
-      TARGET_GROUP_API_ARN = aws_lb_target_group.mockserver_api.arn
+      PROJECT_NAME          = var.project_name
+      ENVIRONMENT           = "production"
+      CLUSTER_NAME          = aws_ecs_cluster.main.name
+      SERVICE_NAME          = aws_ecs_service.mockserver.name
+      ALB_ARN               = aws_lb.main.arn
+      TARGET_GROUP_API_ARN  = aws_lb_target_group.mockserver_api.arn
       TARGET_GROUP_DASH_ARN = aws_lb_target_group.mockserver_dashboard.arn
-      VPC_ID               = aws_vpc.main.id
-      CONFIG_BUCKET        = local.s3_config.bucket_name
-      REGION               = var.region
-      TTL_HOURS            = var.ttl_hours
-      NOTIFICATION_EMAIL   = var.notification_email
+      VPC_ID                = aws_vpc.main.id
+      CONFIG_BUCKET         = local.s3_config.bucket_name
+      REGION                = var.region
+      TTL_HOURS             = var.ttl_hours
+      NOTIFICATION_EMAIL    = var.notification_email
+      SNS_TOPIC_ARN         = var.notification_email != "" ? aws_sns_topic.ttl_notifications[0].arn : ""
     }
   }
 
@@ -42,7 +53,7 @@ resource "aws_lambda_function" "ttl_cleanup" {
 
 # IAM Role for Lambda
 resource "aws_iam_role" "lambda_ttl_cleanup" {
-  count = local.create_ttl ? 1 : 0
+  count = var.ttl_hours > 0 && var.enable_ttl_cleanup && var.cleanup_role_arn == "" ? 1 : 0
 
   name_prefix = "${local.name_prefix}-lambda-"
 
