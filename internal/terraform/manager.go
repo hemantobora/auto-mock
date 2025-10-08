@@ -37,6 +37,8 @@ type DeploymentOptions struct {
 	HostedZoneID      string
 	NotificationEmail string
 	EnableTTLCleanup  bool
+	MinTasks          int
+	MaxTasks          int
 
 	// New fields
 	IAMRoleMode    string // "provided", "create", "skip"
@@ -134,6 +136,32 @@ func findProjectBucket(projectName, awsProfile string) string {
 	return ""
 }
 
+func (m *Manager) createBackendConfig() error {
+	if m.ExistingBucketName == "" {
+		return fmt.Errorf("no S3 bucket configured")
+	}
+
+	// NO leading spaces in the template string!
+	backendConfig := fmt.Sprintf(`terraform {
+  backend "s3" {
+    bucket  = "%s"
+    key     = "terraform/state/terraform.tfstate"
+    region  = "%s"
+    encrypt = true
+  }
+}
+`, m.ExistingBucketName, m.Region)
+
+	backendFile := filepath.Join(m.WorkingDir, "backend.tf")
+	if err := os.WriteFile(backendFile, []byte(backendConfig), 0644); err != nil {
+		return fmt.Errorf("failed to write backend config: %w", err)
+	}
+
+	fmt.Printf("✓ Configured Terraform backend: s3://%s/terraform/state/\n",
+		m.ExistingBucketName)
+	return nil
+}
+
 // Deploy creates the complete infrastructure using Terraform
 func (m *Manager) Deploy(options *DeploymentOptions) (*InfrastructureOutputs, error) {
 	fmt.Printf("🚀 Deploying infrastructure for project: %s\n", m.ProjectName)
@@ -148,6 +176,11 @@ func (m *Manager) Deploy(options *DeploymentOptions) (*InfrastructureOutputs, er
 		return nil, fmt.Errorf("failed to prepare workspace: %w", err)
 	}
 	defer m.cleanup()
+
+	// Create backend config
+	if err := m.createBackendConfig(); err != nil {
+		return nil, fmt.Errorf("failed to create backend config: %w", err)
+	}
 
 	// Step 2: Initialize Terraform
 	if err := m.initTerraform(); err != nil {
@@ -194,6 +227,11 @@ func (m *Manager) Destroy() error {
 	}
 	defer m.cleanup()
 
+	// Create backend config
+	if err := m.createBackendConfig(); err != nil {
+		return fmt.Errorf("failed to create backend config: %w", err)
+	}
+
 	if err := m.initTerraform(); err != nil {
 		return fmt.Errorf("failed to initialize terraform: %w", err)
 	}
@@ -227,7 +265,7 @@ func (m *Manager) prepareWorkspace() error {
 
 // copyTerraformFiles copies the Terraform configuration to the working directory
 func (m *Manager) copyTerraformFiles() error {
-	return filepath.Walk(m.TerraformDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(m.TerraformDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -245,6 +283,45 @@ func (m *Manager) copyTerraformFiles() error {
 
 		return m.copyFile(path, targetPath)
 	})
+	if err != nil {
+		return err
+	}
+
+	// NEW: Also copy docker/ directory
+	projectRoot := filepath.Dir(filepath.Dir(m.TerraformDir)) // Go up from terraform/ to project root
+	dockerDir := filepath.Join(projectRoot, "docker")
+
+	if _, err := os.Stat(dockerDir); err == nil {
+		// docker/ directory exists, copy it
+		targetDockerDir := filepath.Join(m.WorkingDir, "docker")
+
+		err = filepath.Walk(dockerDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			relPath, err := filepath.Rel(dockerDir, path)
+			if err != nil {
+				return err
+			}
+
+			targetPath := filepath.Join(targetDockerDir, relPath)
+
+			if info.IsDir() {
+				return os.MkdirAll(targetPath, info.Mode())
+			}
+
+			return m.copyFile(path, targetPath)
+		})
+
+		if err != nil {
+			return fmt.Errorf("failed to copy docker directory: %w", err)
+		}
+
+		fmt.Println("✓ Copied docker/ directory to working directory")
+	}
+
+	return nil
 }
 
 // copyFile copies a single file
@@ -310,6 +387,12 @@ existing_bucket_name = "%s"
 	}
 	if options.CleanupRoleARN != "" {
 		vars += fmt.Sprintf(`cleanup_role_arn = "%s"`+"\n", options.CleanupRoleARN)
+	}
+	if options.MinTasks != 0 {
+		vars += fmt.Sprintf(`min_tasks = %d`+"\n", options.MinTasks)
+	}
+	if options.MaxTasks != 0 {
+		vars += fmt.Sprintf(`max_tasks = %d`+"\n", options.MaxTasks)
 	}
 
 	varsFile := filepath.Join(m.WorkingDir, "terraform.tfvars")

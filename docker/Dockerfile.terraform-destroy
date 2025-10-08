@@ -1,0 +1,15 @@
+FROM hashicorp/terraform:1.5
+
+RUN apk add --no-cache aws-cli curl jq bash
+
+WORKDIR /terraform
+
+# Copy only terraform files (not docker directory)
+COPY *.tf /terraform/
+COPY modules /terraform/modules
+
+# Copy destroy script separately
+COPY docker/destroy.sh /destroy.sh
+RUN chmod +x /destroy.sh
+
+ENTRYPOINT ["/destroy.sh"]

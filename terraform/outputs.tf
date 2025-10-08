@@ -57,8 +57,8 @@ output "integration_summary" {
 output "cli_integration_commands" {
   description = "CLI commands for interacting with the deployed infrastructure"
   value = {
-    view_expectations  = "aws s3 cp s3://${data.aws_s3_bucket.config.id}/expectations.json - | jq ."
-    upload_expectations = "aws s3 cp expectations.json s3://${data.aws_s3_bucket.config.id}/expectations.json"
+    upload_expectations = "aws s3 cp expectations.json s3://${local.s3_config.bucket_name}/configs/${var.project_name}/current.json"
+    view_expectations   = "aws s3 cp s3://${local.s3_config.bucket_name}/configs/${var.project_name}/current.json - | jq ."
     view_logs         = "aws logs tail /ecs/automock/${var.project_name}/mockserver --follow"
     scale_service     = "aws ecs update-service --cluster ${module.ecs_infrastructure.cluster_name} --service ${module.ecs_infrastructure.service_name} --desired-count 20"
   }

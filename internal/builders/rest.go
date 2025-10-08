@@ -99,7 +99,7 @@ func collectRESTAPIDetails(expectation *MockExpectation) error {
 
 	// Request body for methods that typically have bodies
 	if method == "POST" || method == "PUT" || method == "PATCH" {
-		if err := collectRequestBody(expectation); err != nil {
+		if err := mock_configurator.CollectRequestBody(expectation, ""); err != nil {
 			return err
 		}
 	}
@@ -927,48 +927,6 @@ func collectResilienceTestingPatterns(expectation *MockExpectation) error {
 		fmt.Println("✅ Disaster recovery testing configured")
 	}
 
-	return nil
-}
-
-// collectRequestBody collects request body for REST endpoints
-func collectRequestBody(expectation *MockExpectation) error {
-	var needsBody bool
-	if err := survey.AskOne(&survey.Confirm{
-		Message: "Does this request require a specific body to match?",
-		Default: false,
-		Help:    "Only specify if you need to match exact request body content",
-	}, &needsBody); err != nil {
-		return err
-	}
-
-	if !needsBody {
-		return nil
-	}
-
-	var bodyJSON string
-	if err := survey.AskOne(&survey.Multiline{
-		Message: "Enter the request body JSON:",
-		Help:    "Paste your JSON here. It will be validated.",
-	}, &bodyJSON); err != nil {
-		return err
-	}
-
-	// Validate JSON
-	if err := ValidateJSON(bodyJSON); err != nil {
-		fmt.Printf("⚠️  JSON validation failed: %v\n", err)
-		var proceed bool
-		if err := survey.AskOne(&survey.Confirm{
-			Message: "JSON is invalid. Use it anyway?",
-			Default: false,
-		}, &proceed); err != nil {
-			return err
-		}
-		if !proceed {
-			return fmt.Errorf("invalid JSON provided")
-		}
-	}
-
-	expectation.Body = bodyJSON
 	return nil
 }
 

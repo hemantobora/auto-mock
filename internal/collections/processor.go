@@ -300,14 +300,20 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 		expectation := builders.MockExpectation{
 			Name:        node.API.Name,
 			Method:      node.API.Method,
-			Path:        path,
+			Path:        cp.extractPath(path),
 			QueryParams: queryParams,
 			Headers:     node.API.Headers,
-			Body:        node.API.Body,
 
 			StatusCode:      node.Response.StatusCode,
 			ResponseHeaders: node.Response.Headers,
 			ResponseBody:    node.Response.Body,
+		}
+
+		// Request body for methods that typically have bodies
+		if node.API.Method == "POST" || node.API.Method == "PUT" || node.API.Method == "PATCH" {
+			if err := mock_configurator.CollectRequestBody(&expectation, node.API.Body); err != nil {
+				return nil, err
+			}
 		}
 
 		// Configure matching criteria for this individual API
@@ -1138,15 +1144,21 @@ func (cp *CollectionProcessor) handleCreateSeparateScenarios(scenarios []APIScen
 			expectation := builders.MockExpectation{
 				Name:        variant.Node.API.Name,
 				Method:      variant.Node.API.Method,
-				Path:        path,
+				Path:        cp.extractPath(path),
 				QueryParams: queryParams,
 				Headers:     variant.Node.API.Headers,
-				Body:        variant.Node.API.Body,
 
 				StatusCode:      variant.Node.Response.StatusCode,
 				ResponseHeaders: variant.Node.Response.Headers,
 				ResponseBody:    variant.Node.Response.Body,
 				Priority:        priority,
+			}
+
+			// Request body for methods that typically have bodies
+			if variant.Node.API.Method == "POST" || variant.Node.API.Method == "PUT" || variant.Node.API.Method == "PATCH" {
+				if err := mock_configurator.CollectRequestBody(&expectation, variant.Node.API.Body); err != nil {
+					return nil, err
+				}
 			}
 
 			// Auto-configure based on scenario difference
@@ -1186,10 +1198,9 @@ func (cp *CollectionProcessor) handleCreateSeparateScenarios(scenarios []APIScen
 			expectation := builders.MockExpectation{
 				Name:        node.API.Name,
 				Method:      node.API.Method,
-				Path:        path,
+				Path:        cp.extractPath(path),
 				QueryParams: queryParams,
 				Headers:     node.API.Headers,
-				Body:        node.API.Body,
 
 				StatusCode:      node.Response.StatusCode,
 				ResponseHeaders: node.Response.Headers,
@@ -1197,6 +1208,12 @@ func (cp *CollectionProcessor) handleCreateSeparateScenarios(scenarios []APIScen
 				Priority:        priority,
 			}
 
+			// Request body for methods that typically have bodies
+			if node.API.Method == "POST" || node.API.Method == "PUT" || node.API.Method == "PATCH" {
+				if err := mock_configurator.CollectRequestBody(&expectation, node.API.Body); err != nil {
+					return nil, err
+				}
+			}
 			expectations = append(expectations, expectation)
 			priority++
 		}

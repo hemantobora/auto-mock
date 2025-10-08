@@ -16,6 +16,11 @@ func (m *Manager) GetCurrentStatus() (*InfrastructureOutputs, error) {
 	}
 	defer m.cleanup()
 
+	// Create backend config
+	if err := m.createBackendConfig(); err != nil {
+		return nil, fmt.Errorf("failed to create backend config: %w", err)
+	}
+
 	// Initialize Terraform (required to read outputs)
 	if err := m.initTerraform(); err != nil {
 		return nil, fmt.Errorf("failed to initialize terraform: %w", err)

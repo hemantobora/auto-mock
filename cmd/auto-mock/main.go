@@ -10,6 +10,7 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/hemantobora/auto-mock/internal/cloud"
+	"github.com/hemantobora/auto-mock/internal/repl"
 	"github.com/hemantobora/auto-mock/internal/state"
 	"github.com/hemantobora/auto-mock/internal/terraform"
 	"github.com/urfave/cli/v2"
@@ -88,7 +89,17 @@ func main() {
 					&cli.IntFlag{
 						Name:  "ttl-hours",
 						Usage: "Auto-teardown timeout in hours (0 = disabled)",
-						Value: 4,
+						Value: 0,
+					},
+					&cli.IntFlag{
+						Name:  "min-tasks",
+						Usage: "Minimum number of tasks (Fargate instances)",
+						Value: 0,
+					},
+					&cli.IntFlag{
+						Name:  "max-tasks",
+						Usage: "Maximum number of tasks (Fargate instances)",
+						Value: 0,
 					},
 					&cli.StringFlag{
 						Name:  "custom-domain",
@@ -187,13 +198,8 @@ func deployCommand(c *cli.Context) error {
 	profile := c.String("profile")
 	projectName := c.String("project")
 
-	fmt.Println("\nDeploying Complete Infrastructure")
+	fmt.Println("\nChecking Infrastructure Prerequisites")
 	fmt.Println(strings.Repeat("=", 80))
-
-	// Check Terraform installation
-	if err := terraform.CheckTerraformInstalled(); err != nil {
-		return err
-	}
 
 	// Build deployment options from flags
 	options := &terraform.DeploymentOptions{
@@ -205,33 +211,8 @@ func deployCommand(c *cli.Context) error {
 		EnableTTLCleanup:  c.Int("ttl-hours") > 0,
 	}
 
-	// Show cost estimate
-	minTasks := 10 // Default from terraform
-	maxTasks := 200
-	terraform.DisplayCostEstimate(minTasks, maxTasks, options.TTLHours)
-
-	// Confirm deployment unless --skip-confirmation
-	if !c.Bool("skip-confirmation") {
-		if !confirmDeployment(projectName, options) {
-			fmt.Println("\nDeployment cancelled")
-			return nil
-		}
-	}
-
-	// Create Terraform manager
-	manager := terraform.NewManager(projectName, profile)
-
-	// Deploy infrastructure
-	fmt.Println("\nStarting deployment...")
-	outputs, err := manager.Deploy(options)
-	if err != nil {
-		return fmt.Errorf("deployment failed: %w", err)
-	}
-
-	// Display results
-	terraform.DisplayDeploymentResults(outputs, projectName)
-
-	return nil
+	deployer := repl.NewDeployment(projectName, profile, options)
+	return deployer.DeployInfrastructureWithTerraform(c.Bool("skip-confirmation"))
 }
 
 // destroyCommand handles infrastructure teardown
@@ -361,34 +342,6 @@ func extendTTLCommand(c *cli.Context) error {
 	fmt.Printf("New expiration: %d hours from now\n", additionalHours)
 
 	return nil
-}
-
-// confirmDeployment shows final confirmation before deployment
-func confirmDeployment(projectName string, options *terraform.DeploymentOptions) bool {
-	fmt.Println("\nDeployment Summary")
-	fmt.Println(strings.Repeat("=", 80))
-	fmt.Printf("Project:       %s\n", projectName)
-	fmt.Printf("Instance Size: %s\n", options.InstanceSize)
-	fmt.Printf("TTL:           %d hours\n", options.TTLHours)
-
-	if options.CustomDomain != "" {
-		fmt.Printf("Custom Domain: %s\n", options.CustomDomain)
-	}
-
-	if options.NotificationEmail != "" {
-		fmt.Printf("Notifications: %s\n", options.NotificationEmail)
-	}
-
-	fmt.Println()
-
-	var confirmed bool
-	prompt := &survey.Confirm{
-		Message: "Proceed with deployment?",
-		Default: true,
-	}
-
-	survey.AskOne(prompt, &confirmed)
-	return confirmed
 }
 
 // extendTTL extends the TTL for an existing deployment

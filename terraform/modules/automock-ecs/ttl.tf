@@ -30,24 +30,50 @@ resource "aws_lambda_function" "ttl_cleanup" {
 
   environment {
     variables = {
-      PROJECT_NAME          = var.project_name
-      ENVIRONMENT           = "production"
-      CLUSTER_NAME          = aws_ecs_cluster.main.name
-      SERVICE_NAME          = aws_ecs_service.mockserver.name
-      ALB_ARN               = aws_lb.main.arn
-      TARGET_GROUP_API_ARN  = aws_lb_target_group.mockserver_api.arn
-      TARGET_GROUP_DASH_ARN = aws_lb_target_group.mockserver_dashboard.arn
-      VPC_ID                = aws_vpc.main.id
-      CONFIG_BUCKET         = local.s3_config.bucket_name
-      REGION                = var.region
-      TTL_HOURS             = var.ttl_hours
-      NOTIFICATION_EMAIL    = var.notification_email
-      SNS_TOPIC_ARN         = var.notification_email != "" ? aws_sns_topic.ttl_notifications[0].arn : ""
+      PROJECT_NAME            = var.project_name
+      CLUSTER_NAME            = aws_ecs_cluster.main.name
+      DESTROY_TASK_DEFINITION = aws_ecs_task_definition.terraform_destroy[0].family
+      SUBNETS                 = join(",", aws_subnet.private[*].id)
+      SECURITY_GROUP          = aws_security_group.ecs_tasks.id
+      CONFIG_BUCKET           = local.config_bucket_name
     }
   }
 
+  # Ensure task definition exists before Lambda
+  depends_on = [
+    aws_ecs_task_definition.terraform_destroy
+  ]
+
   tags = merge(local.common_tags, local.ttl_tags, {
     Name = "${local.name_prefix}-ttl-cleanup"
+  })
+}
+
+# Lambda needs permission to run ECS tasks
+resource "aws_iam_role_policy" "lambda_run_ecs_task" {
+  name = "run-ecs-task"
+  role = aws_iam_role.lambda_ttl_cleanup[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecs:RunTask",
+          "ecs:DescribeTasks"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = "iam:PassRole"
+        Resource = [
+          aws_iam_role.ecs_task_execution.arn,
+          aws_iam_role.terraform_destroy[0].arn
+        ]
+      }
+    ]
   })
 }
 
@@ -264,4 +290,117 @@ resource "aws_cloudwatch_metric_alarm" "ttl_warning" {
   alarm_actions       = [aws_sns_topic.ttl_notifications[0].arn]
 
   tags = merge(local.common_tags, local.ttl_tags)
+}
+
+
+# ECS Task Definition for Terraform Destroy
+resource "aws_ecs_task_definition" "terraform_destroy" {
+  count = var.enable_ttl_cleanup ? 1 : 0
+  family                   = "${local.name_prefix}-terraform-destroy"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = 512   # Increased for Terraform
+  memory                   = 1024  # Increased for Terraform
+  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+  task_role_arn            = aws_iam_role.terraform_destroy[0].arn
+
+  container_definitions = jsonencode([{
+    name      = "terraform-destroy"
+    image     = "${aws_ecr_repository.terraform_destroy[0].repository_url}:latest"  # ← Uses ECR image
+    essential = true
+
+    environment = [
+      {
+        name  = "PROJECT_NAME"
+        value = var.project_name
+      },
+      {
+        name  = "AWS_REGION"
+        value = var.region
+      },
+      {
+        name  = "S3_BUCKET"
+        value = local.config_bucket_name
+      }
+    ]
+
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = aws_cloudwatch_log_group.terraform_destroy[0].name
+        "awslogs-region"        = var.region
+        "awslogs-stream-prefix" = "terraform-destroy"
+      }
+    }
+  }])
+
+  tags = merge(local.common_tags, local.ttl_tags, {
+    Name = "${local.name_prefix}-terraform-destroy-task"
+  })
+  
+  # Ensure image is built before task definition
+  depends_on = [
+    docker_registry_image.terraform_destroy
+  ]
+}
+
+# CloudWatch Log Group
+resource "aws_cloudwatch_log_group" "terraform_destroy" {
+  count = var.enable_ttl_cleanup ? 1 : 0
+  name              = "/ecs/automock/${var.project_name}/terraform-destroy"
+  retention_in_days = 7
+
+  tags = merge(local.common_tags, local.ttl_tags, {
+    Name = "${local.name_prefix}-terraform-destroy-logs"
+  })
+}
+
+# IAM Role for Terraform Destroy Task
+resource "aws_iam_role" "terraform_destroy" {
+  count = var.enable_ttl_cleanup ? 1 : 0
+  name = "${local.name_prefix}-terraform-destroy-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "ecs-tasks.amazonaws.com"
+      }
+    }]
+  })
+
+  tags = merge(local.common_tags, local.ttl_tags, {
+    Name = "${local.name_prefix}-terraform-destroy-role"
+  })
+}
+
+# IAM Policy - Full permissions to destroy everything
+resource "aws_iam_role_policy" "terraform_destroy_permissions" {
+  count = var.enable_ttl_cleanup ? 1 : 0
+  name = "terraform-destroy-permissions"
+  role = aws_iam_role.terraform_destroy[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecs:*",
+          "ec2:*",
+          "elasticloadbalancing:*",
+          "s3:*",
+          "logs:*",
+          "iam:*",
+          "lambda:*",
+          "events:*",
+          "cloudwatch:*",
+          "ecr:*"  # ← Added: Can delete ECR repo
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }

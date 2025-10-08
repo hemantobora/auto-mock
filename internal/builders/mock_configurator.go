@@ -12,6 +12,64 @@ import (
 type MockConfigurator struct {
 }
 
+// collectRequestBody collects request body for REST endpoints
+func (mc *MockConfigurator) CollectRequestBody(expectation *MockExpectation, body string) error {
+
+	if strings.Trim(body, " ") != "" {
+		var useBody bool
+		if err := survey.AskOne(&survey.Confirm{
+			Message: "This is the existing request body:\n" + body + "\nShall we use it to match?",
+			Default: false,
+			Help:    "Only specify if you need to match exact request body content",
+		}, &useBody); err != nil {
+			return err
+		}
+		if useBody {
+			expectation.Body = body
+			return nil
+		}
+	}
+
+	var needsBody bool
+	if err := survey.AskOne(&survey.Confirm{
+		Message: "Does this request require a specific body to match?",
+		Default: false,
+		Help:    "Only specify if you need to match exact request body content",
+	}, &needsBody); err != nil {
+		return err
+	}
+
+	if !needsBody {
+		return nil
+	}
+
+	var bodyJSON string
+	if err := survey.AskOne(&survey.Multiline{
+		Message: "Enter the request body JSON:",
+		Help:    "Paste your JSON here. It will be validated.",
+	}, &bodyJSON); err != nil {
+		return err
+	}
+
+	// Validate JSON
+	if err := ValidateJSON(bodyJSON); err != nil {
+		fmt.Printf("⚠️  JSON validation failed: %v\n", err)
+		var proceed bool
+		if err := survey.AskOne(&survey.Confirm{
+			Message: "JSON is invalid. Use it anyway?",
+			Default: false,
+		}, &proceed); err != nil {
+			return err
+		}
+		if !proceed {
+			return fmt.Errorf("invalid JSON provided")
+		}
+	}
+
+	expectation.Body = bodyJSON
+	return nil
+}
+
 func (mc *MockConfigurator) CollectQueryParameterMatching(expectation *MockExpectation) error {
 	fmt.Println("\n🔍 Step 2: Query Parameter Matching")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

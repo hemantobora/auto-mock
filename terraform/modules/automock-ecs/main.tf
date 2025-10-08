@@ -11,6 +11,10 @@ terraform {
       source  = "hashicorp/archive"
       version = "~> 2.0"
     }
+    docker = {
+      source  = "kreuzwerker/docker"
+      version = "~> 3.0"
+    }    
   }
   required_version = ">= 1.0"
 }
@@ -214,6 +218,22 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  ingress {
+    description = "Dashboard HTTP"
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+ }
+
+  ingress {
+    description = "Dashboard HTTPS"
+    from_port   = 8443
+    to_port     = 8443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -292,10 +312,10 @@ resource "aws_lb_target_group" "mockserver_api" {
   health_check {
     enabled             = true
     healthy_threshold   = 2
-    unhealthy_threshold = 2
+    unhealthy_threshold = 3
     timeout             = 10
     interval            = 30
-    path                = "/mockserver/status"
+    path                = "/mockserver/bind"
     matcher             = "200"
     port                = "traffic-port"
     protocol            = "HTTP"

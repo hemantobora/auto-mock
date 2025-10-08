@@ -1,0 +1,20 @@
+# Dockerfile for Config Watcher Sidecar
+# Polls S3 for config changes and updates MockServer automatically
+
+FROM amazon/aws-cli:latest
+
+# Install jq and curl
+RUN yum install -y jq curl && \
+    yum clean all && \
+    rm -rf /var/cache/yum
+
+# Copy watcher script
+COPY config-watcher.sh /usr/local/bin/config-watcher
+RUN chmod +x /usr/local/bin/config-watcher
+
+# Health check
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:1080/mockserver/status || exit 1
+
+# Run watcher
+ENTRYPOINT ["/usr/local/bin/config-watcher"]

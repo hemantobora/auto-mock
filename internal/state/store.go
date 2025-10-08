@@ -28,11 +28,11 @@ type MockConfiguration struct {
 
 // MockExpectation represents a single mock expectation
 type MockExpectation struct {
-	ID          string                 `json:"id"`
-	Priority    int                    `json:"priority"`
-	HttpRequest map[string]interface{} `json:"httpRequest"`
+	ID           string                 `json:"id"`
+	Priority     int                    `json:"priority"`
+	HttpRequest  map[string]interface{} `json:"httpRequest"`
 	HttpResponse map[string]interface{} `json:"httpResponse"`
-	Times       *ExpectationTimes      `json:"times,omitempty"`
+	Times        *ExpectationTimes      `json:"times,omitempty"`
 }
 
 // ExpectationTimes defines how many times an expectation should match
@@ -45,22 +45,22 @@ type ExpectationTimes struct {
 type Store interface {
 	// SaveConfig saves a mock configuration
 	SaveConfig(ctx context.Context, projectID string, config *MockConfiguration) error
-	
+
 	// GetConfig retrieves a mock configuration
 	GetConfig(ctx context.Context, projectID string) (*MockConfiguration, error)
-	
+
 	// GetConfigVersion retrieves a specific version of a configuration
 	GetConfigVersion(ctx context.Context, projectID, version string) (*MockConfiguration, error)
-	
+
 	// ListConfigs lists all configurations with metadata
 	ListConfigs(ctx context.Context) ([]ConfigMetadata, error)
-	
+
 	// DeleteConfig removes a configuration
 	DeleteConfig(ctx context.Context, projectID string) error
-	
+
 	// UpdateConfig updates an existing configuration
 	UpdateConfig(ctx context.Context, projectID string, config *MockConfiguration) error
-	
+
 	// GetConfigHistory retrieves version history for a project
 	GetConfigHistory(ctx context.Context, projectID string) ([]ConfigMetadata, error)
 }
@@ -80,15 +80,15 @@ func ValidateConfiguration(config *MockConfiguration) error {
 	if config == nil {
 		return ValidationError{Field: "config", Message: "configuration cannot be nil"}
 	}
-	
+
 	if config.Metadata.ProjectID == "" {
 		return ValidationError{Field: "metadata.project_id", Message: "project ID is required"}
 	}
-	
+
 	if len(config.Expectations) == 0 {
 		return ValidationError{Field: "expectations", Message: "at least one expectation is required"}
 	}
-	
+
 	for i, exp := range config.Expectations {
 		if exp.HttpRequest == nil {
 			return ValidationError{
@@ -96,14 +96,14 @@ func ValidateConfiguration(config *MockConfiguration) error {
 				Message: "HTTP request is required",
 			}
 		}
-		
+
 		if exp.HttpResponse == nil {
 			return ValidationError{
 				Field:   fmt.Sprintf("expectations[%d].httpResponse", i),
 				Message: "HTTP response is required",
 			}
 		}
-		
+
 		// Validate request has method and path
 		if method, ok := exp.HttpRequest["method"]; !ok || method == "" {
 			return ValidationError{
@@ -111,14 +111,14 @@ func ValidateConfiguration(config *MockConfiguration) error {
 				Message: "HTTP method is required",
 			}
 		}
-		
+
 		if path, ok := exp.HttpRequest["path"]; !ok || path == "" {
 			return ValidationError{
 				Field:   fmt.Sprintf("expectations[%d].httpRequest.path", i),
 				Message: "HTTP path is required",
 			}
 		}
-		
+
 		// Validate response has status code
 		if statusCode, ok := exp.HttpResponse["statusCode"]; !ok || statusCode == nil {
 			return ValidationError{
@@ -127,7 +127,7 @@ func ValidateConfiguration(config *MockConfiguration) error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -137,7 +137,7 @@ func ParseMockServerJSON(jsonData string) (*MockConfiguration, error) {
 	if err := json.Unmarshal([]byte(jsonData), &expectations); err != nil {
 		return nil, fmt.Errorf("failed to parse MockServer JSON: %w", err)
 	}
-	
+
 	config := &MockConfiguration{
 		Metadata: ConfigMetadata{
 			CreatedAt: time.Now(),
@@ -146,21 +146,21 @@ func ParseMockServerJSON(jsonData string) (*MockConfiguration, error) {
 		},
 		Expectations: make([]MockExpectation, 0, len(expectations)),
 	}
-	
+
 	for i, exp := range expectations {
 		mockExp := MockExpectation{
 			ID:       fmt.Sprintf("exp_%d_%d", time.Now().Unix(), i),
 			Priority: len(expectations) - i, // Higher priority for earlier expectations
 		}
-		
+
 		if httpReq, ok := exp["httpRequest"].(map[string]interface{}); ok {
 			mockExp.HttpRequest = httpReq
 		}
-		
+
 		if httpResp, ok := exp["httpResponse"].(map[string]interface{}); ok {
 			mockExp.HttpResponse = httpResp
 		}
-		
+
 		// Check for times configuration
 		if times, ok := exp["times"].(map[string]interface{}); ok {
 			mockExp.Times = &ExpectationTimes{}
@@ -171,23 +171,23 @@ func ParseMockServerJSON(jsonData string) (*MockConfiguration, error) {
 				mockExp.Times.Unlimited = unlimited
 			}
 		}
-		
+
 		config.Expectations = append(config.Expectations, mockExp)
 	}
-	
+
 	return config, nil
 }
 
 // ToMockServerJSON converts configuration back to MockServer JSON format
 func (config *MockConfiguration) ToMockServerJSON() (string, error) {
 	expectations := make([]map[string]interface{}, 0, len(config.Expectations))
-	
+
 	for _, exp := range config.Expectations {
 		mockExp := map[string]interface{}{
 			"httpRequest":  exp.HttpRequest,
 			"httpResponse": exp.HttpResponse,
 		}
-		
+
 		if exp.Times != nil {
 			times := map[string]interface{}{}
 			if exp.Times.Unlimited {
@@ -199,14 +199,18 @@ func (config *MockConfiguration) ToMockServerJSON() (string, error) {
 				mockExp["times"] = times
 			}
 		}
-		
+
+		if exp.Priority > 0 {
+			mockExp["priority"] = exp.Priority
+		}
+
 		expectations = append(expectations, mockExp)
 	}
-	
+
 	jsonBytes, err := json.MarshalIndent(expectations, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal to MockServer JSON: %w", err)
 	}
-	
+
 	return string(jsonBytes), nil
 }

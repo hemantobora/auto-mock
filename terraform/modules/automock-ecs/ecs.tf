@@ -58,116 +58,162 @@ resource "aws_ecs_task_definition" "mockserver" {
   task_role_arn            = aws_iam_role.ecs_task.arn
 
   container_definitions = jsonencode([
-    {
-      name      = "mockserver"
-      image     = "mockserver/mockserver:latest"
-      essential = true
+  # MockServer - NO HEALTH CHECK
+  {
+    name      = "mockserver"
+    image     = "mockserver/mockserver:latest"
+    essential = true
 
-      portMappings = [
-        {
-          containerPort = 1080
-          protocol      = "tcp"
-          name          = "mockserver-api"
-        },
-        {
-          containerPort = 1090
-          protocol      = "tcp"
-          name          = "mockserver-dashboard"
-        }
-      ]
-
-      environment = [
-        {
-          name  = "MOCKSERVER_LOG_LEVEL"
-          value = "INFO"
-        },
-        {
-          name  = "MOCKSERVER_SERVER_PORT"
-          value = "1080"
-        },
-        {
-          name  = "MOCKSERVER_CORS_ALLOW_ORIGIN"
-          value = "*"
-        },
-        {
-          name  = "MOCKSERVER_CORS_ALLOW_METHODS"
-          value = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
-        }
-      ]
-
-      healthCheck = {
-        command     = ["CMD-SHELL", "curl -f http://localhost:1080/mockserver/status || exit 1"]
-        interval    = 30
-        timeout     = 5
-        retries     = 3
-        startPeriod = 60
+    portMappings = [
+      {
+        containerPort = 1080
+        protocol      = "tcp"
+        name          = "mockserver-api"
+      },
+      {
+        containerPort = 1090
+        protocol      = "tcp"
+        name          = "mockserver-dashboard"
       }
+    ]
 
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.mockserver.name
-          "awslogs-region"        = var.region
-          "awslogs-stream-prefix" = "mockserver"
-        }
+    environment = [
+      {
+        name  = "MOCKSERVER_LOG_LEVEL"
+        value = "INFO"
+      },
+      {
+        name  = "MOCKSERVER_SERVER_PORT"
+        value = "1080"
+      },
+      {
+        name  = "MOCKSERVER_CORS_ALLOW_ORIGIN"
+        value = "*"
+      },
+      {
+        name  = "MOCKSERVER_CORS_ALLOW_METHODS"
+        value = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
       }
-    },
-    {
-      name      = "config-loader"
-      image     = "amazon/aws-cli:latest"
-      essential = false
+    ]
 
-      dependsOn = [{
-        containerName = "mockserver"
-        condition     = "START"
-      }]
-
-      command = [
-        "/bin/sh",
-        "-c",
-        <<-EOF
-          # Wait for MockServer to be ready
-          until curl -s http://localhost:1080/mockserver/status > /dev/null 2>&1; do
-            echo "Waiting for MockServer to start..."
-            sleep 2
-          done
-          
-          # Download expectations from S3
-          echo "Downloading expectations from S3..."
-          aws s3 cp s3://${local.s3_config.bucket_name}/${local.s3_config.expectations_path} /tmp/expectations.json
-          
-          # Check if file exists and has content
-          if [ ! -s /tmp/expectations.json ]; then
-            echo "Warning: Expectations file is empty or not found"
-            exit 0
-          fi
-          
-          # Load expectations into MockServer
-          echo "Loading expectations into MockServer..."
-          curl -X PUT http://localhost:1080/mockserver/expectation \
-            -H "Content-Type: application/json" \
-            -d @/tmp/expectations.json
-          
-          echo "✓ Expectations loaded successfully"
-          exit 0
-        EOF
-      ]
-
-      environment = [{
-        name  = "AWS_DEFAULT_REGION"
-        value = var.region
-      }]
-
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.config_loader.name
-          "awslogs-region"        = var.region
-          "awslogs-stream-prefix" = "config-loader"
-        }
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = aws_cloudwatch_log_group.mockserver.name
+        "awslogs-region"        = var.region
+        "awslogs-stream-prefix" = "mockserver"
       }
     }
-  ])
+  },
+  
+  # Config-Watcher - NON-ESSENTIAL
+  {
+    name      = "config-watcher"
+    image     = "amazon/aws-cli:latest"
+    essential = false  # ← CRITICAL!
+
+    dependsOn = [{
+      containerName = "mockserver"
+      condition     = "START"  # ← Changed back to START
+    }]
+
+    entryPoint = ["/bin/bash", "-c"]
+
+    command = [
+      <<-EOF
+        set -e
+        
+        yum install -y jq
+        
+        S3_BUCKET="${local.s3_config.bucket_name}"
+        PROJECT_NAME="${var.project_name}"
+        CONFIG_PATH="configs/$${PROJECT_NAME}/current.json"
+        MOCKSERVER_URL="http://localhost:1080"
+        POLL_INTERVAL=30
+        
+        echo "🔄 Config Watcher Starting"
+        
+        # Simple wait for MockServer
+        echo "⏳ Waiting for MockServer (15 seconds)..."
+        sleep 15
+        
+        echo "📥 Loading configuration..."
+        if ! aws s3 cp "s3://$${S3_BUCKET}/$${CONFIG_PATH}" /tmp/current.json 2>/dev/null; then
+          echo "⚠️  No config file found"
+          LAST_ETAG=""
+        else
+          EXPECTATIONS=$(cat /tmp/current.json | jq -c '.expectations')
+          EXP_COUNT=$(echo "$${EXPECTATIONS}" | jq 'length')
+          
+          echo "  Loading $${EXP_COUNT} expectations..."
+          
+          HTTP_CODE=$(curl -X PUT "$${MOCKSERVER_URL}/mockserver/expectation" \
+            -H "Content-Type: application/json" \
+            -d "$${EXPECTATIONS}" \
+            -s -w "%%{http_code}" -o /dev/null)
+          
+          if [ "$${HTTP_CODE}" = "201" ] || [ "$${HTTP_CODE}" = "200" ]; then
+            echo "✅ Loaded $${EXP_COUNT} expectations"
+          else
+            echo "⚠️  Failed (HTTP $${HTTP_CODE}), but continuing..."
+          fi
+          
+          LAST_ETAG=$(aws s3api head-object \
+            --bucket "$${S3_BUCKET}" \
+            --key "$${CONFIG_PATH}" \
+            --query 'ETag' \
+            --output text 2>/dev/null || echo "")
+        fi
+        
+        echo "🔄 Polling for changes..."
+        while true; do
+          sleep $${POLL_INTERVAL}
+          
+          CURRENT_ETAG=$(aws s3api head-object \
+            --bucket "$${S3_BUCKET}" \
+            --key "$${CONFIG_PATH}" \
+            --query 'ETag' \
+            --output text 2>/dev/null || echo "")
+          
+          if [ -z "$${CURRENT_ETAG}" ] || [ "$${CURRENT_ETAG}" = "$${LAST_ETAG}" ]; then
+            continue
+          fi
+          
+          echo "🔔 [$(date '+%%H:%%M:%%S')] Config changed"
+          
+          aws s3 cp "s3://$${S3_BUCKET}/$${CONFIG_PATH}" /tmp/current.json
+          EXPECTATIONS=$(cat /tmp/current.json | jq -c '.expectations')
+          
+          HTTP_CODE=$(curl -X PUT "$${MOCKSERVER_URL}/mockserver/expectation" \
+            -H "Content-Type: application/json" \
+            -d "$${EXPECTATIONS}" \
+            -s -w "%%{http_code}" -o /dev/null)
+          
+          if [ "$${HTTP_CODE}" = "201" ] || [ "$${HTTP_CODE}" = "200" ]; then
+            LAST_ETAG="$${CURRENT_ETAG}"
+            echo "✅ Updated"
+          fi
+        done
+      EOF
+    ]
+
+    environment = [
+      {
+        name  = "AWS_DEFAULT_REGION"
+        value = var.region
+      }
+    ]
+
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = aws_cloudwatch_log_group.config_loader.name
+        "awslogs-region"        = var.region
+        "awslogs-stream-prefix" = "config-watcher"
+      }
+    }
+  }
+])
 
   tags = merge(local.common_tags, local.ttl_tags, {
     Name = "${local.name_prefix}-task"

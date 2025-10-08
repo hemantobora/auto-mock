@@ -9,6 +9,7 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/hemantobora/auto-mock/internal/state"
+	"github.com/hemantobora/auto-mock/internal/terraform"
 	"github.com/hemantobora/auto-mock/internal/utils"
 )
 
@@ -39,7 +40,13 @@ func handleFinalResult(mockServerJSON, projectName string) error {
 				return fmt.Errorf("failed to save expectations: %w", err)
 			}
 			// Then deploy infrastructure
-			return deployInfrastructureWithTerraform(projectName, "")
+			options := &terraform.DeploymentOptions{
+				MinTasks:         10,
+				MaxTasks:         200,
+				EnableTTLCleanup: false,
+			}
+			deploy := NewDeployment(projectName, "", options)
+			return deploy.DeployInfrastructureWithTerraform(false)
 		case "local":
 			return startLocalMockServer(mockServerJSON, projectName)
 		case "view-json":
