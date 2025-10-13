@@ -2,11 +2,7 @@ package builders
 
 import (
 	"encoding/json"
-	"fmt"
 	"regexp"
-	"strings"
-
-	"github.com/AlecAivazis/survey/v2"
 )
 
 // MockExpectation represents a complete mock server expectation
@@ -16,12 +12,12 @@ type MockExpectation struct {
 	Description string `json:"description,omitempty"` // Optional detailed description
 
 	// Request matching
-	Method         string                       `json:"method"`
-	Path           string                       `json:"path"`
-	QueryParams    map[string]string            `json:"queryParams,omitempty"`
-	Headers        map[string]string            `json:"headers,omitempty"`
-	HeaderTypes    map[string]string            `json:"headerTypes,omitempty"` // "exact" or "regex"
-	Body           interface{}                  `json:"body,omitempty"`
+	Method      string            `json:"method"`
+	Path        string            `json:"path"`
+	QueryParams map[string]string `json:"queryParams,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	HeaderTypes map[string]string `json:"headerTypes,omitempty"` // "exact" or "regex"
+	Body        interface{}       `json:"body,omitempty"`
 
 	// Response
 	StatusCode      int               `json:"statusCode"`
@@ -29,11 +25,11 @@ type MockExpectation struct {
 	ResponseBody    interface{}       `json:"responseBody"`
 
 	// Advanced features
-	ResponseDelay     string              `json:"responseDelay,omitempty"`
-	Times             *Times              `json:"times,omitempty"`
-	Callbacks         *CallbackConfig     `json:"callbacks,omitempty"`
-	ConnectionOptions *ConnectionOptions  `json:"connectionOptions,omitempty"`
-	Priority          int                 `json:"priority,omitempty"`
+	ResponseDelay     string             `json:"responseDelay,omitempty"`
+	Times             *Times             `json:"times,omitempty"`
+	Callbacks         *CallbackConfig    `json:"callbacks,omitempty"`
+	ConnectionOptions *ConnectionOptions `json:"connectionOptions,omitempty"`
+	Priority          int                `json:"priority,omitempty"`
 }
 
 // Times represents MockServer times configuration
@@ -398,20 +394,20 @@ func IsValidRegex(pattern string) error {
 // This function provides easy access to the most frequently used regex patterns
 func GetCommonRegexPatterns() map[string]string {
 	return map[string]string{
-		"numbers":      "\\d+",                                                                         // 123, 456, 789
-		"words":        "\\w+",                                                                         // user, test123, user_name
-		"alphanumeric": "[a-zA-Z0-9]+",                                                                 // abc123, Test789, ID42
-		"custom_id":    "[a-zA-Z0-9_-]+",                                                               // user-123, item_abc, order-789
-		"date":         "\\d{4}-\\d{2}-\\d{2}",                                                         // 2025-09-21, 2024-12-31
-		"time":         "\\d{2}:\\d{2}(:\\d{2})?",                                                      // 15:30, 09:45:30
-		"uuid":         "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",               // UUID format
-		"email":        "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}",                             // user@example.com
-		"url":          "https?://[\\w.-]+(/[\\w.-]*)*/?",                                              // https://api.example.com
-		"ip":           "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}",                                   // 192.168.1.1
-		"phone":        "\\+?[0-9()-\\s]+",                                                             // +1-555-123-4567
-		"decimal":      "\\d+\\.\\d+",                                                                  // 12.99, 3.14159
-		"any":          ".*",                                                                           // Any characters
-		"whitespace":   "\\s+",                                                                         // One or more spaces
+		"numbers":      "\\d+",                                                         // 123, 456, 789
+		"words":        "\\w+",                                                         // user, test123, user_name
+		"alphanumeric": "[a-zA-Z0-9]+",                                                 // abc123, Test789, ID42
+		"custom_id":    "[a-zA-Z0-9_-]+",                                               // user-123, item_abc, order-789
+		"date":         "\\d{4}-\\d{2}-\\d{2}",                                         // 2025-09-21, 2024-12-31
+		"time":         "\\d{2}:\\d{2}(:\\d{2})?",                                      // 15:30, 09:45:30
+		"uuid":         "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", // UUID format
+		"email":        "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}",              // user@example.com
+		"url":          "https?://[\\w.-]+(/[\\w.-]*)*/?",                              // https://api.example.com
+		"ip":           "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}",                    // 192.168.1.1
+		"phone":        "\\+?[0-9()-\\s]+",                                             // +1-555-123-4567
+		"decimal":      "\\d+\\.\\d+",                                                  // 12.99, 3.14159
+		"any":          ".*",                                                           // Any characters
+		"whitespace":   "\\s+",                                                         // One or more spaces
 	}
 }
 
@@ -421,125 +417,26 @@ func GetRegexDescription(pattern string) (description string, examples []string)
 		desc     string
 		examples []string
 	}{
-		"\\d+":           {"One or more digits", []string{"123", "456", "789"}},
-		"\\w+":           {"One or more word characters", []string{"user", "test123", "user_name"}},
-		"[a-zA-Z0-9]+":   {"Letters and numbers only", []string{"abc123", "Test789", "ID42"}},
-		"[a-zA-Z0-9_-]+": {"Letters, numbers, underscore, hyphen", []string{"user-123", "item_abc", "order-789"}},
-		"\\d{4}-\\d{2}-\\d{2}": {"ISO date format (YYYY-MM-DD)", []string{"2025-09-21", "2024-12-31", "2023-01-15"}},
+		"\\d+":                    {"One or more digits", []string{"123", "456", "789"}},
+		"\\w+":                    {"One or more word characters", []string{"user", "test123", "user_name"}},
+		"[a-zA-Z0-9]+":            {"Letters and numbers only", []string{"abc123", "Test789", "ID42"}},
+		"[a-zA-Z0-9_-]+":          {"Letters, numbers, underscore, hyphen", []string{"user-123", "item_abc", "order-789"}},
+		"\\d{4}-\\d{2}-\\d{2}":    {"ISO date format (YYYY-MM-DD)", []string{"2025-09-21", "2024-12-31", "2023-01-15"}},
 		"\\d{2}:\\d{2}(:\\d{2})?": {"Time format (HH:MM or HH:MM:SS)", []string{"15:30", "09:45:30", "23:59"}},
 		"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}": {"UUID format", []string{"550e8400-e29b-41d4-a716-446655440000"}},
-		"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}":               {"Email address format", []string{"user@example.com", "test.email+tag@domain.org"}},
-		"https?://[\\w.-]+(/[\\w.-]*)*/?":                                {"HTTP/HTTPS URLs", []string{"https://api.example.com", "http://localhost:3000/api"}},
-		"\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}":                     {"IPv4 address format", []string{"192.168.1.1", "10.0.0.1", "172.16.0.1"}},
-		"\\+?[0-9()-\\s]+":                                               {"Flexible phone number format", []string{"+1-555-123-4567", "(555) 123-4567", "+44 20 7946 0958"}},
-		"\\d+\\.\\d+":                                                    {"Decimal numbers", []string{"12.99", "3.14159", "0.75"}},
-		".*":                                                             {"Any characters (wildcard)", []string{"any", "characters", "here"}},
-		"\\s+":                                                           {"One or more whitespace characters", []string{" ", "  ", "\t"}},
+		"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}":              {"Email address format", []string{"user@example.com", "test.email+tag@domain.org"}},
+		"https?://[\\w.-]+(/[\\w.-]*)*/?":                              {"HTTP/HTTPS URLs", []string{"https://api.example.com", "http://localhost:3000/api"}},
+		"\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}":                    {"IPv4 address format", []string{"192.168.1.1", "10.0.0.1", "172.16.0.1"}},
+		"\\+?[0-9()-\\s]+": {"Flexible phone number format", []string{"+1-555-123-4567", "(555) 123-4567", "+44 20 7946 0958"}},
+		"\\d+\\.\\d+":      {"Decimal numbers", []string{"12.99", "3.14159", "0.75"}},
+		".*":               {"Any characters (wildcard)", []string{"any", "characters", "here"}},
+		"\\s+":             {"One or more whitespace characters", []string{" ", "  ", "\t"}},
 	}
 
 	if info, exists := descriptions[pattern]; exists {
 		return info.desc, info.examples
 	}
 	return "Custom regex pattern", []string{"pattern specific examples"}
-}
-
-// CollectExpectationName collects a unique name for the expectation
-// This function enforces uniqueness and uses a single identifier (no separate description)
-func CollectExpectationName(expectation *MockExpectation, existingExpectations []MockExpectation) error {
-	// Check if this method+path combination already exists
-	hasDuplicate := false
-	for _, existing := range existingExpectations {
-		if existing.Method == expectation.Method && existing.Path == expectation.Path {
-			hasDuplicate = true
-			break
-		}
-	}
-
-	// Generate default name based on method and path
-	defaultName := fmt.Sprintf("%s %s", expectation.Method, expectation.Path)
-
-	fmt.Println("\n🏷️  Expectation Identification")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	if hasDuplicate {
-		fmt.Printf("⚠️  Duplicate path detected: %s %s\n", expectation.Method, expectation.Path)
-		fmt.Println("📝 A unique name is required to distinguish this expectation from others")
-		fmt.Println("💡 Examples: 'Get User Success', 'Get User Not Found', 'Create User Validation Error'")
-
-		// Enforce name requirement for duplicates
-		for {
-			var name string
-			if err := survey.AskOne(&survey.Input{
-				Message: "Enter a unique name for this expectation (required):",
-				Help:    "This name will help you identify this expectation when editing or removing it",
-			}, &name); err != nil {
-				return err
-			}
-
-			name = strings.TrimSpace(name)
-			if name == "" {
-				fmt.Println("❌ Name cannot be empty for duplicate paths. Please provide a unique name.")
-				continue
-			}
-
-			// Check if this name is already used
-			nameExists := false
-			for _, existing := range existingExpectations {
-				if strings.EqualFold(existing.Name, name) {
-					nameExists = true
-					break
-				}
-			}
-
-			if nameExists {
-				fmt.Printf("❌ Name '%s' is already used. Please choose a different name.\n", name)
-				continue
-			}
-
-			expectation.Name = name
-			fmt.Printf("✅ Unique name set: %s\n", name)
-			break
-		}
-	} else {
-		// No duplicate, name is optional
-		fmt.Printf("💡 Default identification: %s\n", defaultName)
-
-		var name string
-		if err := survey.AskOne(&survey.Input{
-			Message: "Enter a name for this expectation (optional, press Enter to use default):",
-			Help:    "This name will help you identify this expectation when editing or removing it",
-			Default: "",
-		}, &name); err != nil {
-			return err
-		}
-
-		name = strings.TrimSpace(name)
-		if name == "" {
-			// Use the method+path as the name
-			expectation.Name = defaultName
-			fmt.Printf("✅ Using default name: %s\n", defaultName)
-		} else {
-			// Check if this name is already used
-			nameExists := false
-			for _, existing := range existingExpectations {
-				if strings.EqualFold(existing.Name, name) {
-					nameExists = true
-					break
-				}
-			}
-
-			if nameExists {
-				fmt.Printf("⚠️  Name '%s' is already used. Using default name instead.\n", name)
-				expectation.Name = defaultName
-				fmt.Printf("✅ Using default name: %s\n", defaultName)
-			} else {
-				expectation.Name = name
-				fmt.Printf("✅ Custom name set: %s\n", name)
-			}
-		}
-	}
-
-	return nil
 }
 
 // AdvancedFeatureCategories returns organized advanced feature categories

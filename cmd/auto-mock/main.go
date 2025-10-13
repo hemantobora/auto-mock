@@ -11,7 +11,6 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/hemantobora/auto-mock/internal/cloud"
 	"github.com/hemantobora/auto-mock/internal/repl"
-	"github.com/hemantobora/auto-mock/internal/state"
 	"github.com/hemantobora/auto-mock/internal/terraform"
 	"github.com/urfave/cli/v2"
 )
@@ -23,7 +22,7 @@ func main() {
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:  "profile",
-				Usage: "AWS credential profile name (e.g., dev, prod)",
+				Usage: "Credential profile name (e.g., dev, prod)",
 			},
 		},
 		Commands: []*cli.Command{
@@ -211,7 +210,12 @@ func deployCommand(c *cli.Context) error {
 		EnableTTLCleanup:  c.Int("ttl-hours") > 0,
 	}
 
-	deployer := repl.NewDeployment(projectName, profile, options)
+	manager := cloud.NewCloudManager(profile)
+	// Step 1: Validate cloud provider credentials
+	if err := manager.AutoDetectProvider(profile); err != nil {
+		return err
+	}
+	deployer := repl.NewDeployment(projectName, profile, manager.Provider, options)
 	return deployer.DeployInfrastructureWithTerraform(c.Bool("skip-confirmation"))
 }
 
@@ -257,12 +261,18 @@ func destroyCommand(c *cli.Context) error {
 		}
 	}
 
+	manager := cloud.NewCloudManager(profile)
+	// Step 1: Validate cloud provider credentials
+	if err := manager.AutoDetectProvider(profile); err != nil {
+		return err
+	}
+
 	// Create Terraform manager
-	manager := terraform.NewManager(projectName, profile)
+	destroyer := terraform.NewManager(projectName, profile, manager.Provider)
 
 	// Destroy infrastructure
 	fmt.Println("\nDestroying infrastructure...")
-	err := manager.Destroy()
+	err := destroyer.Destroy()
 
 	terraform.DisplayDestroyResults(projectName, err == nil)
 
@@ -278,12 +288,17 @@ func statusCommand(c *cli.Context) error {
 	fmt.Printf("\nChecking infrastructure status for: %s\n", projectName)
 	fmt.Println(strings.Repeat("=", 80))
 
+	manager := cloud.NewCloudManager(profile)
+	// Step 1: Validate cloud provider credentials
+	if err := manager.AutoDetectProvider(profile); err != nil {
+		return err
+	}
 	// Create Terraform manager
-	manager := terraform.NewManager(projectName, profile)
+	status := terraform.NewManager(projectName, profile, manager.Provider)
 
 	// Get current outputs (this requires terraform to be initialized)
 	// For now, we'll use a simpler approach - check AWS directly
-	outputs, err := manager.GetCurrentStatus()
+	outputs, err := status.GetCurrentStatus()
 	if err != nil {
 		// Infrastructure might not exist
 		fmt.Println("\nNo infrastructure found for this project.")
@@ -347,16 +362,14 @@ func extendTTLCommand(c *cli.Context) error {
 // extendTTL extends the TTL for an existing deployment
 func extendTTL(profile, projectName string, additionalHours int) error {
 	ctx := context.Background()
-
-	// Create S3 store
-	fmt.Println("  Reading current metadata from S3...")
-	store, err := state.StoreForProject(ctx, projectName)
-	if err != nil {
-		return fmt.Errorf("failed to create store: %w", err)
+	manager := cloud.NewCloudManager(profile)
+	// Step 1: Validate cloud provider credentials
+	if err := manager.AutoDetectProvider(profile); err != nil {
+		return err
 	}
 
 	// Get current metadata
-	metadata, err := store.GetDeploymentMetadata(ctx)
+	metadata, err := manager.Provider.GetDeploymentMetadata(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get deployment metadata: %w\nIs infrastructure deployed?", err)
 	}
@@ -380,12 +393,12 @@ func extendTTL(profile, projectName string, additionalHours int) error {
 
 	// Extend TTL
 	fmt.Printf("  Adding %d hours...\n", additionalHours)
-	if err := store.ExtendTTL(ctx, additionalHours); err != nil {
+	if err := manager.Provider.ExtendTTL(ctx, additionalHours); err != nil {
 		return fmt.Errorf("failed to extend TTL: %w", err)
 	}
 
 	// Get updated metadata
-	updatedMetadata, _ := store.GetDeploymentMetadata(ctx)
+	updatedMetadata, _ := manager.Provider.GetDeploymentMetadata(ctx)
 	fmt.Printf("  New TTL expiry: %s\n", updatedMetadata.TTLExpiry.Format("2006-01-02 15:04:05 MST"))
 	newRemaining := time.Until(updatedMetadata.TTLExpiry)
 	fmt.Printf("  New time remaining: %s\n", newRemaining.Round(time.Minute))

@@ -48,8 +48,16 @@ func (m *Manager) CheckInfrastructureExists() (bool, error) {
 		fmt.Sprintf("s3://auto-mock-terraform-state-%s/projects/%s/terraform.tfstate",
 			m.Region, m.ProjectName))
 
-	if m.AWSProfile != "" {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("AWS_PROFILE=%s", m.AWSProfile))
+	if m.Profile != "" {
+		switch m.Provider.GetProviderType() {
+		case "aws":
+			cmd.Env = append(cmd.Env, fmt.Sprintf("AWS_PROFILE=%s", m.Profile))
+			break
+		case "gcp":
+			cmd.Env = append(cmd.Env, fmt.Sprintf("GOOGLE_CLOUD_PROJECT=%s", m.Profile))
+		case "azure":
+			cmd.Env = append(cmd.Env, fmt.Sprintf("AZURE_SUBSCRIPTION_ID=%s", m.Profile))
+		}
 	}
 
 	err := cmd.Run()
@@ -70,8 +78,15 @@ func (m *Manager) GetInfrastructureSummary() (map[string]interface{}, error) {
 		"--region", m.Region,
 		"--output", "json")
 
-	if m.AWSProfile != "" {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("AWS_PROFILE=%s", m.AWSProfile))
+	if m.Profile != "" {
+		switch m.Provider.GetProviderType() {
+		case "aws":
+			cmd.Env = append(cmd.Env, fmt.Sprintf("AWS_PROFILE=%s", m.Profile))
+		case "gcp":
+			cmd.Env = append(cmd.Env, fmt.Sprintf("GOOGLE_CLOUD_PROJECT=%s", m.Profile))
+		case "azure":
+			cmd.Env = append(cmd.Env, fmt.Sprintf("AZURE_SUBSCRIPTION_ID=%s", m.Profile))
+		}
 	}
 
 	output, err := cmd.Output()
@@ -96,8 +111,16 @@ func (m *Manager) GetInfrastructureSummary() (map[string]interface{}, error) {
 		"--query", fmt.Sprintf("Buckets[?starts_with(Name, 'auto-mock-%s')].Name", m.ProjectName),
 		"--output", "json")
 
-	if m.AWSProfile != "" {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("AWS_PROFILE=%s", m.AWSProfile))
+	if m.Profile != "" {
+		switch m.Provider.GetProviderType() {
+		case "aws":
+			cmd.Env = append(cmd.Env, fmt.Sprintf("AWS_PROFILE=%s", m.Profile))
+			break
+		case "gcp":
+			cmd.Env = append(cmd.Env, fmt.Sprintf("GOOGLE_CLOUD_PROJECT=%s", m.Profile))
+		case "azure":
+			cmd.Env = append(cmd.Env, fmt.Sprintf("AZURE_SUBSCRIPTION_ID=%s", m.Profile))
+		}
 	}
 
 	output, err = cmd.Output()

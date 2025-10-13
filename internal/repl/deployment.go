@@ -10,28 +10,29 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/hemantobora/auto-mock/internal"
 	"github.com/hemantobora/auto-mock/internal/terraform"
-	"github.com/hemantobora/auto-mock/internal/utils"
 )
 
 type Deployment struct {
 	ProjectName string
-	AWSProfile  string
 	Options     *terraform.DeploymentOptions
+	Provider    internal.Provider
+	Profile     string
 }
 
 // NewDeployment creates a new Deployment instance
-func NewDeployment(projectName, awsProfile string, options *terraform.DeploymentOptions) *Deployment {
+func NewDeployment(projectName, profile string, provider internal.Provider, options *terraform.DeploymentOptions) *Deployment {
 	return &Deployment{
 		ProjectName: projectName,
-		AWSProfile:  awsProfile,
 		Options:     options,
+		Provider:    provider,
+		Profile:     profile,
 	}
 }
 
 // DeployInfrastructureWithTerraform deploys actual infrastructure using Terraform
 func (d *Deployment) DeployInfrastructureWithTerraform(skip_confirmation bool) error {
-	cleanName := utils.ExtractUserProjectName(d.ProjectName)
 
 	fmt.Println("\n🏗️  Complete Infrastructure Deployment")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -71,11 +72,11 @@ func (d *Deployment) DeployInfrastructureWithTerraform(skip_confirmation bool) e
 
 	// Create Terraform manager
 	// The manager will automatically find the existing S3 bucket
-	manager := terraform.NewManager(cleanName, d.AWSProfile)
+	manager := terraform.NewManager(d.ProjectName, d.Profile, d.Provider)
 
 	// Validate bucket was found
 	if manager.ExistingBucketName == "" {
-		return fmt.Errorf("❌ No S3 bucket found for project '%s'. Please run 'automock init --project %s' first to create the project", cleanName, cleanName)
+		return fmt.Errorf("❌ No S3 bucket found for project '%s'. Please run 'automock init --project %s' first to create the project", d.ProjectName, d.ProjectName)
 	}
 
 	fmt.Printf("\n✓ Found existing bucket: %s\n", manager.ExistingBucketName)
@@ -88,7 +89,7 @@ func (d *Deployment) DeployInfrastructureWithTerraform(skip_confirmation bool) e
 	}
 
 	// Display results
-	terraform.DisplayDeploymentResults(outputs, cleanName)
+	terraform.DisplayDeploymentResults(outputs, d.ProjectName)
 
 	return nil
 }

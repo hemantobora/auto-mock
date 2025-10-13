@@ -5,34 +5,58 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 
-	"github.com/hemantobora/auto-mock/internal/provider"
-	"github.com/hemantobora/auto-mock/internal/utils"
+	"github.com/hemantobora/auto-mock/internal"
+	"github.com/hemantobora/auto-mock/internal/cloud/naming"
 )
 
 // Provider holds AWS-specific clients and config
 type Provider struct {
-	ProjectName string
-	BucketName  string
-	S3Client    *s3.Client
-	AWSConfig   aws.Config
+	projectID  string
+	naming     internal.NamingStrategy
+	region     string
+	BucketName string
+	S3Client   *s3.Client
+	AWSConfig  aws.Config
 }
 
-// loadAWSConfig loads AWS config with optional profile
-func loadAWSConfig(profile string) (aws.Config, error) {
+// ProviderOption is a functional option for provider configuration
+type ProviderOption func(*providerOptions)
+
+type providerOptions struct {
+	profile string
+	region  string
+}
+
+// WithRegion specifies the AWS region
+func WithRegion(region string) ProviderOption {
+	return func(o *providerOptions) {
+		o.region = region
+	}
+}
+
+// WithProfile specifies the AWS profile to use
+func WithProfile(profile string) ProviderOption {
+	return func(o *providerOptions) {
+		o.profile = profile
+	}
+}
+
+// loadAWSConfig loads AWS configuration with optional profile
+func loadAWSConfig(ctx context.Context, profile string) (aws.Config, error) {
 	optFns := []func(*config.LoadOptions) error{}
 	if profile != "" {
 		optFns = append(optFns, config.WithSharedConfigProfile(profile))
 	}
-	cfg, err := config.LoadDefaultConfig(context.TODO(), optFns...)
+	cfg, err := config.LoadDefaultConfig(ctx, optFns...)
 	if err != nil {
 		return aws.Config{}, fmt.Errorf("failed to load AWS config: %w", err)
 	}
@@ -42,92 +66,116 @@ func loadAWSConfig(profile string) (aws.Config, error) {
 	return cfg, nil
 }
 
-// Exported for use in manager.go
-var LoadAWSConfig = loadAWSConfig
-
-func ListBucketsWithPrefix(profile, prefix string) ([]string, error) {
-	cfg, err := loadAWSConfig(profile)
-	if err != nil {
-		return nil, err
+// NewProvider creates a new S3 storage provider
+func NewProvider(ctx context.Context, options ...ProviderOption) (*Provider, error) {
+	// Apply options
+	opts := &providerOptions{}
+	for _, opt := range options {
+		opt(opts)
 	}
+
+	// Load AWS configuration
+	cfg, err := loadAWSConfig(ctx, opts.profile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS config: %w", err)
+	}
+
+	// Override region if specified
+	if opts.region != "" {
+		cfg.Region = opts.region
+	}
+
+	// Create S3 client
 	s3Client := s3.NewFromConfig(cfg)
-	out, err := s3Client.ListBuckets(context.TODO(), &s3.ListBucketsInput{})
+
+	// Create provider
+	naming := naming.NewDefaultNaming()
+	provider := &Provider{
+		S3Client:  s3Client,
+		naming:    naming,
+		region:    cfg.Region,
+		AWSConfig: cfg,
+	}
+	return provider, nil
+}
+
+// ValidateCredentials checks if AWS credentials are valid
+func ValidateCredentials(ctx context.Context, profile string) (bool, error) {
+	cfg, err := loadAWSConfig(ctx, profile)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	var filtered []string
-	for _, bucket := range out.Buckets {
-		if bucket.Name != nil && strings.HasPrefix(*bucket.Name, prefix) {
-			filtered = append(filtered, *bucket.Name)
-		}
-	}
-	return filtered, nil
-}
 
-// Ensure aws.Provider implements provider.Provider
-var _ provider.Provider = (*Provider)(nil)
-
-// NewProvider initializes the AWS SDK and returns an AWS Provider instance
-func NewProvider(profile, projectName string) (*Provider, error) {
-	cfg, err := loadAWSConfig(profile)
+	client := sts.NewFromConfig(cfg)
+	_, err = client.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	s3Client := s3.NewFromConfig(cfg)
-	bucketName := utils.GetBucketName(strings.ToLower(projectName))
-	return &Provider{
-		ProjectName: projectName,
-		BucketName:  bucketName,
-		S3Client:    s3Client,
-		AWSConfig:   cfg,
-	}, nil
+
+	return true, nil
 }
 
-// InitProject creates an S3 bucket for the project if it does not exist
-// Optionally can deploy complete infrastructure if requested
-func (p *Provider) InitProject() error {
-	// For now, keep the existing S3-only behavior
-	// Users can optionally upgrade to complete infrastructure
-	return p.initS3Project()
+// GetProviderType returns the provider type
+func (p *Provider) GetProviderType() string {
+	return "aws"
 }
 
-// initS3Project creates just the S3 bucket (existing behavior)
-func (p *Provider) initS3Project() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+func (p *Provider) ValidateProjectName(projectID string) error {
+	return p.naming.ValidateProjectID(projectID)
+}
 
+func (p *Provider) GetStorageName() string {
+	return p.BucketName
+}
+
+func (p *Provider) GetProjectName() string {
+	return p.projectID
+}
+
+func (p *Provider) SetStorageName(name string) {
+	p.BucketName = name
+}
+
+func (p *Provider) SetProjectName(name string) {
+	p.projectID = name
+}
+
+func (p *Provider) InitProject(ctx context.Context, projectID string) error {
+	// Check if bucket exists
+	bucketName := p.naming.GenerateStorageName(projectID)
 	_, err := p.S3Client.HeadBucket(ctx, &s3.HeadBucketInput{
-		Bucket: &p.BucketName,
+		Bucket: aws.String(bucketName),
 	})
 	if err == nil {
-		cleanName := utils.ExtractUserProjectName(p.ProjectName)
-		fmt.Printf("✅ Project already initialized: %s\n", cleanName)
+		// Bucket exists
+		p.projectID = projectID
+		p.BucketName = bucketName
+		fmt.Printf("✅ Project already initialized: %s\n", projectID)
 		return nil
 	}
 
+	// Create bucket
 	var input *s3.CreateBucketInput
-	if p.AWSConfig.Region == "us-east-1" {
+	if p.region == "us-east-1" {
 		input = &s3.CreateBucketInput{
-			Bucket: &p.BucketName,
+			Bucket: aws.String(bucketName),
 		}
 	} else {
 		input = &s3.CreateBucketInput{
-			Bucket: &p.BucketName,
+			Bucket: aws.String(bucketName),
 			CreateBucketConfiguration: &types.CreateBucketConfiguration{
-				LocationConstraint: types.BucketLocationConstraint(p.AWSConfig.Region),
+				LocationConstraint: types.BucketLocationConstraint(p.region),
 			},
 		}
 	}
 
 	_, err = p.S3Client.CreateBucket(ctx, input)
-
 	if err != nil {
 		var apiErr smithy.APIError
 		if errors.As(err, &apiErr) {
 			switch apiErr.ErrorCode() {
 			case "BucketAlreadyOwnedByYou":
-				cleanName := utils.ExtractUserProjectName(p.ProjectName)
-				fmt.Printf("✅ Project already initialized: %s\n", cleanName)
+				fmt.Printf("✅ Project already initialized: %s\n", projectID)
 				return nil
 			case "BucketAlreadyExists":
 				return fmt.Errorf("❌ bucket name '%s' already taken globally — choose a more unique project name", p.BucketName)
@@ -135,7 +183,31 @@ func (p *Provider) initS3Project() error {
 		}
 		return fmt.Errorf("failed to create bucket: %w", err)
 	}
+	fmt.Println("✅ Project initialized:", projectID)
+	p.projectID = projectID
+	p.BucketName = bucketName
+	return nil
+}
 
-	fmt.Println("✅ Project initialized:", utils.ExtractUserProjectName(p.ProjectName))
+// DeleteProject removes the S3 bucket and all associated resources for a project
+func (p *Provider) DeleteProject() error {
+	// Delete the S3 bucket
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// First, try to delete all objects in the bucket (if any)
+	// Note: In the current MVP, we don't store objects, but this is future-proof
+
+	// Delete the bucket itself
+	_, err := p.S3Client.DeleteBucket(ctx, &s3.DeleteBucketInput{
+		Bucket: &p.BucketName,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete bucket %s: %w", p.BucketName, err)
+	}
+
+	fmt.Printf("🗑️ Deleted project: %s\n", p.projectID)
+	fmt.Println("ℹ️ TTL Lambda deletion skipped — not yet provisioned in current MVP")
+
 	return nil
 }

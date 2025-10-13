@@ -18,7 +18,7 @@ func BuildRESTExpectationWithContext(existingExpectations []MockExpectation) (Mo
 	var expectation MockExpectation
 	var mock_configurator MockConfigurator
 
-	fmt.Println("🚀 Starting Enhanced 8-Step REST Expectation Builder")
+	fmt.Println("🚀 Starting Enhanced 7-Step REST Expectation Builder")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	steps := []struct {
@@ -26,9 +26,6 @@ func BuildRESTExpectationWithContext(existingExpectations []MockExpectation) (Mo
 		fn   func(exp *MockExpectation) error
 	}{
 		{"API Details", collectRESTAPIDetails},
-		{"Expectation Identification", func(exp *MockExpectation) error {
-			return CollectExpectationName(exp, existingExpectations)
-		}},
 		{"Query Parameter Matching", mock_configurator.CollectQueryParameterMatching},
 		{"Path Matching Strategy", mock_configurator.CollectPathMatchingStrategy},
 		{"Request Header Matching", mock_configurator.CollectRequestHeaderMatching},

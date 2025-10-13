@@ -1,7 +1,6 @@
 package collections
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,15 +12,11 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/hemantobora/auto-mock/internal/builders"
-	"github.com/hemantobora/auto-mock/internal/state"
-	"github.com/hemantobora/auto-mock/internal/utils"
 )
 
 // CollectionProcessor handles import and processing of API collections
 type CollectionProcessor struct {
-	store          *state.S3Store
 	projectName    string
-	cleanName      string
 	collectionType string
 }
 
@@ -58,18 +53,9 @@ type ExecutionNode struct {
 
 // NewCollectionProcessor creates a new collection processor
 func NewCollectionProcessor(projectName, collectionType string) (*CollectionProcessor, error) {
-	ctx := context.Background()
-
-	// Initialize S3 store using factory
-	store, err := state.StoreForProject(ctx, projectName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create store: %w", err)
-	}
 
 	return &CollectionProcessor{
-		store:          store,
 		projectName:    projectName,
-		cleanName:      utils.ExtractUserProjectName(projectName),
 		collectionType: collectionType,
 	}, nil
 }

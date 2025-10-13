@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hemantobora/auto-mock/internal/state"
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 // saveDeploymentMetadata saves deployment information to S3
@@ -26,27 +26,21 @@ func (m *Manager) saveDeploymentMetadata(outputs *InfrastructureOutputs, options
 		return fmt.Errorf("no config bucket available for metadata")
 	}
 
-	// Create S3 store with actual bucket name
-	store, err := state.CreateS3StoreWithBucket(ctx, m.ProjectName, bucketName, m.AWSProfile)
-	if err != nil {
-		return fmt.Errorf("failed to create store: %w", err)
-	}
-
 	// Build metadata
-	metadata := &state.DeploymentMetadata{
+	metadata := &models.DeploymentMetadata{
 		ProjectName:      m.ProjectName,
 		DeploymentStatus: "deployed",
 		DeployedAt:       time.Now(),
 		TTLHours:         options.TTLHours,
-		Infrastructure: state.InfrastructureInfo{
+		Infrastructure: models.InfrastructureInfo{
 			MockServerURL: outputs.MockServerURL,
 			DashboardURL:  outputs.DashboardURL,
 			Region:        m.Region,
 		},
-		Options: state.DeploymentOptions{
+		Options: models.DeploymentOptions{
 			InstanceSize:      options.InstanceSize,
-			MinTasks:          10, // From terraform default
-			MaxTasks:          200,
+			MinTasks:          options.MinTasks, // From terraform default
+			MaxTasks:          options.MaxTasks,
 			CustomDomain:      options.CustomDomain,
 			NotificationEmail: options.NotificationEmail,
 		},
@@ -103,17 +97,5 @@ func (m *Manager) saveDeploymentMetadata(outputs *InfrastructureOutputs, options
 	metadata.Outputs["config_bucket"] = outputs.ConfigBucket
 
 	// Save to S3
-	return store.SaveDeploymentMetadata(ctx, metadata)
-}
-
-// updateMetadataStatus updates deployment status in S3
-func (m *Manager) updateMetadataStatus(status string) error {
-	ctx := context.Background()
-
-	store, err := state.StoreForProject(ctx, m.ProjectName)
-	if err != nil {
-		return fmt.Errorf("failed to create store: %w", err)
-	}
-
-	return store.UpdateDeploymentStatus(ctx, status)
+	return m.Provider.SaveDeploymentMetadata(ctx, metadata)
 }

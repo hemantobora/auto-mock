@@ -18,7 +18,7 @@ func BuildGraphQLExpectationWithContext(existingExpectations []MockExpectation) 
 	var expectation MockExpectation
 	var mock_configurator MockConfigurator
 
-	fmt.Println("🚀 Starting Enhanced 8-Step GraphQL Expectation Builder")
+	fmt.Println("🚀 Starting Enhanced 7-Step GraphQL Expectation Builder")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	steps := []struct {
@@ -26,9 +26,6 @@ func BuildGraphQLExpectationWithContext(existingExpectations []MockExpectation) 
 		fn   func(*MockExpectation) error
 	}{
 		{"GraphQL Operation Details", collectGraphQLOperationDetails},
-		{"Expectation Identification", func(exp *MockExpectation) error {
-			return CollectExpectationName(exp, existingExpectations)
-		}},
 		{"Query/Mutation Content", collectGraphQLQueryContent},
 		{"Variable Matching", collectGraphQLVariableMatching},
 		{"Request Header Matching", mock_configurator.CollectRequestHeaderMatching}, // Reuse from REST

@@ -3,7 +3,6 @@ package terraform
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,10 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/hemantobora/auto-mock/internal/utils"
+	"github.com/hemantobora/auto-mock/internal"
 )
 
 // Manager handles Terraform operations for AutoMock infrastructure
@@ -25,8 +21,9 @@ type Manager struct {
 	Region             string
 	TerraformDir       string
 	WorkingDir         string
-	AWSProfile         string
-	ExistingBucketName string // Full bucket name from init
+	Provider           internal.Provider
+	Profile            string
+	ExistingBucketName string
 }
 
 // DeploymentOptions configures the infrastructure deployment
@@ -65,9 +62,7 @@ type InfrastructureOutputs struct {
 }
 
 // NewManager creates a new Terraform manager
-func NewManager(projectName, awsProfile string) *Manager {
-	// Extract clean project name
-	cleanProject := utils.ExtractUserProjectName(projectName)
+func NewManager(cleanProject, profile string, provider internal.Provider) *Manager {
 
 	// Get the project root directory
 	execPath, _ := os.Executable()
@@ -82,58 +77,14 @@ func NewManager(projectName, awsProfile string) *Manager {
 	// Create a unique working directory for this deployment
 	workingDir := filepath.Join(os.TempDir(), fmt.Sprintf("automock-%s-%s", cleanProject, time.Now().Format("20060102-150405")))
 
-	// Find the existing S3 bucket for this project
-	bucketName := findProjectBucket(cleanProject, awsProfile)
-
 	return &Manager{
 		ProjectName:        cleanProject,
-		Region:             "us-east-1",
 		TerraformDir:       terraformDir,
 		WorkingDir:         workingDir,
-		AWSProfile:         awsProfile,
-		ExistingBucketName: bucketName,
+		Provider:           provider,
+		ExistingBucketName: provider.GetStorageName(), // Use existing bucket if available
+		Profile:            profile,
 	}
-}
-
-// findProjectBucket finds the S3 bucket for a given project
-func findProjectBucket(projectName, awsProfile string) string {
-	ctx := context.Background()
-
-	// Load AWS config
-	var cfg aws.Config
-	var err error
-	if awsProfile != "" {
-		cfg, err = config.LoadDefaultConfig(ctx, config.WithSharedConfigProfile(awsProfile))
-	} else {
-		cfg, err = config.LoadDefaultConfig(ctx)
-	}
-	if err != nil {
-		fmt.Printf("Warning: Failed to load AWS config for bucket lookup: %v\n", err)
-		return ""
-	}
-
-	// Create S3 client
-	client := s3.NewFromConfig(cfg)
-
-	// List buckets
-	resp, err := client.ListBuckets(ctx, &s3.ListBucketsInput{})
-	if err != nil {
-		fmt.Printf("Warning: Failed to list S3 buckets: %v\n", err)
-		return ""
-	}
-
-	// Find bucket matching pattern: auto-mock-{projectName}-*
-	prefix := fmt.Sprintf("auto-mock-%s-", projectName)
-	for _, bucket := range resp.Buckets {
-		if bucket.Name != nil && strings.HasPrefix(*bucket.Name, prefix) {
-			return *bucket.Name
-		}
-	}
-
-	// If not found, return empty
-	fmt.Printf("Warning: No S3 bucket found for project '%s'\n", projectName)
-	fmt.Printf("Expected bucket name pattern: %s*\n", prefix)
-	return ""
 }
 
 func (m *Manager) createBackendConfig() error {
@@ -507,10 +458,16 @@ func (m *Manager) getOutputs() (*InfrastructureOutputs, error) {
 func (m *Manager) getTerraformEnv() []string {
 	env := []string{}
 
-	if m.AWSProfile != "" {
-		env = append(env, fmt.Sprintf("AWS_PROFILE=%s", m.AWSProfile))
+	if m.Profile != "" {
+		switch m.Provider.GetProviderType() {
+		case "aws":
+			env = append(env, fmt.Sprintf("AWS_PROFILE=%s", m.Profile))
+		case "gcp":
+			env = append(env, fmt.Sprintf("GOOGLE_CLOUD_PROJECT=%s", m.Profile))
+		case "azure":
+			env = append(env, fmt.Sprintf("AZURE_SUBSCRIPTION_ID=%s", m.Profile))
+		}
 	}
-
 	env = append(env, "TF_CLI_CONFIG_FILE=/dev/null")
 
 	return env
