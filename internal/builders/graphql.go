@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 // BuildGraphQLExpectation builds a single GraphQL mock expectation using enhanced 8-step process
@@ -34,9 +35,13 @@ func BuildGraphQLExpectationWithContext(existingExpectations []MockExpectation) 
 		{"Review and Confirm", reviewGraphQLConfirm},
 	}
 
-	for i, step := range steps {
+	for _, step := range steps {
 		if err := step.fn(&expectation); err != nil {
-			return expectation, fmt.Errorf("step %d (%s) failed: %w", i+1, step.name, err)
+			return expectation, &models.ExpectationBuildError{
+				ExpectationType: "GraphQL",
+				Step:            step.name,
+				Cause:           err,
+			}
 		}
 	}
 
@@ -151,7 +156,11 @@ func collectGraphQLQueryContent(expectation *MockExpectation) error {
 	// Convert to JSON for storage
 	requestBodyJSON, err := json.MarshalIndent(requestBodyMap, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal request body: %w", err)
+		return &models.JSONValidationError{
+			Context: "GraphQL request body marshaling",
+			Content: fmt.Sprintf("%v", requestBodyMap),
+			Cause:   err,
+		}
 	}
 
 	expectation.Body = string(requestBodyJSON)
@@ -200,7 +209,11 @@ func collectGraphQLVariableMatching(expectation *MockExpectation) error {
 			return err
 		}
 		if !proceed {
-			return fmt.Errorf("invalid variables JSON provided")
+			return &models.JSONValidationError{
+				Context: "GraphQL variables",
+				Content: variablesJSON,
+				Cause:   err,
+			}
 		}
 	}
 
@@ -213,7 +226,11 @@ func collectGraphQLVariableMatching(expectation *MockExpectation) error {
 	// Parse existing request body to get query
 	var existingBody map[string]interface{}
 	if err := json.Unmarshal([]byte(expectation.Body.(string)), &existingBody); err != nil {
-		return fmt.Errorf("failed to parse existing request body: %w", err)
+		return &models.JSONValidationError{
+			Context: "GraphQL existing request body parsing",
+			Content: expectation.Body.(string),
+			Cause:   err,
+		}
 	}
 
 	queryContent := ""
@@ -228,7 +245,11 @@ func collectGraphQLVariableMatching(expectation *MockExpectation) error {
 	// Parse variables JSON
 	var variables interface{}
 	if err := json.Unmarshal([]byte(variablesJSON), &variables); err != nil {
-		return fmt.Errorf("failed to parse variables JSON: %w", err)
+		return &models.JSONValidationError{
+			Context: "GraphQL variables parsing",
+			Content: variablesJSON,
+			Cause:   err,
+		}
 	}
 
 	// Create new request body with variables
@@ -240,7 +261,11 @@ func collectGraphQLVariableMatching(expectation *MockExpectation) error {
 
 	requestBodyJSON, err := json.MarshalIndent(requestBodyMap, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to marshal request body: %w", err)
+		return &models.JSONValidationError{
+			Context: "GraphQL request body with variables marshaling",
+			Content: fmt.Sprintf("%v", requestBodyMap),
+			Cause:   err,
+		}
 	}
 
 	expectation.Body = string(requestBodyJSON)
@@ -318,7 +343,11 @@ func collectGraphQLResponseDefinition(expectation *MockExpectation) error {
 				return err
 			}
 			if !proceed {
-				return fmt.Errorf("invalid JSON provided")
+				return &models.JSONValidationError{
+					Context: "GraphQL response",
+					Content: responseBody,
+					Cause:   err,
+				}
 			}
 		}
 	}
@@ -364,7 +393,11 @@ func reviewGraphQLConfirm(expectation *MockExpectation) error {
 	}
 
 	if !confirm {
-		return fmt.Errorf("expectation creation cancelled by user")
+		return &models.ExpectationBuildError{
+			ExpectationType: "GraphQL",
+			Step:            "Review and Confirm",
+			Cause:           fmt.Errorf("expectation creation cancelled by user"),
+		}
 	}
 
 	fmt.Printf("\n✅ GraphQL Expectation Created: %s\n", expectation.Name)
@@ -447,7 +480,11 @@ func generateGraphQLTemplate(operationType string) (string, string, error) {
 
 			template = strings.TrimSpace(customQuery)
 			if template == "" {
-				return "", "", fmt.Errorf("custom query cannot be empty")
+				return "", "", &models.InputValidationError{
+					InputType: "GraphQL query",
+					Value:     "<empty>",
+					Expected:  "non-empty GraphQL query",
+				}
 			}
 
 			// Try to extract operation name
@@ -534,7 +571,11 @@ func generateGraphQLTemplate(operationType string) (string, string, error) {
 
 			template = strings.TrimSpace(customMutation)
 			if template == "" {
-				return "", "", fmt.Errorf("custom mutation cannot be empty")
+				return "", "", &models.InputValidationError{
+					InputType: "GraphQL mutation",
+					Value:     "<empty>",
+					Expected:  "non-empty GraphQL mutation",
+				}
 			}
 
 			// Try to extract operation name

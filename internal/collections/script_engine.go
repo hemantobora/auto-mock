@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/dop251/goja"
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 // ScriptEngine provides a JavaScript execution environment for pre/post scripts
@@ -84,8 +85,33 @@ func (se *ScriptEngine) SetResponseData(jsonData interface{}, headers map[string
 
 // Execute runs the JavaScript code and returns any errors
 func (se *ScriptEngine) Execute(script string) error {
+	// Add panic recovery for script execution
+	var execErr error
+	defer func() {
+		if r := recover(); r != nil {
+			execErr = &models.ScriptExecutionError{
+				ScriptType: "unknown",
+				APIName:    "",
+				Cause:      fmt.Errorf("panic during script execution: %v", r),
+			}
+		}
+	}()
+
 	_, err := se.vm.RunString(script)
-	return err
+	if err != nil {
+		// Wrap the error with more context
+		return &models.ScriptExecutionError{
+			ScriptType: "unknown",
+			APIName:    "",
+			Cause:      fmt.Errorf("script execution failed: %w", err),
+		}
+	}
+
+	if execErr != nil {
+		return execErr
+	}
+
+	return nil
 }
 
 // GetExtractedVariables returns all variables that were set during script execution

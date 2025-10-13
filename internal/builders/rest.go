@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 // BuildRESTExpectation builds a single REST mock expectation using the enhanced 8-step process
@@ -34,9 +35,13 @@ func BuildRESTExpectationWithContext(existingExpectations []MockExpectation) (Mo
 		{"Review and Confirm", reviewAndConfirm},
 	}
 
-	for i, step := range steps {
+	for _, step := range steps {
 		if err := step.fn(&expectation); err != nil {
-			return expectation, fmt.Errorf("step %d (%s) failed: %w", i+1, step.name, err)
+			return expectation, &models.ExpectationBuildError{
+				ExpectationType: "REST",
+				Step:            step.name,
+				Cause:           err,
+			}
 		}
 	}
 
@@ -987,7 +992,12 @@ func collectStatusCode(expectation *MockExpectation) error {
 	codeStr := strings.Split(selectedCode, " - ")[0]
 	statusCode, err := strconv.Atoi(codeStr)
 	if err != nil {
-		return fmt.Errorf("invalid status code: %w", err)
+		return &models.InputValidationError{
+			InputType: "status code",
+			Value:     codeStr,
+			Expected:  "valid HTTP status code",
+			Cause:     err,
+		}
 	}
 
 	expectation.StatusCode = statusCode
@@ -1049,7 +1059,11 @@ func collectResponseBody(expectation *MockExpectation) error {
 				return err
 			}
 			if !proceed {
-				return fmt.Errorf("invalid JSON provided")
+				return &models.JSONValidationError{
+					Context: "response body",
+					Content: responseJSON,
+					Cause:   err,
+				}
 			}
 		}
 
@@ -1301,7 +1315,11 @@ func collectRegexPattern(expectation *MockExpectation) error {
 			return err
 		}
 		if !proceed {
-			return fmt.Errorf("invalid regex pattern")
+			return &models.RegexValidationError{
+				Pattern: regexPattern,
+				Context: "path matching",
+				Cause:   err,
+			}
 		}
 	}
 

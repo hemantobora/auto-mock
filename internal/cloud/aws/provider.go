@@ -16,6 +16,7 @@ import (
 
 	"github.com/hemantobora/auto-mock/internal"
 	"github.com/hemantobora/auto-mock/internal/cloud/naming"
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 // Provider holds AWS-specific clients and config
@@ -58,7 +59,12 @@ func loadAWSConfig(ctx context.Context, profile string) (aws.Config, error) {
 	}
 	cfg, err := config.LoadDefaultConfig(ctx, optFns...)
 	if err != nil {
-		return aws.Config{}, fmt.Errorf("failed to load AWS config: %w", err)
+		return aws.Config{}, &models.ProviderError{
+			Provider:  "aws",
+			Operation: "load-config",
+			Resource:  fmt.Sprintf("profile:%s", profile),
+			Cause:     fmt.Errorf("failed to load AWS config: %w", err),
+		}
 	}
 	if cfg.Region == "" {
 		cfg.Region = "us-east-1"
@@ -178,10 +184,20 @@ func (p *Provider) InitProject(ctx context.Context, projectID string) error {
 				fmt.Printf("✅ Project already initialized: %s\n", projectID)
 				return nil
 			case "BucketAlreadyExists":
-				return fmt.Errorf("❌ bucket name '%s' already taken globally — choose a more unique project name", p.BucketName)
+				return &models.ProviderError{
+					Provider:  "aws",
+					Operation: "init",
+					Resource:  bucketName,
+					Cause:     fmt.Errorf("bucket name '%s' already taken globally — choose a more unique project name", bucketName),
+				}
 			}
 		}
-		return fmt.Errorf("failed to create bucket: %w", err)
+		return &models.ProviderError{
+			Provider:  "aws",
+			Operation: "init",
+			Resource:  bucketName,
+			Cause:     fmt.Errorf("failed to create bucket: %w", err),
+		}
 	}
 	fmt.Println("✅ Project initialized:", projectID)
 	p.projectID = projectID
@@ -203,7 +219,12 @@ func (p *Provider) DeleteProject() error {
 		Bucket: &p.BucketName,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to delete bucket %s: %w", p.BucketName, err)
+		return &models.ProviderError{
+			Provider:  "aws",
+			Operation: "delete",
+			Resource:  p.BucketName,
+			Cause:     fmt.Errorf("failed to delete bucket %s: %w", p.BucketName, err),
+		}
 	}
 
 	fmt.Printf("🗑️ Deleted project: %s\n", p.projectID)

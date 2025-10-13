@@ -12,6 +12,7 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/hemantobora/auto-mock/internal/builders"
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 // CollectionProcessor handles import and processing of API collections
@@ -145,7 +146,11 @@ func (cp *CollectionProcessor) parseCollectionFile(filePath string) ([]APIReques
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
+		return nil, &models.CollectionParsingError{
+			CollectionType: cp.collectionType,
+			FilePath:       filePath,
+			Cause:          err,
+		}
 	}
 
 	switch cp.collectionType {
@@ -156,7 +161,11 @@ func (cp *CollectionProcessor) parseCollectionFile(filePath string) ([]APIReques
 	case "insomnia":
 		return cp.parseInsomniaCollection(data)
 	default:
-		return nil, fmt.Errorf("unsupported collection type: %s", cp.collectionType)
+		return nil, &models.CollectionParsingError{
+			CollectionType: cp.collectionType,
+			FilePath:       filePath,
+			Cause:          fmt.Errorf("unsupported collection type: %s", cp.collectionType),
+		}
 	}
 }
 
@@ -1229,9 +1238,25 @@ func (cp *CollectionProcessor) reviewExpectations(expectations []builders.MockEx
 // Helper methods for parsing different collection formats
 
 func (cp *CollectionProcessor) parsePostmanCollection(data []byte) ([]APIRequest, error) {
+	// Add panic recovery for JSON parsing
+	var parseErr error
+	defer func() {
+		if r := recover(); r != nil {
+			parseErr = &models.CollectionParsingError{
+				CollectionType: cp.collectionType,
+				FilePath:       "",
+				Cause:          fmt.Errorf("panic during collection parsing: %v", r),
+			}
+		}
+	}()
+
 	var collection map[string]interface{}
 	if err := json.Unmarshal(data, &collection); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %w", err)
+		return nil, &models.CollectionParsingError{
+			CollectionType: cp.collectionType,
+			FilePath:       "", // Not available at this level
+			Cause:          fmt.Errorf("invalid JSON: %w", err),
+		}
 	}
 
 	var apis []APIRequest
@@ -1243,6 +1268,10 @@ func (cp *CollectionProcessor) parsePostmanCollection(data []byte) ([]APIRequest
 
 	if items, ok := collection["item"].([]interface{}); ok {
 		apis = append(apis, cp.parsePostmanItems(items)...)
+	}
+
+	if parseErr != nil {
+		return nil, parseErr
 	}
 
 	return apis, nil
@@ -2233,7 +2262,12 @@ func (cp *CollectionProcessor) executeAPI(api APIRequest, variables map[string]s
 
 	req, err := http.NewRequest(api.Method, url, body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, &models.APIExecutionError{
+			APIName: api.Name,
+			Method:  api.Method,
+			URL:     api.URL,
+			Cause:   fmt.Errorf("failed to create request: %w", err),
+		}
 	}
 
 	// Add headers
@@ -2253,14 +2287,25 @@ func (cp *CollectionProcessor) executeAPI(api APIRequest, variables map[string]s
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, &models.APIExecutionError{
+			APIName: api.Name,
+			Method:  api.Method,
+			URL:     api.URL,
+			Cause:   fmt.Errorf("request failed: %w", err),
+		}
 	}
 	defer resp.Body.Close()
 
 	// Read response
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, &models.APIExecutionError{
+			APIName:    api.Name,
+			Method:     api.Method,
+			URL:        api.URL,
+			StatusCode: resp.StatusCode,
+			Cause:      fmt.Errorf("failed to read response: %w", err),
+		}
 	}
 
 	// Extract headers
@@ -2342,11 +2387,19 @@ func (cp *CollectionProcessor) resolveVariables(api *APIRequest, neededVars []st
 			Message: fmt.Sprintf("Enter value for '%s':", varName),
 			Help:    "This variable is needed to execute the API. Enter the value or press Ctrl+C to cancel.",
 		}, &value); err != nil {
-			return err
+			return &models.VariableResolutionError{
+				VariableName: varName,
+				Source:       "user-input",
+				Cause:        err,
+			}
 		}
 
 		if value == "" {
-			return fmt.Errorf("no value provided for required variable '%s'", varName)
+			return &models.VariableResolutionError{
+				VariableName: varName,
+				Source:       "user-input",
+				Cause:        fmt.Errorf("no value provided for required variable '%s'", varName),
+			}
 		}
 
 		// Confirm the value
@@ -2355,7 +2408,11 @@ func (cp *CollectionProcessor) resolveVariables(api *APIRequest, neededVars []st
 			Message: fmt.Sprintf("Use '%s' = '%s'?", varName, value),
 			Default: true,
 		}, &confirm); err != nil {
-			return err
+			return &models.VariableResolutionError{
+				VariableName: varName,
+				Source:       "user-input",
+				Cause:        err,
+			}
 		}
 
 		if !confirm {
@@ -2363,7 +2420,11 @@ func (cp *CollectionProcessor) resolveVariables(api *APIRequest, neededVars []st
 			if err := survey.AskOne(&survey.Input{
 				Message: fmt.Sprintf("Re-enter value for '%s':", varName),
 			}, &value); err != nil {
-				return err
+				return &models.VariableResolutionError{
+					VariableName: varName,
+					Source:       "user-input",
+					Cause:        err,
+				}
 			}
 		}
 
@@ -2422,6 +2483,7 @@ func (cp *CollectionProcessor) executePreScript(preScript string, existingVars m
 	if err != nil {
 		fmt.Printf("   ⚠️  Script execution error: %v\n", err)
 		fmt.Printf("   💡 Script content:\n%s\n", normalizedScript)
+		// Return empty map on error instead of crashing
 		return make(map[string]string)
 	}
 

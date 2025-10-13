@@ -3,6 +3,8 @@ package builders
 import (
 	"encoding/json"
 	"regexp"
+
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 // MockExpectation represents a complete mock server expectation
@@ -219,19 +221,34 @@ func buildHttpResponse(expectation MockExpectation) map[string]interface{} {
 // ValidateJSON validates if a string is valid JSON
 func ValidateJSON(jsonStr string) error {
 	var temp interface{}
-	return json.Unmarshal([]byte(jsonStr), &temp)
+	if err := json.Unmarshal([]byte(jsonStr), &temp); err != nil {
+		return &models.JSONValidationError{
+			Context: "JSON validation",
+			Content: jsonStr,
+			Cause:   err,
+		}
+	}
+	return nil
 }
 
 // FormatJSON formats JSON string with proper indentation
 func FormatJSON(jsonStr string) (string, error) {
 	var temp interface{}
 	if err := json.Unmarshal([]byte(jsonStr), &temp); err != nil {
-		return jsonStr, err
+		return jsonStr, &models.JSONValidationError{
+			Context: "JSON formatting",
+			Content: jsonStr,
+			Cause:   err,
+		}
 	}
 
 	formatted, err := json.MarshalIndent(temp, "", "  ")
 	if err != nil {
-		return jsonStr, err
+		return jsonStr, &models.JSONValidationError{
+			Context: "JSON marshaling",
+			Content: jsonStr,
+			Cause:   err,
+		}
 	}
 
 	return string(formatted), nil
@@ -386,8 +403,14 @@ type RegexPattern struct {
 
 // IsValidRegex tests if a regex pattern is valid
 func IsValidRegex(pattern string) error {
-	_, err := regexp.Compile(pattern)
-	return err
+	if _, err := regexp.Compile(pattern); err != nil {
+		return &models.RegexValidationError{
+			Pattern: pattern,
+			Context: "regex compilation",
+			Cause:   err,
+		}
+	}
+	return nil
 }
 
 // GetCommonRegexPatterns returns a map of commonly used regex patterns for quick access

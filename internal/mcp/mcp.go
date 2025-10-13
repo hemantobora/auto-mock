@@ -9,6 +9,7 @@ import (
 
 	"github.com/hemantobora/auto-mock/internal/mcp/providers"
 	"github.com/hemantobora/auto-mock/internal/mcp/security"
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 // MockSpecEngine handles mock specification generation for CLI/REPL
@@ -74,7 +75,17 @@ func (e *MockSpecEngine) GenerateMockConfig(ctx context.Context, input string, o
 		e.logger.Printf("📋 Input type: %s", options.InputType)
 	}
 
-	return e.providerManager.GenerateMockConfig(ctx, input, options)
+	result, err := e.providerManager.GenerateMockConfig(ctx, input, options)
+	if err != nil {
+		// Wrap with AIGenerationError for better context
+		return nil, &models.AIGenerationError{
+			Provider: options.PreferredProvider,
+			Input:    input,
+			Cause:    err,
+		}
+	}
+
+	return result, nil
 }
 
 // GenerateFromDescription - CLI method for natural language input

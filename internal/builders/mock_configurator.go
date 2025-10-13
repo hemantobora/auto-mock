@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 type MockConfigurator struct {
@@ -62,7 +63,11 @@ func (mc *MockConfigurator) CollectRequestBody(expectation *MockExpectation, bod
 			return err
 		}
 		if !proceed {
-			return fmt.Errorf("invalid JSON provided")
+		 return &models.JSONValidationError{
+		Context: "request body",
+		Content: bodyJSON,
+		Cause:   err,
+		}
 		}
 	}
 
@@ -287,6 +292,7 @@ func (mc *MockConfigurator) CollectRequestHeaderMatching(expectation *MockExpect
 					return err
 				}
 				if !proceed {
+					delete(expectation.Headers, headerName)
 					continue // Ask for header again
 				}
 			}
@@ -406,7 +412,12 @@ func collectResponseLimits(expectation *MockExpectation) error {
 	// Parse and validate
 	times, err := strconv.Atoi(remainingTimes)
 	if err != nil {
-		return fmt.Errorf("invalid number: %w", err)
+		return &models.InputValidationError{
+			InputType: "response limit",
+			Value:     remainingTimes,
+			Expected:  "positive integer",
+			Cause:     err,
+		}
 	}
 
 	expectation.Times = &Times{
@@ -443,6 +454,13 @@ func collectExpectationPriority(expectation *MockExpectation) error {
 	if p, err := strconv.Atoi(priority); err == nil {
 		expectation.Priority = p
 		fmt.Printf("✅ Priority set to: %d\n", p)
+	} else {
+		return &models.InputValidationError{
+			InputType: "priority",
+			Value:     priority,
+			Expected:  "integer",
+			Cause:     err,
+		}
 	}
 
 	return nil
@@ -815,7 +833,12 @@ func collectRateLimitBehavior(expectation *MockExpectation) error {
 	// Configure current expectation for allowed requests
 	requests, err := strconv.Atoi(allowedRequests)
 	if err != nil {
-		return fmt.Errorf("invalid number: %w", err)
+		return &models.InputValidationError{
+			InputType: "rate limit requests",
+			Value:     allowedRequests,
+			Expected:  "positive integer",
+			Cause:     err,
+		}
 	}
 
 	if expectation.Times == nil {
