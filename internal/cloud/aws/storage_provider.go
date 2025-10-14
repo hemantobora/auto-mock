@@ -227,6 +227,9 @@ func (p *Provider) ListProjects(ctx context.Context) ([]models.ProjectInfo, erro
 			continue
 		}
 		projectID := p.naming.ExtractProjectID(aws.ToString(bucket.Name))
+		if projectID == "" {
+			continue
+		}
 		projects = append(projects, models.ProjectInfo{
 			ProjectID:   projectID,
 			DisplayName: projectID,

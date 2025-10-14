@@ -24,7 +24,7 @@ func BuildGraphQLExpectationWithContext(existingExpectations []MockExpectation) 
 
 	steps := []struct {
 		name string
-		fn   func(*MockExpectation) error
+		fn   func(int, *MockExpectation) error
 	}{
 		{"GraphQL Operation Details", collectGraphQLOperationDetails},
 		{"Query/Mutation Content", collectGraphQLQueryContent},
@@ -35,8 +35,8 @@ func BuildGraphQLExpectationWithContext(existingExpectations []MockExpectation) 
 		{"Review and Confirm", reviewGraphQLConfirm},
 	}
 
-	for _, step := range steps {
-		if err := step.fn(&expectation); err != nil {
+	for i, step := range steps {
+		if err := step.fn(i+1, &expectation); err != nil {
 			return expectation, &models.ExpectationBuildError{
 				ExpectationType: "GraphQL",
 				Step:            step.name,
@@ -49,8 +49,8 @@ func BuildGraphQLExpectationWithContext(existingExpectations []MockExpectation) 
 }
 
 // Step 1: Collect GraphQL Operation Details
-func collectGraphQLOperationDetails(expectation *MockExpectation) error {
-	fmt.Println("\n🔗 Step 1: GraphQL Operation Details")
+func collectGraphQLOperationDetails(step int, expectation *MockExpectation) error {
+	fmt.Printf("\n🔗 Step %d: GraphQL Operation Details\n", step)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// GraphQL always uses POST to /graphql
@@ -84,8 +84,8 @@ func collectGraphQLOperationDetails(expectation *MockExpectation) error {
 }
 
 // Step 2: Collect GraphQL Query/Mutation Content
-func collectGraphQLQueryContent(expectation *MockExpectation) error {
-	fmt.Println("\n📝 Step 2: Query/Mutation Content")
+func collectGraphQLQueryContent(step int, expectation *MockExpectation) error {
+	fmt.Printf("\n📝 Step %d: Query/Mutation Content\n", step)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	operationType := expectation.Headers["X-GraphQL-Operation-Type"]
@@ -170,8 +170,8 @@ func collectGraphQLQueryContent(expectation *MockExpectation) error {
 }
 
 // Step 3: Collect GraphQL Variable Matching
-func collectGraphQLVariableMatching(expectation *MockExpectation) error {
-	fmt.Println("\n🔢 Step 3: Variable Matching")
+func collectGraphQLVariableMatching(step int, expectation *MockExpectation) error {
+	fmt.Printf("\n🔢 Step %d: Variable Matching\n", step)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	var needsVariables bool
@@ -275,8 +275,8 @@ func collectGraphQLVariableMatching(expectation *MockExpectation) error {
 }
 
 // Step 5: Collect GraphQL Response Definition
-func collectGraphQLResponseDefinition(expectation *MockExpectation) error {
-	fmt.Println("\n📤 Step 5: GraphQL Response Definition")
+func collectGraphQLResponseDefinition(step int, expectation *MockExpectation) error {
+	fmt.Printf("\n📤 Step %d: GraphQL Response Definition\n", step)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// GraphQL responses are typically 200 OK with errors in the response body
@@ -361,15 +361,14 @@ func collectGraphQLResponseDefinition(expectation *MockExpectation) error {
 }
 
 // Step 8: Review and Confirm (GraphQL specific)
-func reviewGraphQLConfirm(expectation *MockExpectation) error {
-	fmt.Println("\n🔄 Step 8: Review and Confirm")
+func reviewGraphQLConfirm(step int, expectation *MockExpectation) error {
+	fmt.Printf("\n🔄 Step %d: Review and Confirm\n", step)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	operationType := expectation.Headers["X-GraphQL-Operation-Type"]
 
 	// Display summary
 	fmt.Printf("\n📋 GraphQL Expectation Summary:\n")
-	fmt.Printf("   Name: %s\n", expectation.Name)
 	if expectation.Description != "" {
 		fmt.Printf("   Description: %s\n", expectation.Description)
 	}
@@ -400,7 +399,7 @@ func reviewGraphQLConfirm(expectation *MockExpectation) error {
 		}
 	}
 
-	fmt.Printf("\n✅ GraphQL Expectation Created: %s\n", expectation.Name)
+	fmt.Printf("\n✅ GraphQL Expectation Created: %s\n", expectation.Description)
 	return nil
 }
 

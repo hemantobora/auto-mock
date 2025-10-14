@@ -293,7 +293,6 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 		// Build base expectation
 		path, queryParams := mock_configurator.ParsePathAndQueryParams(node.API.URL)
 		expectation := builders.MockExpectation{
-			Name:        node.API.Name,
 			Method:      node.API.Method,
 			Path:        cp.extractPath(path),
 			QueryParams: queryParams,
@@ -312,19 +311,19 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 		}
 
 		// Configure matching criteria for this individual API
-		if err := mock_configurator.CollectQueryParameterMatching(&expectation); err != nil {
+		if err := mock_configurator.CollectQueryParameterMatching(1, &expectation); err != nil {
 			return nil, err
 		}
 
-		if err := mock_configurator.CollectPathMatchingStrategy(&expectation); err != nil {
+		if err := mock_configurator.CollectPathMatchingStrategy(2, &expectation); err != nil {
 			return nil, err
 		}
 
-		if err := mock_configurator.CollectRequestHeaderMatching(&expectation); err != nil {
+		if err := mock_configurator.CollectRequestHeaderMatching(3, &expectation); err != nil {
 			return nil, err
 		}
 
-		if err := mock_configurator.CollectAdvancedFeatures(&expectation); err != nil {
+		if err := mock_configurator.CollectAdvancedFeatures(4, &expectation); err != nil {
 			return nil, err
 		}
 
@@ -1137,7 +1136,6 @@ func (cp *CollectionProcessor) handleCreateSeparateScenarios(scenarios []APIScen
 			// Create expectation for this variant
 			path, queryParams := mock_configurator.ParsePathAndQueryParams(variant.Node.API.URL)
 			expectation := builders.MockExpectation{
-				Name:        variant.Node.API.Name,
 				Method:      variant.Node.API.Method,
 				Path:        cp.extractPath(path),
 				QueryParams: queryParams,
@@ -1191,7 +1189,6 @@ func (cp *CollectionProcessor) handleCreateSeparateScenarios(scenarios []APIScen
 			// Create expectation for individual API
 			path, queryParams := mock_configurator.ParsePathAndQueryParams(node.API.URL)
 			expectation := builders.MockExpectation{
-				Name:        node.API.Name,
 				Method:      node.API.Method,
 				Path:        cp.extractPath(path),
 				QueryParams: queryParams,

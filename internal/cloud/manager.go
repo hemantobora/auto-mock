@@ -96,9 +96,12 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 	if err != nil {
 		return err
 	}
+	if actionType == models.ActionExit || actionType == models.ActionCancel {
+		return nil
+	}
 
 	existingConfig, err := m.getMockConfiguration()
-	if err != nil {
+	if err != nil && actionType != models.ActionCreate && actionType != models.ActionGenerate {
 		return fmt.Errorf("failed to load expectations: %w", err)
 	}
 	project := m.getCurrentProject()
@@ -113,13 +116,11 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 		fallthrough
 	case models.ActionGenerate:
 		// Proceed to generation flow
-		fmt.Printf("➕ Adding new expectations to project: %s\n", project)
+		fmt.Printf("➕ Generating new expectations for project: %s\n", project)
 		return m.generateMockConfiguration(cliContext)
 	case models.ActionAdd:
 		fmt.Printf("➕ Adding new expectations to project: %s\n", project)
 		return m.addMockConfiguration(cliContext, existingConfig)
-	case models.ActionExit, models.ActionCancel:
-		return nil
 	case models.ActionView:
 		fmt.Printf("👁️  Viewing expectations for project: %s\n", project)
 		if err := expManager.ViewExpectations(existingConfig); err != nil {
@@ -187,7 +188,7 @@ func (m *CloudManager) generateMockConfiguration(cliContext *CLIContext) error {
 // createNewProject handles new project creation flow. Expectations would be handled later.
 func (m *CloudManager) createNewProject(project string) (models.ActionType, error) {
 	var name string
-	if project != "" {
+	if project == "" {
 		if err := survey.AskOne(&survey.Input{
 			Message: "Project name:",
 			Help:    "Choose a unique name for your mock project",

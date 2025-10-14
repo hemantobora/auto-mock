@@ -24,7 +24,7 @@ func BuildRESTExpectationWithContext(existingExpectations []MockExpectation) (Mo
 
 	steps := []struct {
 		name string
-		fn   func(exp *MockExpectation) error
+		fn   func(step int, exp *MockExpectation) error
 	}{
 		{"API Details", collectRESTAPIDetails},
 		{"Query Parameter Matching", mock_configurator.CollectQueryParameterMatching},
@@ -35,8 +35,8 @@ func BuildRESTExpectationWithContext(existingExpectations []MockExpectation) (Mo
 		{"Review and Confirm", reviewAndConfirm},
 	}
 
-	for _, step := range steps {
-		if err := step.fn(&expectation); err != nil {
+	for i, step := range steps {
+		if err := step.fn(i+1, &expectation); err != nil {
 			return expectation, &models.ExpectationBuildError{
 				ExpectationType: "REST",
 				Step:            step.name,
@@ -49,8 +49,8 @@ func BuildRESTExpectationWithContext(existingExpectations []MockExpectation) (Mo
 }
 
 // Step 1: Collect API Details (Method, Path, Request Body)
-func collectRESTAPIDetails(expectation *MockExpectation) error {
-	fmt.Println("\n📋 Step 1: API Details")
+func collectRESTAPIDetails(step int, expectation *MockExpectation) error {
+	fmt.Printf("\n📋 Step %d: API Details\n", step)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━")
 	var mock_configurator MockConfigurator
 
@@ -933,8 +933,8 @@ func collectResilienceTestingPatterns(expectation *MockExpectation) error {
 }
 
 // Step 5: Response Definition
-func collectResponseDefinition(expectation *MockExpectation) error {
-	fmt.Println("\n📤 Step 5: Response Definition")
+func collectResponseDefinition(step int, expectation *MockExpectation) error {
+	fmt.Printf("\n📤 Step %d: Response Definition\n", step)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// Status code selection (hierarchical)
@@ -1081,13 +1081,12 @@ func collectResponseBody(expectation *MockExpectation) error {
 }
 
 // Step 8: Review and Confirm
-func reviewAndConfirm(expectation *MockExpectation) error {
-	fmt.Println("\n🔄 Step 8: Review and Confirm")
+func reviewAndConfirm(step int, expectation *MockExpectation) error {
+	fmt.Printf("\n🔄 Step %d: Review and Confirm\n", step)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// Display summary
 	fmt.Printf("\n📋 Expectation Summary:\n")
-	fmt.Printf("   Name: %s\n", expectation.Name)
 	if expectation.Description != "" {
 		fmt.Printf("   Description: %s\n", expectation.Description)
 	}
@@ -1119,7 +1118,7 @@ func reviewAndConfirm(expectation *MockExpectation) error {
 		return fmt.Errorf("expectation creation cancelled by user")
 	}
 
-	fmt.Printf("\n✅ REST Expectation Created: %s\n", expectation.Name)
+	fmt.Printf("\n✅ REST Expectation Created: %s\n", expectation.Description)
 	return nil
 }
 

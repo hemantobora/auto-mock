@@ -12,7 +12,7 @@ import (
 
 // StartMockGenerationREPL is the main entry point for mock generation
 func StartMockGenerationREPL(projectName string) (string, error) {
-	fmt.Printf("🎯 MockServer Configuration Generator\n")
+	fmt.Printf("🎯 MockServer Configuration Generator Initialized\n")
 	fmt.Printf("📦 Project: %s\n", projectName)
 	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
 
@@ -100,7 +100,7 @@ func SelectProjectAction(projectName string, existingConfig *models.MockConfigur
 	} else {
 		// When no expectations exist: only generation (no management operations)
 		options = []string{
-			"generate - Create a set of expectations from API documentation or examples",
+			"generate - Create a set of expectations from Collection, Interactively or examples",
 			"cancel - Cancel the operation and exit",
 		}
 	}

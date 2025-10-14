@@ -1,274 +1,53 @@
 package builders
 
 import (
-	"encoding/json"
-	"regexp"
-
 	"github.com/hemantobora/auto-mock/internal/models"
 )
 
-// MockExpectation represents a complete mock server expectation
-type MockExpectation struct {
-	// Identification
-	Name        string `json:"name,omitempty"`        // User-friendly name for identification
-	Description string `json:"description,omitempty"` // Optional detailed description
+// Re-export types from models for backward compatibility
+type MockExpectation = models.MockExpectation
+type Times = models.Times
+type CallbackConfig = models.CallbackConfig
+type HttpCallback = models.HttpCallback
+type ConnectionOptions = models.ConnectionOptions
+type PathMatchingStrategy = models.PathMatchingStrategy
+type QueryParamMatchingStrategy = models.QueryParamMatchingStrategy
+type RequestBodyMatchingStrategy = models.RequestBodyMatchingStrategy
 
-	// Request matching
-	Method      string            `json:"method"`
-	Path        string            `json:"path"`
-	QueryParams map[string]string `json:"queryParams,omitempty"`
-	Headers     map[string]string `json:"headers,omitempty"`
-	HeaderTypes map[string]string `json:"headerTypes,omitempty"` // "exact" or "regex"
-	Body        interface{}       `json:"body,omitempty"`
-
-	// Response
-	StatusCode      int               `json:"statusCode"`
-	ResponseHeaders map[string]string `json:"responseHeaders,omitempty"`
-	ResponseBody    interface{}       `json:"responseBody"`
-
-	// Advanced features
-	ResponseDelay     string             `json:"responseDelay,omitempty"`
-	Times             *Times             `json:"times,omitempty"`
-	Callbacks         *CallbackConfig    `json:"callbacks,omitempty"`
-	ConnectionOptions *ConnectionOptions `json:"connectionOptions,omitempty"`
-	Priority          int                `json:"priority,omitempty"`
-}
-
-// Times represents MockServer times configuration
-type Times struct {
-	RemainingTimes int  `json:"remainingTimes,omitempty"`
-	Unlimited      bool `json:"unlimited"`
-}
-
-// CallbackConfig represents MockServer callback configuration
-type CallbackConfig struct {
-	CallbackClass string        `json:"callbackClass,omitempty"`
-	HttpCallback  *HttpCallback `json:"httpCallback,omitempty"`
-}
-
-// HttpCallback represents HTTP callback configuration
-type HttpCallback struct {
-	URL     string            `json:"url"`
-	Method  string            `json:"method,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Body    interface{}       `json:"body,omitempty"`
-}
-
-// ConnectionOptions represents MockServer connection options
-type ConnectionOptions struct {
-	SuppressConnectionErrors bool `json:"suppressConnectionErrors,omitempty"`
-	SuppressContentLength    bool `json:"suppressContentLength,omitempty"`
-	ChunkedEncoding          bool `json:"chunkedEncoding,omitempty"`
-	KeepAlive                bool `json:"keepAlive,omitempty"`
-	CloseSocket              bool `json:"closeSocket,omitempty"`
-	DropConnection           bool `json:"dropConnection,omitempty"`
-}
-
-// PathMatchingStrategy represents how paths should be matched
-type PathMatchingStrategy string
-
+// Re-export constants
 const (
-	PathExact PathMatchingStrategy = "exact"
-	PathRegex PathMatchingStrategy = "regex"
+	PathExact = models.PathExact
+	PathRegex = models.PathRegex
+
+	QueryExact  = models.QueryExact
+	QueryRegex  = models.QueryRegex
+	QuerySubset = models.QuerySubset
+
+	BodyExact   = models.BodyExact
+	BodyPartial = models.BodyPartial
+	BodyRegex   = models.BodyRegex
 )
 
-// QueryParamMatchingStrategy represents how query parameters should be matched
-type QueryParamMatchingStrategy string
-
-const (
-	QueryExact  QueryParamMatchingStrategy = "exact"
-	QueryRegex  QueryParamMatchingStrategy = "regex"
-	QuerySubset QueryParamMatchingStrategy = "subset"
-)
-
-// RequestBodyMatchingStrategy represents how request body should be matched
-type RequestBodyMatchingStrategy string
-
-const (
-	BodyExact   RequestBodyMatchingStrategy = "exact"
-	BodyPartial RequestBodyMatchingStrategy = "partial"
-	BodyRegex   RequestBodyMatchingStrategy = "regex"
-)
-
-// ExpectationsToMockServerJSON converts expectations to MockServer JSON format
+// ExpectationsToMockServerJSON is a wrapper that calls the function from models
 func ExpectationsToMockServerJSON(expectations []MockExpectation) string {
-	var mockServerExpectations []map[string]interface{}
-
-	for _, expectation := range expectations {
-		mockServerExp := map[string]interface{}{
-			"httpRequest":  buildHttpRequest(expectation),
-			"httpResponse": buildHttpResponse(expectation),
-		}
-
-		// Add times if specified
-		if expectation.Times != nil {
-			mockServerExp["times"] = expectation.Times
-		}
-
-		// Add priority if specified
-		if expectation.Priority != 0 {
-			mockServerExp["priority"] = expectation.Priority
-		}
-
-		// Add callbacks if specified
-		if expectation.Callbacks != nil {
-			if expectation.Callbacks.HttpCallback != nil {
-				mockServerExp["httpCallback"] = expectation.Callbacks.HttpCallback
-			}
-			if expectation.Callbacks.CallbackClass != "" {
-				mockServerExp["callback"] = map[string]interface{}{
-					"callbackClass": expectation.Callbacks.CallbackClass,
-				}
-			}
-		}
-
-		// Add connection options if specified
-		if expectation.ConnectionOptions != nil {
-			mockServerExp["connectionOptions"] = expectation.ConnectionOptions
-		}
-
-		mockServerExpectations = append(mockServerExpectations, mockServerExp)
-	}
-
-	jsonBytes, err := json.MarshalIndent(mockServerExpectations, "", "  ")
-	if err != nil {
-		return "[]" // Fallback to empty array
-	}
-
-	return string(jsonBytes)
-}
-
-// buildHttpRequest builds the httpRequest part of MockServer expectation
-func buildHttpRequest(expectation MockExpectation) map[string]interface{} {
-	request := map[string]interface{}{
-		"method": expectation.Method,
-		"path":   expectation.Path,
-	}
-
-	// Add name for identification (not part of MockServer spec but used for management)
-	if expectation.Name != "" {
-		request["name"] = expectation.Name
-	}
-
-	// Add query parameters if present
-	if len(expectation.QueryParams) > 0 {
-		queryParams := make(map[string][]string)
-		for key, value := range expectation.QueryParams {
-			queryParams[key] = []string{value}
-		}
-		request["queryStringParameters"] = queryParams
-	}
-
-	// Add headers if present
-	if len(expectation.Headers) > 0 {
-		headers := make(map[string]interface{})
-		for key, value := range expectation.Headers {
-			// Check if this header should use regex matching
-			if expectation.HeaderTypes != nil && expectation.HeaderTypes[key] == "regex" {
-				headers[key] = map[string]interface{}{
-					"matcher": "regex",
-					"value":   value,
-				}
-			} else {
-				// Default to exact matching
-				headers[key] = value
-			}
-		}
-		request["headers"] = headers
-	}
-
-	// Add body if present
-	if expectation.Body != nil {
-		request["body"] = expectation.Body
-	}
-
-	return request
-}
-
-// buildHttpResponse builds the httpResponse part of MockServer expectation
-func buildHttpResponse(expectation MockExpectation) map[string]interface{} {
-	response := map[string]interface{}{
-		"statusCode": expectation.StatusCode,
-		"body":       expectation.ResponseBody,
-	}
-
-	// Add default headers
-	headers := map[string]string{
-		"Content-Type":                 "application/json",
-		"Access-Control-Allow-Origin":  "*",
-		"Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-		"Access-Control-Allow-Headers": "Content-Type, Authorization",
-	}
-
-	// Merge with custom headers
-	for key, value := range expectation.ResponseHeaders {
-		headers[key] = value
-	}
-
-	response["headers"] = headers
-
-	// Add delay if specified
-	if expectation.ResponseDelay != "" {
-		response["delay"] = map[string]interface{}{
-			"timeUnit": "MILLISECONDS",
-			"value":    expectation.ResponseDelay,
-		}
-	}
-
-	return response
+	return models.ExpectationsToMockServerJSON(expectations)
 }
 
 // ValidateJSON validates if a string is valid JSON
 func ValidateJSON(jsonStr string) error {
-	var temp interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &temp); err != nil {
-		return &models.JSONValidationError{
-			Context: "JSON validation",
-			Content: jsonStr,
-			Cause:   err,
-		}
-	}
-	return nil
+	return models.ValidateJSON(jsonStr)
 }
 
 // FormatJSON formats JSON string with proper indentation
 func FormatJSON(jsonStr string) (string, error) {
-	var temp interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &temp); err != nil {
-		return jsonStr, &models.JSONValidationError{
-			Context: "JSON formatting",
-			Content: jsonStr,
-			Cause:   err,
-		}
-	}
-
-	formatted, err := json.MarshalIndent(temp, "", "  ")
-	if err != nil {
-		return jsonStr, &models.JSONValidationError{
-			Context: "JSON marshaling",
-			Content: jsonStr,
-			Cause:   err,
-		}
-	}
-
-	return string(formatted), nil
+	return models.FormatJSON(jsonStr)
 }
 
-// CommonHeaders returns common HTTP headers with descriptions
-func CommonHeaders() map[string]string {
-	return map[string]string{
-		"Authorization":   "Bearer token, API key, etc.",
-		"Content-Type":    "application/json, application/xml, etc.",
-		"Accept":          "application/json, text/html, etc.",
-		"User-Agent":      "Client application identifier",
-		"X-API-Key":       "API key authentication",
-		"X-Request-ID":    "Request tracking identifier",
-		"X-Forwarded-For": "Client IP address",
-		"Cache-Control":   "Caching directives",
-	}
+// IsValidRegex tests if a regex pattern is valid
+func IsValidRegex(pattern string) error {
+	return models.IsValidRegex(pattern)
 }
 
-// CommonStatusCodes returns status codes grouped by category
 func CommonStatusCodes() map[string][]StatusCode {
 	return map[string][]StatusCode{
 		"2xx Success": {
@@ -399,18 +178,6 @@ type RegexPattern struct {
 	Examples    []string `json:"examples"`
 	Category    string   `json:"category,omitempty"`
 	Difficulty  string   `json:"difficulty,omitempty"`
-}
-
-// IsValidRegex tests if a regex pattern is valid
-func IsValidRegex(pattern string) error {
-	if _, err := regexp.Compile(pattern); err != nil {
-		return &models.RegexValidationError{
-			Pattern: pattern,
-			Context: "regex compilation",
-			Cause:   err,
-		}
-	}
-	return nil
 }
 
 // GetCommonRegexPatterns returns a map of commonly used regex patterns for quick access

@@ -63,11 +63,11 @@ func (mc *MockConfigurator) CollectRequestBody(expectation *MockExpectation, bod
 			return err
 		}
 		if !proceed {
-		 return &models.JSONValidationError{
-		Context: "request body",
-		Content: bodyJSON,
-		Cause:   err,
-		}
+			return &models.JSONValidationError{
+				Context: "request body",
+				Content: bodyJSON,
+				Cause:   err,
+			}
 		}
 	}
 
@@ -75,8 +75,8 @@ func (mc *MockConfigurator) CollectRequestBody(expectation *MockExpectation, bod
 	return nil
 }
 
-func (mc *MockConfigurator) CollectQueryParameterMatching(expectation *MockExpectation) error {
-	fmt.Println("\n🔍 Step 2: Query Parameter Matching")
+func (mc *MockConfigurator) CollectQueryParameterMatching(step int, expectation *MockExpectation) error {
+	fmt.Printf("\n🔍 Step %d: Query Parameter Matching\n", step)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// Check if already configured from path parsing
@@ -172,8 +172,8 @@ func (mc *MockConfigurator) ParsePathAndQueryParams(fullPath string) (cleanPath 
 }
 
 // Step 3: Path Matching Strategy
-func (mc *MockConfigurator) CollectPathMatchingStrategy(expectation *MockExpectation) error {
-	fmt.Println("\n🛤️  Step 3: Path Matching Strategy")
+func (mc *MockConfigurator) CollectPathMatchingStrategy(step int, expectation *MockExpectation) error {
+	fmt.Printf("\n🛤️  Step %d: Path Matching Strategy\n", step)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// Check if path has parameters
@@ -208,8 +208,8 @@ func (mc *MockConfigurator) CollectPathMatchingStrategy(expectation *MockExpecta
 }
 
 // Step 4: Request Header Matching
-func (mc *MockConfigurator) CollectRequestHeaderMatching(expectation *MockExpectation) error {
-	fmt.Println("\n📝 Step 4: Request Header Matching")
+func (mc *MockConfigurator) CollectRequestHeaderMatching(step int, expectation *MockExpectation) error {
+	fmt.Printf("\n📝 Step %d: Request Header Matching\n", step)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	var needsHeaders bool
@@ -1360,9 +1360,25 @@ func configureTestingScenarios(expectation *MockExpectation) error {
 }
 
 // Step 6: Advanced Features (shared between REST and GraphQL)
-func (mc *MockConfigurator) CollectAdvancedFeatures(expectation *MockExpectation) error {
-	fmt.Println("\n⚙️  Step 6: Advanced MockServer Features")
+func (mc *MockConfigurator) CollectAdvancedFeatures(step int, expectation *MockExpectation) error {
+	fmt.Printf("\n⚙️  Step %d: Advanced MockServer Features\n", step)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	// 3.2 Feature picker
+	reg := Registry(mc)
+	choices, err := PickFeaturesInteractively(reg)
+	if err != nil {
+		return err
+	}
+
+	// 3.3 Apply picked features (will trigger sub-dialogs as needed)
+	for _, feats := range choices {
+		for _, f := range feats {
+			if err := f.Apply(expectation); err != nil {
+				return fmt.Errorf("feature %q failed: %w", f.Key, err)
+			}
+		}
+	}
 
 	var enableAdvanced bool
 	if err := survey.AskOne(&survey.Confirm{
