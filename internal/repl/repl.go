@@ -122,7 +122,7 @@ func generateMockConfiguration(method, projectName string) (string, error) {
 	case "describe":
 		return generateFromDescription(ctx, projectName)
 	case "interactive":
-		return generateInteractiveWithMenu(projectName)
+		return generateInteractiveWithMenu()
 	case "collection":
 		return generateFromCollectionWithMenu(projectName)
 	case "template":

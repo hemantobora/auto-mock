@@ -92,25 +92,33 @@ func ValidateConfiguration(config *MockConfiguration) error {
 
 	for i, exp := range config.Expectations {
 		// Validate that Method is set
-		if exp.Method == "" {
+		if exp.HttpRequest == nil {
 			return ValidationError{
-				Field:   fmt.Sprintf("expectations[%d].method", i),
+				Field:   fmt.Sprintf("expectations[%d].httpRequest", i),
+				Message: "HTTP request is required",
+			}
+		}
+		if exp.HttpResponse == nil {
+			return ValidationError{
+				Field:   fmt.Sprintf("expectations[%d].httpResponse", i),
+				Message: "HTTP response is required",
+			}
+		}
+		if exp.HttpRequest.Method == "" {
+			return ValidationError{
+				Field:   fmt.Sprintf("expectations[%d].httpRequest.method", i),
 				Message: "HTTP method is required",
 			}
 		}
-
-		// Validate that Path is set
-		if exp.Path == "" {
+		if exp.HttpRequest.Path == "" {
 			return ValidationError{
-				Field:   fmt.Sprintf("expectations[%d].path", i),
+				Field:   fmt.Sprintf("expectations[%d].httpRequest.path", i),
 				Message: "HTTP path is required",
 			}
 		}
-
-		// Validate that StatusCode is set
-		if exp.StatusCode == 0 {
+		if exp.HttpResponse.StatusCode == 0 {
 			return ValidationError{
-				Field:   fmt.Sprintf("expectations[%d].statusCode", i),
+				Field:   fmt.Sprintf("expectations[%d].httpResponse.statusCode", i),
 				Message: "HTTP status code is required",
 			}
 		}

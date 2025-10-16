@@ -3,707 +3,313 @@ package builders
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
-	"github.com/hemantobora/auto-mock/internal/models"
 )
 
-// BuildGraphQLExpectation builds a single GraphQL mock expectation using enhanced 8-step process
-func BuildGraphQLExpectation() (MockExpectation, error) {
-	return BuildGraphQLExpectationWithContext([]MockExpectation{})
-}
+// BuildGraphQLExpectationWithContext builds with context of existing expectations.
+func BuildGraphQLExpectationWithContext() (MockExpectation, error) {
+	var exp MockExpectation
+	exp.HttpRequest = &HttpRequest{}
+	exp.HttpResponse = &HttpResponse{}
+	exp.HttpResponse.Headers = map[string][]string{
+		"Content-Type": {"application/json"},
+	}
 
-// BuildGraphQLExpectationWithContext builds a GraphQL expectation with context of existing expectations
-func BuildGraphQLExpectationWithContext(existingExpectations []MockExpectation) (MockExpectation, error) {
-	var expectation MockExpectation
-	var mock_configurator MockConfigurator
-
-	fmt.Println("🚀 Starting Enhanced 7-Step GraphQL Expectation Builder")
+	fmt.Println("🧬 Starting GraphQL Expectation Builder (POST/GET JSON only)")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	steps := []struct {
-		name string
-		fn   func(int, *MockExpectation) error
-	}{
-		{"GraphQL Operation Details", collectGraphQLOperationDetails},
-		{"Query/Mutation Content", collectGraphQLQueryContent},
-		{"Variable Matching", collectGraphQLVariableMatching},
-		{"Request Header Matching", mock_configurator.CollectRequestHeaderMatching}, // Reuse from REST
-		{"GraphQL Response Definition", collectGraphQLResponseDefinition},
-		{"Advanced Features", mock_configurator.CollectAdvancedFeatures}, // Enhanced advanced features
-		{"Review and Confirm", reviewGraphQLConfirm},
+	// Step 1: Endpoint path (usually /graphql)
+	if err := collectGraphQLPath(exp.HttpRequest); err != nil {
+		return exp, err
 	}
 
-	for i, step := range steps {
-		if err := step.fn(i+1, &expectation); err != nil {
-			return expectation, &models.ExpectationBuildError{
-				ExpectationType: "GraphQL",
-				Step:            step.name,
-				Cause:           err,
+	// Step 2: HTTP method
+	method, err := selectGraphQLMethod()
+	if err != nil {
+		return exp, err
+	}
+	exp.HttpRequest.Method = method
+
+	// Step 3: Collect operation shell (query + operationName)
+	gqlQuery, opName, err := collectGraphQLQueryAndOp()
+	if err != nil {
+		return exp, err
+	}
+
+	// Step 4: Collect variables (optional)
+	variables, err := collectGraphQLVariables()
+	if err != nil {
+		return exp, err
+	}
+
+	// Step 5: Apply request matching model depending on method
+	if strings.EqualFold(method, "GET") {
+		applyGETRequest(exp.HttpRequest, gqlQuery, opName, variables)
+	} else {
+		applyPOSTRequest(exp.HttpRequest, gqlQuery, opName, variables)
+	}
+
+	// Step 6: Collect response (JSON only)
+	if err := collectGraphQLResponseJSON(exp.HttpResponse); err != nil {
+		return exp, err
+	}
+
+	// Step 7: Optional status code
+	var status int
+	if err := survey.AskOne(&survey.Input{
+		Message: "HTTP status code? (default 200)",
+		Default: "200",
+	}, &status, survey.WithValidator(optionalIntValidator)); err == nil && status > 0 {
+		exp.HttpResponse.StatusCode = status
+	} else {
+		exp.HttpResponse.StatusCode = 200
+	}
+	var mock_configurator MockConfigurator
+	mock_configurator.CollectAdvancedFeatures(0, &exp)
+
+	if err := ReviewGraphQLExpectation(&exp); err != nil {
+		return exp, err
+	}
+	return exp, nil
+}
+
+// ─── Collectors ─────────────────────────────────────────────────────────────────
+
+func collectGraphQLPath(req *HttpRequest) error {
+	var path string
+	defaultPath := "/graphql"
+	if req.Path != "" {
+		defaultPath = req.Path
+	}
+	if err := survey.AskOne(&survey.Input{
+		Message: "GraphQL endpoint path:",
+		Default: defaultPath,
+		Help:    "Typically '/graphql'. Regex is allowed if you need flexibility.",
+	}, &path, survey.WithValidator(survey.Required)); err != nil {
+		return err
+	}
+	path = strings.TrimSpace(path)
+	// Optionally allow regex
+	var useRegex bool
+	if err := survey.AskOne(&survey.Confirm{
+		Message: "Treat path as regex?",
+		Default: false,
+	}, &useRegex); err != nil {
+		return err
+	}
+	if useRegex {
+		if _, err := regexp.Compile(path); err != nil {
+			return fmt.Errorf("invalid path regex: %w", err)
+		}
+	}
+	req.Path = path
+	return nil
+}
+
+func selectGraphQLMethod() (string, error) {
+	var method string
+	if err := survey.AskOne(&survey.Select{
+		Message: "HTTP method:",
+		Options: []string{"POST", "GET"},
+		Default: "POST",
+	}, &method, survey.WithValidator(survey.Required)); err != nil {
+		return "", err
+	}
+	return method, nil
+}
+
+func collectGraphQLQueryAndOp() (query string, operationName string, err error) {
+	if err = survey.AskOne(&survey.Multiline{
+		Message: "Paste GraphQL query (operation):",
+		Help:    "Example: query GetUser($id:ID!){ user(id:$id){ id name } }",
+	}, &query, survey.WithValidator(survey.Required)); err != nil {
+		return
+	}
+	query = strings.TrimSpace(query)
+	// Optional operationName (explicit)
+	if err = survey.AskOne(&survey.Input{
+		Message: "operationName (optional):",
+		Help:    "If omitted, it's inferred by servers from the first operation definition.",
+	}, &operationName); err != nil {
+		return
+	}
+	operationName = strings.TrimSpace(operationName)
+	return
+}
+
+func collectGraphQLVariables() (vars map[string]any, err error) {
+	var wantVars bool
+	if err = survey.AskOne(&survey.Confirm{
+		Message: "Add variables?",
+		Default: true,
+	}, &wantVars); err != nil {
+		return nil, err
+	}
+	if !wantVars {
+		return nil, nil
+	}
+	var raw string
+	if err = survey.AskOne(&survey.Multiline{
+		Message: "Variables JSON (e.g., {\"id\":\"123\"}):",
+	}, &raw); err != nil {
+		return nil, err
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	if !json.Valid([]byte(raw)) {
+		return nil, fmt.Errorf("variables must be valid JSON")
+	}
+	if err = json.Unmarshal([]byte(raw), &vars); err != nil {
+		return nil, err
+	}
+	return vars, nil
+}
+
+var gqlOpType = regexp.MustCompile(`(?i)^\s*(query|mutation|subscription)\b`)
+
+func detectGraphQLOperationType(query string) string {
+	m := gqlOpType.FindStringSubmatch(query)
+	if len(m) > 1 {
+		return strings.ToUpper(m[1])
+	}
+	return "query"
+}
+
+// ─── Apply request by method ────────────────────────────────────────────────────
+func applyPOSTRequest(req *HttpRequest, query, opName string, variables map[string]any) {
+	if req.Headers == nil {
+		req.Headers = map[string][]any{}
+	}
+	req.Headers["Content-Type"] = []any{"application/json"}
+
+	opType := detectGraphQLOperationType(query)
+	req.Headers["X-GraphQL-Operation-Type"] = []any{opType} // optional, for your review screen
+
+	envelope := map[string]any{"query": query}
+	if opName != "" {
+		envelope["operationName"] = opName
+	}
+	if variables != nil {
+		envelope["variables"] = variables
+	}
+
+	var mt string
+	if err := survey.AskOne(&survey.Select{
+		Message: "Match type for JSON:",
+		Options: []string{string(MatchOnlyMatchingFields), string(MatchStrict)},
+		Default: string(MatchOnlyMatchingFields),
+		Help:    "ONLY_MATCHING_FIELDS ignores extra fields on the incoming request.",
+	}, &mt); err != nil {
+		mt = string(MatchOnlyMatchingFields)
+	}
+
+	req.Body = map[string]any{
+		"type":      "JSON",
+		"json":      envelope,
+		"matchType": mt, // "STRICT" or "ONLY_MATCHING_FIELDS"
+	}
+}
+
+func applyGETRequest(req *HttpRequest, query, opName string, variables map[string]any) {
+	// GET encodes query & variables in the URL
+	if req.QueryStringParameters == nil {
+		req.QueryStringParameters = map[string][]string{}
+	}
+	req.QueryStringParameters["query"] = []string{query}
+	if opName != "" {
+		req.QueryStringParameters["operationName"] = []string{opName}
+		req.Headers["X-GraphQL-Operation-Type"] = []any{opName}
+	}
+	if variables != nil {
+		// Variables must be a JSON string in the query param.
+		b, _ := json.Marshal(variables)
+		req.QueryStringParameters["variables"] = []string{string(b)}
+	}
+}
+
+// ─── Response JSON ─────────────────────────────────────────────────────────────
+
+func collectGraphQLResponseJSON(resp *HttpResponse) error {
+	var payload string
+	if err := survey.AskOne(&survey.Multiline{
+		Message: "Response JSON payload (data / errors):",
+		Help:    `Example: {"data":{"user":{"id":"123","name":"Ada"}}}`,
+	}, &payload, survey.WithValidator(survey.Required)); err != nil {
+		return err
+	}
+	payload = strings.TrimSpace(payload)
+	if !json.Valid([]byte(payload)) {
+		return fmt.Errorf("response must be valid JSON")
+	}
+	var v any
+	if err := json.Unmarshal([]byte(payload), &v); err != nil {
+		return err
+	}
+	// Ensure Content-Type
+	if resp.Headers == nil {
+		resp.Headers = map[string][]string{}
+	}
+	resp.Headers["Content-Type"] = []string{"application/json"}
+	// Set body wrapper
+	resp.Body = map[string]any{
+		"type": "JSON",
+		"json": v,
+	}
+	return nil
+}
+
+// summarizeGraphQLBody inspects your request body wrapper and reports match mode + variables presence.
+// Supports: {type:JSON,json:{...},matchType:...} and {type:REGEX,regex:...}
+func summarizeGraphQLBody(exp *MockExpectation) (mode string, hasVars bool) {
+	mode = "N/A"
+	if exp == nil || exp.HttpRequest == nil || exp.HttpRequest.Body == nil {
+		return mode, false
+	}
+
+	// POST JSON wrapper
+	if m, ok := exp.HttpRequest.Body.(map[string]any); ok {
+		if tRaw, ok := m["type"]; ok {
+			t, _ := tRaw.(string)
+			if strings.EqualFold(t, "JSON") {
+				mode = "STRICT" // default if not set
+				if mtRaw, ok := m["matchType"]; ok {
+					if mt, _ := mtRaw.(string); mt != "" {
+						mode = mt
+					}
+				}
+				// Check variables in JSON envelope
+				if j, ok := m["json"].(map[string]any); ok {
+					_, hasVars = j["variables"]
+					return mode, hasVars
+				}
+				return mode, false
+			}
+			if strings.EqualFold(t, "REGEX") {
+				return "REGEX", false
 			}
 		}
 	}
-
-	return expectation, nil
+	return mode, false
 }
 
-// Step 1: Collect GraphQL Operation Details
-func collectGraphQLOperationDetails(step int, expectation *MockExpectation) error {
-	fmt.Printf("\n🔗 Step %d: GraphQL Operation Details\n", step)
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+// ─── Validators ────────────────────────────────────────────────────────────────
 
-	// GraphQL always uses POST to /graphql
-	expectation.Method = "POST"
-	expectation.Path = "/graphql"
-
-	// Operation type selection
-	var operationType string
-	if err := survey.AskOne(&survey.Select{
-		Message: "Select GraphQL operation type:",
-		Options: []string{
-			"query - Read data from the server",
-			"mutation - Modify data on the server",
-			"subscription - Real-time data updates",
-		},
-		Default: "query - Read data from the server",
-	}, &operationType); err != nil {
-		return err
-	}
-
-	operationType = strings.Split(operationType, " ")[0]
-
-	// Store operation type for later use
-	if expectation.Headers == nil {
-		expectation.Headers = make(map[string]string)
-	}
-	expectation.Headers["X-GraphQL-Operation-Type"] = operationType
-
-	fmt.Printf("✅ GraphQL Operation: %s POST /graphql\n", operationType)
-	return nil
-}
-
-// Step 2: Collect GraphQL Query/Mutation Content
-func collectGraphQLQueryContent(step int, expectation *MockExpectation) error {
-	fmt.Printf("\n📝 Step %d: Query/Mutation Content\n", step)
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	operationType := expectation.Headers["X-GraphQL-Operation-Type"]
-
-	var useTemplate bool
-	if err := survey.AskOne(&survey.Confirm{
-		Message: fmt.Sprintf("Use a %s template to get started?", operationType),
-		Default: true,
-		Help:    "Templates provide common GraphQL patterns you can customize",
-	}, &useTemplate); err != nil {
-		return err
-	}
-
-	var queryContent string
-	var operationName string
-
-	if useTemplate {
-		template, name, err := generateGraphQLTemplate(operationType)
-		if err != nil {
-			return err
-		}
-		queryContent = template
-		operationName = name
-
-		fmt.Printf("💡 Generated %s template:\n%s\n\n", operationType, template)
-
-		var useGenerated bool
-		if err := survey.AskOne(&survey.Confirm{
-			Message: "Use this template?",
-			Default: true,
-		}, &useGenerated); err != nil {
-			return err
-		}
-
-		if !useGenerated {
-			queryContent = ""
-		}
-	}
-
-	if queryContent == "" {
-		if err := survey.AskOne(&survey.Multiline{
-			Message: fmt.Sprintf("Enter your GraphQL %s:", operationType),
-			Help:    "Paste your complete GraphQL query, mutation, or subscription",
-		}, &queryContent); err != nil {
-			return err
-		}
-
-		// Extract operation name if not provided
-		if operationName == "" {
-			operationName = extractOperationName(queryContent)
-		}
-	}
-
-	// Create GraphQL request body
-	requestBodyMap := map[string]interface{}{
-		"query": queryContent,
-	}
-
-	if operationName != "" {
-		requestBodyMap["operationName"] = operationName
-	} else {
-		requestBodyMap["operationName"] = nil
-	}
-
-	// Add empty variables placeholder
-	requestBodyMap["variables"] = map[string]interface{}{}
-
-	// Convert to JSON for storage
-	requestBodyJSON, err := json.MarshalIndent(requestBodyMap, "", "  ")
-	if err != nil {
-		return &models.JSONValidationError{
-			Context: "GraphQL request body marshaling",
-			Content: fmt.Sprintf("%v", requestBodyMap),
-			Cause:   err,
-		}
-	}
-
-	expectation.Body = string(requestBodyJSON)
-
-	fmt.Printf("✅ GraphQL %s configured with operation: %s\n", operationType, operationName)
-	return nil
-}
-
-// Step 3: Collect GraphQL Variable Matching
-func collectGraphQLVariableMatching(step int, expectation *MockExpectation) error {
-	fmt.Printf("\n🔢 Step %d: Variable Matching\n", step)
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	var needsVariables bool
-	if err := survey.AskOne(&survey.Confirm{
-		Message: "Does this operation require specific variables to match?",
-		Default: false,
-		Help:    "Only specify if you need to match exact variable values",
-	}, &needsVariables); err != nil {
-		return err
-	}
-
-	if !needsVariables {
-		fmt.Println("ℹ️  No variable matching configured - will accept any variables")
+func optionalIntValidator(ans interface{}) error {
+	s := fmt.Sprint(ans)
+	s = strings.TrimSpace(s)
+	if s == "" {
 		return nil
 	}
-
-	// Variables will be part of the request body matching
-	var variablesJSON string
-
-	if err := survey.AskOne(&survey.Multiline{
-		Message: "Enter variables JSON to match:",
-		Help:    "Example: {\"id\": \"123\", \"limit\": 10}",
-	}, &variablesJSON); err != nil {
-		return err
-	}
-
-	// Validate variables JSON
-	if err := ValidateJSON(variablesJSON); err != nil {
-		fmt.Printf("⚠️  Variables JSON validation failed: %v\n", err)
-		var proceed bool
-		if err := survey.AskOne(&survey.Confirm{
-			Message: "JSON is invalid. Use it anyway?",
-			Default: false,
-		}, &proceed); err != nil {
-			return err
-		}
-		if !proceed {
-			return &models.JSONValidationError{
-				Context: "GraphQL variables",
-				Content: variablesJSON,
-				Cause:   err,
-			}
+	// cheap check
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return fmt.Errorf("must be a number")
 		}
 	}
-
-	// Update the request body to include specific variables
-	var operationName string
-	if name, exists := expectation.Headers["X-GraphQL-Operation-Name"]; exists {
-		operationName = name
-	}
-
-	// Parse existing request body to get query
-	var existingBody map[string]interface{}
-	if err := json.Unmarshal([]byte(expectation.Body.(string)), &existingBody); err != nil {
-		return &models.JSONValidationError{
-			Context: "GraphQL existing request body parsing",
-			Content: expectation.Body.(string),
-			Cause:   err,
-		}
-	}
-
-	queryContent := ""
-	if q, ok := existingBody["query"].(string); ok {
-		queryContent = q
-	}
-
-	if on, ok := existingBody["operationName"].(string); ok {
-		operationName = on
-	}
-
-	// Parse variables JSON
-	var variables interface{}
-	if err := json.Unmarshal([]byte(variablesJSON), &variables); err != nil {
-		return &models.JSONValidationError{
-			Context: "GraphQL variables parsing",
-			Content: variablesJSON,
-			Cause:   err,
-		}
-	}
-
-	// Create new request body with variables
-	requestBodyMap := map[string]interface{}{
-		"query":         queryContent,
-		"operationName": operationName,
-		"variables":     variables,
-	}
-
-	requestBodyJSON, err := json.MarshalIndent(requestBodyMap, "", "  ")
-	if err != nil {
-		return &models.JSONValidationError{
-			Context: "GraphQL request body with variables marshaling",
-			Content: fmt.Sprintf("%v", requestBodyMap),
-			Cause:   err,
-		}
-	}
-
-	expectation.Body = string(requestBodyJSON)
-
-	fmt.Printf("✅ Variable matching configured\n")
 	return nil
-}
-
-// Step 5: Collect GraphQL Response Definition
-func collectGraphQLResponseDefinition(step int, expectation *MockExpectation) error {
-	fmt.Printf("\n📤 Step %d: GraphQL Response Definition\n", step)
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	// GraphQL responses are typically 200 OK with errors in the response body
-	var responseType string
-	if err := survey.AskOne(&survey.Select{
-		Message: "Select response type:",
-		Options: []string{
-			"success - Successful response with data",
-			"error - GraphQL error response",
-			"partial - Partial data with some errors",
-		},
-		Default: "success - Successful response with data",
-	}, &responseType); err != nil {
-		return err
-	}
-
-	responseType = strings.Split(responseType, " ")[0]
-	expectation.StatusCode = 200 // GraphQL always returns 200
-
-	var useTemplate bool
-	if err := survey.AskOne(&survey.Confirm{
-		Message: "Use a response template?",
-		Default: true,
-		Help:    "Templates provide proper GraphQL response structure",
-	}, &useTemplate); err != nil {
-		return err
-	}
-
-	var responseBody string
-
-	if useTemplate {
-		template := generateGraphQLResponseTemplate(responseType)
-		fmt.Printf("💡 Generated %s response template:\n%s\n\n", responseType, template)
-
-		var useGenerated bool
-		if err := survey.AskOne(&survey.Confirm{
-			Message: "Use this template?",
-			Default: true,
-		}, &useGenerated); err != nil {
-			return err
-		}
-
-		if useGenerated {
-			responseBody = template
-		}
-	}
-
-	if responseBody == "" {
-		if err := survey.AskOne(&survey.Multiline{
-			Message: "Enter GraphQL response JSON:",
-			Help:    "Must include 'data' and/or 'errors' fields per GraphQL spec",
-		}, &responseBody); err != nil {
-			return err
-		}
-
-		// Validate JSON
-		if err := ValidateJSON(responseBody); err != nil {
-			fmt.Printf("⚠️  JSON validation failed: %v\n", err)
-			var proceed bool
-			if err := survey.AskOne(&survey.Confirm{
-				Message: "JSON is invalid. Use it anyway?",
-				Default: false,
-			}, &proceed); err != nil {
-				return err
-			}
-			if !proceed {
-				return &models.JSONValidationError{
-					Context: "GraphQL response",
-					Content: responseBody,
-					Cause:   err,
-				}
-			}
-		}
-	}
-
-	// Format and store JSON
-	formattedJSON, _ := FormatJSON(responseBody)
-	expectation.ResponseBody = formattedJSON
-
-	fmt.Printf("✅ GraphQL %s response configured\n", responseType)
-	return nil
-}
-
-// Step 8: Review and Confirm (GraphQL specific)
-func reviewGraphQLConfirm(step int, expectation *MockExpectation) error {
-	fmt.Printf("\n🔄 Step %d: Review and Confirm\n", step)
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	operationType := expectation.Headers["X-GraphQL-Operation-Type"]
-
-	// Display summary
-	fmt.Printf("\n📋 GraphQL Expectation Summary:\n")
-	if expectation.Description != "" {
-		fmt.Printf("   Description: %s\n", expectation.Description)
-	}
-	fmt.Printf("   Operation Type: %s\n", operationType)
-	fmt.Printf("   Endpoint: %s %s\n", expectation.Method, expectation.Path)
-	fmt.Printf("   Status Code: %d\n", expectation.StatusCode)
-
-	if len(expectation.Headers) > 1 { // More than just the operation type
-		fmt.Printf("   Request Headers: %d\n", len(expectation.Headers)-1)
-	}
-	if expectation.Body != nil {
-		fmt.Printf("   Query/Variables: Configured\n")
-	}
-
-	var confirm bool
-	if err := survey.AskOne(&survey.Confirm{
-		Message: "Create this GraphQL expectation?",
-		Default: true,
-	}, &confirm); err != nil {
-		return err
-	}
-
-	if !confirm {
-		return &models.ExpectationBuildError{
-			ExpectationType: "GraphQL",
-			Step:            "Review and Confirm",
-			Cause:           fmt.Errorf("expectation creation cancelled by user"),
-		}
-	}
-
-	fmt.Printf("\n✅ GraphQL Expectation Created: %s\n", expectation.Description)
-	return nil
-}
-
-// Helper functions for GraphQL
-
-// generateGraphQLTemplate generates GraphQL operation templates
-func generateGraphQLTemplate(operationType string) (string, string, error) {
-	var template, operationName string
-
-	switch operationType {
-	case "query":
-		var queryType string
-		if err := survey.AskOne(&survey.Select{
-			Message: "Select query template:",
-			Options: []string{
-				"user - Get user by ID",
-				"users - List users with pagination",
-				"search - Search with filters",
-				"custom - Custom query",
-			},
-		}, &queryType); err != nil {
-			return "", "", err
-		}
-
-		queryType = strings.Split(queryType, " ")[0]
-
-		switch queryType {
-		case "user":
-			template = `query GetUser($id: ID!) {
-  user(id: $id) {
-    id
-    name
-    email
-    createdAt
-  }
-}`
-			operationName = "GetUser"
-		case "users":
-			template = `query GetUsers($limit: Int, $offset: Int) {
-  users(limit: $limit, offset: $offset) {
-    edges {
-      node {
-        id
-        name
-        email
-      }
-    }
-    pageInfo {
-      hasNextPage
-      hasPreviousPage
-    }
-  }
-}`
-			operationName = "GetUsers"
-		case "search":
-			template = `query SearchUsers($query: String!, $filters: UserFilters) {
-  searchUsers(query: $query, filters: $filters) {
-    totalCount
-    results {
-      id
-      name
-      email
-      score
-    }
-  }
-}`
-			operationName = "SearchUsers"
-		default:
-			// Custom query - let user input manually
-			var customQuery string
-			if err := survey.AskOne(&survey.Multiline{
-				Message: "Enter your custom GraphQL query:",
-				Help:    "Paste your complete GraphQL query here",
-			}, &customQuery); err != nil {
-				return "", "", err
-			}
-
-			template = strings.TrimSpace(customQuery)
-			if template == "" {
-				return "", "", &models.InputValidationError{
-					InputType: "GraphQL query",
-					Value:     "<empty>",
-					Expected:  "non-empty GraphQL query",
-				}
-			}
-
-			// Try to extract operation name
-			operationName = extractOperationName(template)
-			if operationName == "" {
-				// Ask user for operation name if not detected
-				if err := survey.AskOne(&survey.Input{
-					Message: "Enter operation name (optional):",
-					Help:    "e.g., 'GetUserData', 'SearchProducts'",
-				}, &operationName); err != nil {
-					return "", "", err
-				}
-			}
-			// Skip template display for custom mutations - user already sees what they typed
-			return template, operationName, nil
-		}
-
-	case "mutation":
-		var mutationType string
-		if err := survey.AskOne(&survey.Select{
-			Message: "Select mutation template:",
-			Options: []string{
-				"create - Create user",
-				"update - Update user",
-				"delete - Delete user",
-				"custom - Custom mutation",
-			},
-		}, &mutationType); err != nil {
-			return "", "", err
-		}
-
-		mutationType = strings.Split(mutationType, " ")[0]
-
-		switch mutationType {
-		case "create":
-			template = `mutation CreateUser($input: CreateUserInput!) {
-  createUser(input: $input) {
-    user {
-      id
-      name
-      email
-      createdAt
-    }
-    errors {
-      field
-      message
-    }
-  }
-}`
-			operationName = "CreateUser"
-		case "update":
-			template = `mutation UpdateUser($id: ID!, $input: UpdateUserInput!) {
-  updateUser(id: $id, input: $input) {
-    user {
-      id
-      name
-      email
-      updatedAt
-    }
-    errors {
-      field
-      message
-    }
-  }
-}`
-			operationName = "UpdateUser"
-		case "delete":
-			template = `mutation DeleteUser($id: ID!) {
-  deleteUser(id: $id) {
-    success
-    message
-  }
-}`
-			operationName = "DeleteUser"
-		default:
-			// Custom mutation - let user input manually
-			var customMutation string
-			if err := survey.AskOne(&survey.Multiline{
-				Message: "Enter your custom GraphQL mutation:",
-				Help:    "Paste your complete GraphQL mutation here",
-			}, &customMutation); err != nil {
-				return "", "", err
-			}
-
-			template = strings.TrimSpace(customMutation)
-			if template == "" {
-				return "", "", &models.InputValidationError{
-					InputType: "GraphQL mutation",
-					Value:     "<empty>",
-					Expected:  "non-empty GraphQL mutation",
-				}
-			}
-
-			// Try to extract operation name
-			operationName = extractOperationName(template)
-			if operationName == "" {
-				// Ask user for operation name if not detected
-				if err := survey.AskOne(&survey.Input{
-					Message: "Enter operation name (optional):",
-					Help:    "e.g., 'ProcessPayment', 'UpdateInventory'",
-				}, &operationName); err != nil {
-					return "", "", err
-				}
-			}
-		}
-
-	case "subscription":
-		template = `subscription UserUpdates($userId: ID!) {
-  userUpdates(userId: $userId) {
-    id
-    name
-    email
-    status
-    updatedAt
-  }
-}`
-		operationName = "UserUpdates"
-	}
-
-	return template, operationName, nil
-}
-
-// generateGraphQLResponseTemplate generates GraphQL response templates
-func generateGraphQLResponseTemplate(responseType string) string {
-	switch responseType {
-	case "success":
-		return `{
-  "data": {
-    "user": {
-      "id": "user-123",
-      "name": "John Doe",
-      "email": "john.doe@example.com",
-      "createdAt": "2025-09-21T15:30:00Z"
-    }
-  }
-}`
-	case "error":
-		return `{
-  "errors": [
-    {
-      "message": "User not found",
-      "locations": [
-        {
-          "line": 2,
-          "column": 3
-        }
-      ],
-      "path": ["user"],
-      "extensions": {
-        "code": "USER_NOT_FOUND",
-        "timestamp": "2025-09-21T15:30:00Z"
-      }
-    }
-  ]
-}`
-	case "partial":
-		return `{
-  "data": {
-    "user": {
-      "id": "user-123",
-      "name": "John Doe",
-      "email": null
-    }
-  },
-  "errors": [
-    {
-      "message": "Email field is restricted",
-      "path": ["user", "email"],
-      "extensions": {
-        "code": "FIELD_RESTRICTED"
-      }
-    }
-  ]
-}`
-	default:
-		return `{
-  "data": {
-    "message": "GraphQL response",
-    "timestamp": "2025-09-21T15:30:00Z"
-  }
-}`
-	}
-}
-
-// extractOperationName extracts operation name from GraphQL query
-func extractOperationName(query string) string {
-	lines := strings.Split(query, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "query ") || strings.HasPrefix(line, "mutation ") || strings.HasPrefix(line, "subscription ") {
-			parts := strings.Fields(line)
-			if len(parts) >= 2 {
-				// Remove parentheses and parameters
-				name := parts[1]
-				if idx := strings.Index(name, "("); idx != -1 {
-					name = name[:idx]
-				}
-				return name
-			}
-		}
-	}
-	return ""
-}
-
-// extractQueryFromBody extracts the query field from GraphQL request body
-func extractQueryFromBody(body string) string {
-	// Simple extraction - in production you'd parse the JSON properly
-	lines := strings.Split(body, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, `"query":`) {
-			// Extract the query content between quotes
-			start := strings.Index(line, `"`) + 1
-			if start > 0 {
-				end := strings.LastIndex(line, `"`)
-				if end > start {
-					return strings.ReplaceAll(line[start:end], `\"`, `"`)
-				}
-			}
-		}
-	}
-	return ""
 }

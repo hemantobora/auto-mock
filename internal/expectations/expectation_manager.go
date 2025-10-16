@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/hemantobora/auto-mock/internal/builders"
 	"github.com/hemantobora/auto-mock/internal/models"
 )
 
@@ -94,13 +95,13 @@ func displaySingleExpectation(expectation *models.MockExpectation) error {
 	fmt.Printf("\n%s\n\n", string(jsonBytes))
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	name := expectation.Name
+	name := expectation.Description
 	if name == "" {
-		name = fmt.Sprintf("%s %s", expectation.Method, expectation.Path)
+		name = fmt.Sprintf("%s %s", expectation.HttpRequest.Method, expectation.HttpRequest.Path)
 	}
 	fmt.Printf("🏷️  Name: %s\n", name)
-	fmt.Printf("🔗 Method: %s %s\n", expectation.Method, expectation.Path)
-	fmt.Printf("📊 Status: %d\n", expectation.StatusCode)
+	fmt.Printf("🔗 Method: %s %s\n", expectation.HttpRequest.Method, expectation.HttpRequest.Path)
+	fmt.Printf("📊 Status: %d\n", expectation.HttpResponse.StatusCode)
 
 	return nil
 }
@@ -131,7 +132,7 @@ func (em *ExpectationManager) EditExpectations(config *models.MockConfiguration)
 
 	for {
 		if len(expectations) == 1 {
-			fmt.Printf("🔍 Found 1 expectation: %s %s\n", expectations[0].Method, expectations[0].Path)
+			fmt.Printf("🔍 Found 1 expectation: %s %s\n", expectations[0].HttpRequest.Method, expectations[0].HttpRequest.Path)
 
 			var confirmEdit bool
 			if err := survey.AskOne(&survey.Confirm{
@@ -199,15 +200,15 @@ func (em *ExpectationManager) EditExpectations(config *models.MockConfiguration)
 func buildAPIList(expectations []models.MockExpectation) []string {
 	var apiList []string
 	for _, exp := range expectations {
-		method := exp.Method
-		path := exp.Path
-		statusCode := exp.StatusCode
-		name := exp.Name
+		method := exp.HttpRequest.Method
+		path := exp.HttpRequest.Path
+		statusCode := exp.HttpResponse.StatusCode
+		name := exp.Description
 
 		queryInfo := ""
-		if len(exp.QueryParams) > 0 {
+		if len(exp.HttpRequest.QueryStringParameters) > 0 {
 			var queryParts []string
-			for key, val := range exp.QueryParams {
+			for key, val := range exp.HttpRequest.QueryStringParameters {
 				queryParts = append(queryParts, fmt.Sprintf("%s=%s", key, val))
 			}
 			if len(queryParts) > 0 {
@@ -410,24 +411,8 @@ func (em *ExpectationManager) DeleteProjectPrompt() error {
 	return nil
 }
 
-// Helper functions
-
-func getJSONTemplate(templateType string) string {
-	templates := map[string]string{
-		"success": `{"success": true, "message": "Operation completed successfully", "timestamp": "${timestamp}", "data": {"id": "${uuid}"}}`,
-		"error":   `{"success": false, "error": {"code": "VALIDATION_ERROR", "message": "Invalid request parameters", "details": []}, "timestamp": "${timestamp}"}`,
-		"list":    `{"data": [{"id": "${uuid}", "name": "Item 1"}, {"id": "${uuid}", "name": "Item 2"}], "pagination": {"total": 2, "page": 1, "limit": 10}}`,
-		"user":    `{"id": "${uuid}", "email": "user@example.com", "name": "John Doe", "role": "user", "createdAt": "${timestamp}", "profile": {"avatar": "https://example.com/avatar.jpg", "bio": "Sample user profile"}}`,
-		"product": `{"id": "${uuid}", "name": "Sample Product", "description": "A sample product description", "price": {"amount": 99.99, "currency": "USD"}, "category": "electronics", "inStock": true, "createdAt": "${timestamp}"}`,
-	}
-	if tmpl, ok := templates[templateType]; ok {
-		return tmpl
-	}
-	return `{"message": "Hello World", "timestamp": "${timestamp}"}`
-}
-
 func editSingleExpectation(expectation *models.MockExpectation) error {
-	fmt.Printf("\n📝 Editing: %s %s\n", expectation.Method, expectation.Path)
+	fmt.Printf("\n📝 Editing: %s %s\n", expectation.HttpRequest.Method, expectation.HttpRequest.Path)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	for {
@@ -442,6 +427,8 @@ func editSingleExpectation(expectation *models.MockExpectation) error {
 				"headers - Response Headers",
 				"query - Query Parameters",
 				"view - View Current Configuration",
+				"priority - Set Expectation Priority",
+				"times - Set Expectation Times",
 				"done - Finish Editing",
 			},
 		}, &editOption); err != nil {
@@ -465,9 +452,42 @@ func editSingleExpectation(expectation *models.MockExpectation) error {
 			editQueryParams(expectation)
 		case "view":
 			viewCurrentConfig(expectation)
+		case "priority":
+			editPriority(expectation)
+		case "times":
+			editTimes(expectation)
 		case "done":
 			return nil
 		}
+	}
+}
+
+func editPriority(expectation *models.MockExpectation) {
+	var priority int
+	if err := survey.AskOne(&survey.Input{
+		Message: "Enter expectation priority (lower number = higher priority):",
+		Default: fmt.Sprintf("%d", expectation.Priority),
+		Help:    "Example: 1, 5, 10",
+	}, &priority); err == nil && priority >= 0 {
+		expectation.Priority = priority
+		fmt.Printf("✅ Updated priority to %d\n", priority)
+	}
+}
+
+func editTimes(expectation *models.MockExpectation) {
+	var times int
+	if err := survey.AskOne(&survey.Input{
+		Message: "Enter number of times this expectation should be matched (0 = unlimited):",
+		Default: fmt.Sprintf("%d", expectation.Times),
+		Help:    "Example: 0, 1, 5",
+	}, &times); err == nil && times >= 0 {
+		if times == 0 {
+			expectation.Times = &models.Times{RemainingTimes: times, Unlimited: true}
+			fmt.Printf("✅ Updated times to unlimited (0)\n")
+			return
+		}
+		expectation.Times = &models.Times{RemainingTimes: times, Unlimited: false}
+		fmt.Printf("✅ Updated times to %d\n", times)
 	}
 }
 
@@ -476,9 +496,9 @@ func editMethod(expectation *models.MockExpectation) {
 	if err := survey.AskOne(&survey.Select{
 		Message: "Select HTTP method:",
 		Options: []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"},
-		Default: expectation.Method,
+		Default: expectation.HttpRequest.Method,
 	}, &newMethod); err == nil {
-		expectation.Method = newMethod
+		expectation.HttpRequest.Method = newMethod
 		fmt.Printf("✅ Updated method to %s\n", newMethod)
 	}
 }
@@ -487,10 +507,12 @@ func editPath(expectation *models.MockExpectation) {
 	var newPath string
 	if err := survey.AskOne(&survey.Input{
 		Message: "Enter request path:",
-		Default: expectation.Path,
+		Default: expectation.HttpRequest.Path,
 		Help:    "Example: /api/v1/users/{id}",
 	}, &newPath); err == nil && strings.TrimSpace(newPath) != "" {
-		expectation.Path = newPath
+		expectation.HttpRequest.Path = newPath
+		mc := &builders.MockConfigurator{}
+		mc.CollectPathMatchingStrategy(0, expectation)
 		fmt.Printf("✅ Updated path to %s\n", newPath)
 	}
 }
@@ -499,12 +521,12 @@ func editStatusCode(expectation *models.MockExpectation) {
 	var statusCode string
 	if err := survey.AskOne(&survey.Input{
 		Message: "Enter status code:",
-		Default: fmt.Sprintf("%d", expectation.StatusCode),
+		Default: fmt.Sprintf("%d", expectation.HttpResponse.StatusCode),
 		Help:    "Example: 200, 404, 500",
 	}, &statusCode); err == nil {
 		var newStatus int
 		if _, err := fmt.Sscanf(statusCode, "%d", &newStatus); err == nil && newStatus >= 100 && newStatus <= 599 {
-			expectation.StatusCode = newStatus
+			expectation.HttpResponse.StatusCode = newStatus
 			fmt.Printf("✅ Updated status code to %d\n", newStatus)
 		}
 	}
@@ -512,7 +534,7 @@ func editStatusCode(expectation *models.MockExpectation) {
 
 func editResponseBody(expectation *models.MockExpectation) {
 	currentBody := ""
-	if body, ok := expectation.ResponseBody.(string); ok {
+	if body, ok := expectation.HttpResponse.Body.(string); ok {
 		currentBody = body
 	}
 	var editChoice string
@@ -528,8 +550,6 @@ func editResponseBody(expectation *models.MockExpectation) {
 			editBodyAsText(expectation, currentBody)
 		case "json":
 			editBodyAsJSON(expectation, currentBody)
-		case "template":
-			editBodyWithTemplate(expectation)
 		}
 	}
 }
@@ -537,7 +557,7 @@ func editResponseBody(expectation *models.MockExpectation) {
 func editBodyAsText(expectation *models.MockExpectation, currentBody string) {
 	var newBody string
 	if err := survey.AskOne(&survey.Multiline{Message: "Enter response body:", Default: currentBody}, &newBody); err == nil {
-		expectation.ResponseBody = newBody
+		expectation.HttpResponse.Body = newBody
 		fmt.Println("✅ Updated response body")
 	}
 }
@@ -553,7 +573,7 @@ func editBodyAsJSON(expectation *models.MockExpectation, currentBody string) {
 	var newBody string
 	if err := survey.AskOne(&survey.Multiline{Message: "Enter JSON response body:", Default: prettyBody}, &newBody); err == nil {
 		if json.Unmarshal([]byte(newBody), &jsonData) == nil {
-			expectation.ResponseBody = newBody
+			expectation.HttpResponse.Body = newBody
 			fmt.Println("✅ Updated JSON response body")
 		} else {
 			fmt.Println("❌ Invalid JSON")
@@ -561,26 +581,14 @@ func editBodyAsJSON(expectation *models.MockExpectation, currentBody string) {
 	}
 }
 
-func editBodyWithTemplate(expectation *models.MockExpectation) {
-	var template string
-	if err := survey.AskOne(&survey.Select{
-		Message: "Select JSON template:",
-		Options: []string{"success - Success response", "error - Error response", "list - List/array response", "user - User object", "product - Product object"},
-	}, &template); err == nil {
-		templateBody := getJSONTemplate(strings.Split(template, " ")[0])
-		expectation.ResponseBody = templateBody
-		fmt.Printf("✅ Applied %s template\n", strings.Split(template, " ")[0])
-	}
-}
-
 func editResponseHeaders(expectation *models.MockExpectation) {
-	if expectation.ResponseHeaders == nil {
-		expectation.ResponseHeaders = make(map[string]string)
+	if expectation.HttpResponse.Headers == nil {
+		expectation.HttpResponse.Headers = make(map[string][]string)
 	}
 	for {
 		var action string
 		options := []string{"add - Add new header", "view - View current headers"}
-		for key := range expectation.ResponseHeaders {
+		for key := range expectation.HttpResponse.Headers {
 			options = append(options, fmt.Sprintf("edit:%s - Edit %s", key, key))
 			options = append(options, fmt.Sprintf("delete:%s - Delete %s", key, key))
 		}
@@ -592,7 +600,7 @@ func editResponseHeaders(expectation *models.MockExpectation) {
 		if actionParts[0] == "add" {
 			addResponseHeader(expectation)
 		} else if actionParts[0] == "view" {
-			viewResponseHeaders(expectation.ResponseHeaders)
+			viewResponseHeaders(expectation.HttpResponse.Headers)
 		} else if actionParts[0] == "done" {
 			return
 		} else if strings.Contains(actionParts[0], ":") {
@@ -601,7 +609,7 @@ func editResponseHeaders(expectation *models.MockExpectation) {
 				if parts[0] == "edit" {
 					editResponseHeaderValue(expectation, parts[1])
 				} else if parts[0] == "delete" {
-					delete(expectation.ResponseHeaders, parts[1])
+					delete(expectation.HttpResponse.Headers, parts[1])
 					fmt.Printf("✅ Deleted header %s\n", parts[1])
 				}
 			}
@@ -613,7 +621,7 @@ func addResponseHeader(expectation *models.MockExpectation) {
 	var headerName, headerValue string
 	if err := survey.AskOne(&survey.Input{Message: "Header name:"}, &headerName); err == nil && strings.TrimSpace(headerName) != "" {
 		if err := survey.AskOne(&survey.Input{Message: "Header value:"}, &headerValue); err == nil {
-			expectation.ResponseHeaders[headerName] = headerValue
+			expectation.HttpResponse.Headers[headerName] = []string{headerValue}
 			fmt.Printf("✅ Added header %s\n", headerName)
 		}
 	}
@@ -621,32 +629,33 @@ func addResponseHeader(expectation *models.MockExpectation) {
 
 func editResponseHeaderValue(expectation *models.MockExpectation, headerKey string) {
 	var newValue string
-	if err := survey.AskOne(&survey.Input{Message: fmt.Sprintf("New value for %s:", headerKey), Default: expectation.ResponseHeaders[headerKey]}, &newValue); err == nil {
-		expectation.ResponseHeaders[headerKey] = newValue
+	defaultValue := strings.Join(expectation.HttpResponse.Headers[headerKey], ", ")
+	if err := survey.AskOne(&survey.Input{Message: fmt.Sprintf("New value for %s:", headerKey), Default: defaultValue}, &newValue); err == nil {
+		expectation.HttpResponse.Headers[headerKey] = []string{newValue}
 		fmt.Printf("✅ Updated header %s\n", headerKey)
 	}
 }
 
-func viewResponseHeaders(headers map[string]string) {
+func viewResponseHeaders(headers map[string][]string) {
 	fmt.Println("\nCurrent response headers:")
 	if len(headers) == 0 {
 		fmt.Println("  (no headers set)")
 	} else {
 		for k, v := range headers {
-			fmt.Printf("  %s: %s\n", k, v)
+			fmt.Printf("  %s: %s\n", k, strings.Join(v, ", "))
 		}
 	}
 	fmt.Println()
 }
 
 func editQueryParams(expectation *models.MockExpectation) {
-	if expectation.QueryParams == nil {
-		expectation.QueryParams = make(map[string]string)
+	if expectation.HttpRequest.QueryStringParameters == nil {
+		expectation.HttpRequest.QueryStringParameters = make(map[string][]string)
 	}
 	for {
 		var action string
 		options := []string{"add - Add parameter", "view - View current parameters"}
-		for key := range expectation.QueryParams {
+		for key := range expectation.HttpRequest.QueryStringParameters {
 			options = append(options, fmt.Sprintf("edit:%s - Edit %s", key, key))
 			options = append(options, fmt.Sprintf("delete:%s - Delete %s", key, key))
 		}
@@ -658,7 +667,7 @@ func editQueryParams(expectation *models.MockExpectation) {
 		if actionParts[0] == "add" {
 			addQueryParam(expectation)
 		} else if actionParts[0] == "view" {
-			viewQueryParams(expectation.QueryParams)
+			viewQueryParams(expectation.HttpRequest.QueryStringParameters)
 		} else if actionParts[0] == "done" {
 			return
 		} else if strings.Contains(actionParts[0], ":") {
@@ -667,7 +676,7 @@ func editQueryParams(expectation *models.MockExpectation) {
 				if parts[0] == "edit" {
 					editQueryParamValue(expectation, parts[1])
 				} else if parts[0] == "delete" {
-					delete(expectation.QueryParams, parts[1])
+					delete(expectation.HttpRequest.QueryStringParameters, parts[1])
 					fmt.Printf("✅ Deleted parameter %s\n", parts[1])
 				}
 			}
@@ -679,7 +688,7 @@ func addQueryParam(expectation *models.MockExpectation) {
 	var paramName, paramValue string
 	if err := survey.AskOne(&survey.Input{Message: "Parameter name:"}, &paramName); err == nil && strings.TrimSpace(paramName) != "" {
 		if err := survey.AskOne(&survey.Input{Message: "Parameter value or pattern:"}, &paramValue); err == nil {
-			expectation.QueryParams[paramName] = paramValue
+			expectation.HttpRequest.QueryStringParameters[paramName] = []string{paramValue}
 			fmt.Printf("✅ Added parameter %s\n", paramName)
 		}
 	}
@@ -687,19 +696,20 @@ func addQueryParam(expectation *models.MockExpectation) {
 
 func editQueryParamValue(expectation *models.MockExpectation, paramKey string) {
 	var newValue string
-	if err := survey.AskOne(&survey.Input{Message: fmt.Sprintf("New value for %s:", paramKey), Default: expectation.QueryParams[paramKey]}, &newValue); err == nil {
-		expectation.QueryParams[paramKey] = newValue
+	defaultValue := strings.Join(expectation.HttpRequest.QueryStringParameters[paramKey], ", ")
+	if err := survey.AskOne(&survey.Input{Message: fmt.Sprintf("New value for %s:", paramKey), Default: defaultValue}, &newValue); err == nil {
+		expectation.HttpRequest.QueryStringParameters[paramKey] = []string{newValue}
 		fmt.Printf("✅ Updated parameter %s\n", paramKey)
 	}
 }
 
-func viewQueryParams(params map[string]string) {
+func viewQueryParams(params map[string][]string) {
 	fmt.Println("\nCurrent query parameters:")
 	if len(params) == 0 {
 		fmt.Println("  (no parameters set)")
 	} else {
 		for k, v := range params {
-			fmt.Printf("  %s: %s\n", k, v)
+			fmt.Printf("  %s: %s\n", k, strings.Join(v, ", "))
 		}
 	}
 	fmt.Println()

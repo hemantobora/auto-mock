@@ -6,8 +6,10 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 )
 
+// FeatureFunc represents a function that configures a feature on an expectation
 type FeatureFunc func(exp *MockExpectation) error
 
+// FeatureItem represents a single configurable feature
 type FeatureItem struct {
 	Key         string
 	Label       string
@@ -15,129 +17,229 @@ type FeatureItem struct {
 	Description string
 }
 
+// Category represents a group of related features
 type Category struct {
 	Key      string
 	Label    string
 	Features []FeatureItem
 }
 
-// ---- 1) Registry: wire categories -> features (hook to your existing collectors) ----
-
+// Registry creates the complete feature catalog with all available features
 func Registry(mc *MockConfigurator) []Category {
 	return []Category{
 		{
 			Key:   "response-behavior",
 			Label: "Response Behavior",
 			Features: []FeatureItem{
-				{"delays", "Delays (fixed / random / progressive)", applyDelays(mc), "Add response delays"},
-				{"limits", "Limits (times / reset patterns)", applyLimits(mc), "Limit response count/times"},
-				{"priority", "Priority (conflict resolution)", applyPriority(mc), "Set expectation priority"},
-				{"headers", "Custom Response Headers", applyResponseHeaders(mc), "Add dynamic headers"},
-				{"caching", "Caching (Cache-Control / ETag)", applyCaching(mc), "ETags and cache control"},
-				{"compression", "Compression (gzip/deflate)", applyCompression(mc), "Response compression"},
-			},
-		},
-		{
-			Key:   "dynamic-content",
-			Label: "Dynamic Content",
-			Features: []FeatureItem{
-				{"templating", "Templating / Echo request", applyTemplating(mc), "Velocity-like templates"},
-				{"sequences", "Sequences (multi-stage)", applySequences(mc), "Stage responses"},
-				{"conditions", "Conditions (logic trees)", applyConditions(mc), "Conditional bodies"},
-				{"state-machine", "State Machine", applyStateMachine(mc), "Stateful transitions"},
-				{"data-generation", "Data Generation (fake data)", applyDataGen(mc), "Realistic fakes"},
-				{"interpolation", "Advanced String Interpolation", applyInterpolation(mc), "Rich interpolation"},
-			},
-		},
-		{
-			Key:   "integration",
-			Label: "Integration & Callbacks",
-			Features: []FeatureItem{
-				{"webhooks", "Webhooks (HTTP callbacks + retry)", applyWebhooks(mc), "Callback hooks"},
-				{"custom-code", "Custom Code (Java callback)", applyCustomCode(mc), "Java class callback"},
-				{"forward", "Forwarding (smart + fallbacks)", applyForward(mc), "Forward with rules"},
-				{"proxy", "Proxy (advanced)", applyProxy(mc), "Proxy upstream"},
-				{"transformation", "Transform request/response", applyTransformation(mc), "Mutate payloads"},
-				{"event-streaming", "Event Streaming (SSE)", applyEventStreaming(mc), "Stream events"},
+				{
+					Key:         "delays",
+					Label:       "Response Delays",
+					Apply:       applyDelays(mc),
+					Description: "Add fixed, random, or progressive delays",
+				},
+				{
+					Key:         "limits",
+					Label:       "Response Limits",
+					Apply:       applyLimits(mc),
+					Description: "Limit how many times expectation matches",
+				},
+				{
+					Key:         "priority",
+					Label:       "Expectation Priority",
+					Apply:       applyPriority(mc),
+					Description: "Set priority for conflicting expectations",
+				},
+				{
+					Key:         "headers",
+					Label:       "Custom Response Headers",
+					Apply:       applyResponseHeaders(mc),
+					Description: "Add dynamic response headers",
+				},
+				{
+					Key:         "caching",
+					Label:       "Cache Control",
+					Apply:       applyCaching(mc),
+					Description: "Configure cache headers and ETags",
+				},
+				{
+					Key:         "compression",
+					Label:       "Response Compression",
+					Apply:       applyCompression(mc),
+					Description: "Enable gzip/deflate compression",
+				},
 			},
 		},
 		{
 			Key:   "connection",
 			Label: "Connection Control",
 			Features: []FeatureItem{
-				{"drop-connection", "Drop Connection (failures)", applyDropConnection(mc), "Network failures"},
-				{"chunked-encoding", "Chunked Transfer Encoding", applyChunked(mc), "Chunked control"},
-				{"keep-alive", "Keep-Alive / Persistence", applyKeepAlive(mc), "Connection reuse"},
-				{"error-simulation", "TCP/HTTP Error Simulation", applyErrors(mc), "Synthetic errors"},
-				{"bandwidth", "Bandwidth Throttling", applyBandwidth(mc), "Throttle bytes/sec"},
-				{"ssl-behavior", "SSL/TLS Behavior Simulation", applySSL(mc), "TLS quirks"},
-			},
-		},
-		{
-			Key:   "testing",
-			Label: "Testing Scenarios",
-			Features: []FeatureItem{
-				{"circuit-breaker", "Circuit Breaker", applyCircuitBreaker(mc), "Breaker patterns"},
-				{"rate-limiting", "Rate Limiting (w/ backoff)", applyRateLimiting(mc), "429s + backoff"},
-				{"chaos-engineering", "Chaos Engineering", applyChaos(mc), "Random faults"},
-				{"load-testing", "Load / Perf Testing", applyLoad(mc), "Perf patterns"},
-				{"resilience", "Resilience Testing", applyResilience(mc), "Resilience scenarios"},
-				{"security", "Security Testing", applySecurity(mc), "Auth/headers/etc."},
-			},
-		},
-		{
-			Key:   "advanced",
-			Label: "Advanced Patterns",
-			Features: []FeatureItem{
-				{"stateful-mocking", "Stateful Mocking", applyStateful(mc), "Stateful interactions"},
-				{"workflow-simulation", "Workflow Simulation", applyWorkflow(mc), "Multi-step flows"},
-				{"event-driven", "Event-Driven", applyEventDriven(mc), "Emit/consume events"},
-				{"microservice-patterns", "Microservice Patterns", applyMicroservices(mc), "Service mesh-ish"},
-				{"api-versioning", "API Versioning", applyAPIVersioning(mc), "v1/v2 behavior"},
-				{"tenant-isolation", "Tenant Isolation", applyTenantIsolation(mc), "Per-tenant logic"},
+				{
+					Key:         "drop-connection",
+					Label:       "Drop Connection",
+					Apply:       applyDropConnection(mc),
+					Description: "Simulate network failures",
+				},
+				{
+					Key:         "chunked-encoding",
+					Label:       "Chunked Encoding",
+					Apply:       applyChunked(mc),
+					Description: "Control chunked transfer encoding",
+				},
+				{
+					Key:         "keep-alive",
+					Label:       "Keep-Alive Settings",
+					Apply:       applyKeepAlive(mc),
+					Description: "Connection persistence patterns",
+				},
 			},
 		},
 	}
 }
 
-// ---- 2) Interactive picker ----
+// PickFeaturesInteractively allows users to select features through an interactive menu
+func PickFeaturesInteractively(reg []Category) ([]FeatureItem, error) {
+	fmt.Println("\n🎨 Advanced Features Configuration")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("💡 Select categories and features to configure advanced MockServer behavior")
+	fmt.Println()
 
-func PickFeaturesInteractively(reg []Category) (map[string][]FeatureItem, error) {
-	// pick categories
+	// Step 1: Show available categories
 	var catLabels []string
-	labelToCat := map[string]Category{}
+	labelToCat := make(map[string]Category)
+
 	for _, c := range reg {
 		catLabels = append(catLabels, c.Label)
 		labelToCat[c.Label] = c
 	}
-	var chosenCats []string
+
+	var chosenCatLabels []string
 	if err := survey.AskOne(&survey.MultiSelect{
-		Message: "Pick categories to configure:",
+		Message: "Select feature categories:",
 		Options: catLabels,
-	}, &chosenCats, survey.WithValidator(survey.Required)); err != nil {
+		Help:    "Use SPACE to select, ENTER to confirm. Choose categories that interest you.",
+	}, &chosenCatLabels); err != nil {
 		return nil, err
 	}
 
-	// for each category, pick features
-	result := make(map[string][]FeatureItem)
-	for _, cl := range chosenCats {
-		c := labelToCat[cl]
-		var featLabels []string
-		labelToFeat := map[string]FeatureItem{}
-		for _, f := range c.Features {
-			featLabels = append(featLabels, fmt.Sprintf("%s — %s", f.Label, f.Description))
-			labelToFeat[fmt.Sprintf("%s — %s", f.Label, f.Description)] = f
+	if len(chosenCatLabels) == 0 {
+		fmt.Println("ℹ️  No categories selected, skipping advanced features")
+		return nil, nil
+	}
+
+	// Step 2: For each selected category, pick specific features
+	var allSelectedFeatures []FeatureItem
+
+	for _, catLabel := range chosenCatLabels {
+		cat := labelToCat[catLabel]
+
+		fmt.Printf("\n📂 Category: %s\n", cat.Label)
+
+		var featOptions []string
+		labelToFeat := make(map[string]FeatureItem)
+
+		for _, feat := range cat.Features {
+			option := fmt.Sprintf("%s — %s", feat.Label, feat.Description)
+			featOptions = append(featOptions, option)
+			labelToFeat[option] = feat
 		}
-		var chosenFeats []string
+
+		var chosenFeatLabels []string
 		if err := survey.AskOne(&survey.MultiSelect{
-			Message: fmt.Sprintf("Pick features in %s:", c.Label),
-			Options: featLabels,
-		}, &chosenFeats, survey.WithValidator(survey.Required)); err != nil {
+			Message: fmt.Sprintf("Select features from '%s':", cat.Label),
+			Options: featOptions,
+			Help:    "Use SPACE to select multiple, ENTER to confirm",
+		}, &chosenFeatLabels); err != nil {
 			return nil, err
 		}
-		for _, fl := range chosenFeats {
-			result[c.Key] = append(result[c.Key], labelToFeat[fl])
+
+		for _, featLabel := range chosenFeatLabels {
+			allSelectedFeatures = append(allSelectedFeatures, labelToFeat[featLabel])
 		}
 	}
-	return result, nil
+
+	if len(allSelectedFeatures) == 0 {
+		fmt.Println("ℹ️  No features selected")
+		return nil, nil
+	}
+
+	fmt.Printf("\n✅ Selected %d feature(s) to configure\n", len(allSelectedFeatures))
+	return allSelectedFeatures, nil
+}
+
+// ApplySelectedFeatures applies all selected features to an expectation
+func ApplySelectedFeatures(exp *MockExpectation, features []FeatureItem) error {
+	if len(features) == 0 {
+		return nil
+	}
+
+	fmt.Printf("\n🔧 Applying %d Advanced Feature(s)\n", len(features))
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	successCount := 0
+	failureCount := 0
+
+	for i, feat := range features {
+		fmt.Printf("\n[%d/%d] Configuring: %s\n", i+1, len(features), feat.Label)
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+		if err := feat.Apply(exp); err != nil {
+			failureCount++
+			fmt.Printf("⚠️  Warning: Failed to configure %s: %v\n", feat.Label, err)
+
+			// Ask if they want to continue
+			var continueAnyway bool
+			if err := survey.AskOne(&survey.Confirm{
+				Message: "Continue with remaining features?",
+				Default: true,
+			}, &continueAnyway); err != nil || !continueAnyway {
+				return fmt.Errorf("feature configuration cancelled after %d successes, %d failures", successCount, failureCount)
+			}
+		} else {
+			successCount++
+			fmt.Printf("✅ Successfully configured %s\n", feat.Label)
+		}
+	}
+
+	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("📊 Feature Configuration Summary:\n")
+	fmt.Printf("   ✅ Successful: %d\n", successCount)
+	if failureCount > 0 {
+		fmt.Printf("   ⚠️  Failed: %d\n", failureCount)
+	}
+	fmt.Println()
+
+	return nil
+}
+
+// CollectAdvancedFeaturesInteractive is the main entry point for feature selection and application
+func CollectAdvancedFeaturesInteractive(mc *MockConfigurator, exp *MockExpectation) error {
+	var wantsAdvanced bool
+	if err := survey.AskOne(&survey.Confirm{
+		Message: "Configure advanced MockServer features?",
+		Default: false,
+		Help:    "Delays, callbacks, connection control, testing patterns, and more",
+	}, &wantsAdvanced); err != nil {
+		return err
+	}
+
+	if !wantsAdvanced {
+		fmt.Println("ℹ️  Skipping advanced features")
+		return nil
+	}
+
+	// Get the registry
+	registry := Registry(mc)
+
+	// Let user pick features interactively
+	selectedFeatures, err := PickFeaturesInteractively(registry)
+	if err != nil {
+		return fmt.Errorf("failed to select features: %w", err)
+	}
+
+	if len(selectedFeatures) == 0 {
+		return nil
+	}
+
+	// Apply all selected features
+	return ApplySelectedFeatures(exp, selectedFeatures)
 }

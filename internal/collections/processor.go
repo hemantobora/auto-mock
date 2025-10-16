@@ -46,11 +46,19 @@ type APIResponse struct {
 
 // ExecutionNode represents a node in the execution DAG
 type ExecutionNode struct {
-	API          APIRequest   `json:"api"`
-	Dependencies []string     `json:"dependencies"`
-	Variables    []string     `json:"variables_provided"`
-	Response     *APIResponse `json:"response,omitempty"`
+	API           APIRequest    `json:"api"`
+	Dependencies  []string      `json:"dependencies"`
+	Variables     []string      `json:"variables_provided"`
+	Response      *APIResponse  `json:"response,omitempty"`
+	ExecutionType ExecutionType `json:"-"`
 }
+
+type ExecutionType string
+
+const (
+	GRAPHQL ExecutionType = "GRAPHQL"
+	REST    ExecutionType = "REST"
+)
 
 // NewCollectionProcessor creates a new collection processor
 func NewCollectionProcessor(projectName, collectionType string) (*CollectionProcessor, error) {
@@ -95,10 +103,13 @@ func (cp *CollectionProcessor) ProcessCollection(filePath string) (string, error
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// Enhanced GraphQL-aware scenario detection
-	expectations, err := cp.configureMatchingCriteriaWithScenarios(executionNodes)
+	expectations, err := cp.configureExpectationCriteria(executionNodes)
 	if err != nil {
 		return "", fmt.Errorf("failed to configure matching: %w", err)
 	}
+
+	fmt.Printf("\n✅ Configured %d mock expectations from collection\n", len(expectations))
+	expectations = builders.ExtendExpectationsForProgressive(expectations)
 
 	// Step 6: Enhanced review and validation with save option
 	if err := cp.reviewExpectations(expectations); err != nil {
@@ -169,115 +180,11 @@ func (cp *CollectionProcessor) parseCollectionFile(filePath string) ([]APIReques
 	}
 }
 
-// applyScenarioConfigurationToExpectation applies scenario-specific configuration to a MockExpectation
-func (cp *CollectionProcessor) applyScenarioConfigurationToExpectation(expectation *builders.MockExpectation, difference string) error {
-	fmt.Printf("    🔧 Auto-configuring for difference: %s\n", difference)
-
-	switch {
-	case difference == "no-auth":
-		// Configure to match requests WITHOUT Authorization header
-		if expectation.HeaderTypes == nil {
-			expectation.HeaderTypes = make(map[string]string)
-		}
-		if expectation.Headers == nil {
-			expectation.Headers = make(map[string]string)
-		}
-		// Use a special marker to indicate "not present"
-		expectation.Headers["Authorization"] = "__NOT_PRESENT__"
-		expectation.HeaderTypes["Authorization"] = "not"
-		fmt.Printf("    ✅ Configured to match requests WITHOUT Authorization header\n")
-
-	case difference == "invalid-auth":
-		// Configure to match requests with invalid/expired Authorization
-		if expectation.Headers == nil {
-			expectation.Headers = make(map[string]string)
-		}
-		if expectation.HeaderTypes == nil {
-			expectation.HeaderTypes = make(map[string]string)
-		}
-		// Use regex to match various invalid auth patterns
-		expectation.Headers["Authorization"] = "(invalid|expired|Bearer invalid|Bearer expired)"
-		expectation.HeaderTypes["Authorization"] = "regex"
-		fmt.Printf("    ✅ Configured to match requests with invalid/expired Authorization\n")
-
-	case difference == "different-headers" || difference == "different-header-values":
-		// Headers are already set from the node, just log it
-		if len(expectation.Headers) > 0 {
-			fmt.Printf("    ✅ Configured %d request headers\n", len(expectation.Headers))
-		}
-
-	case difference == "no-headers":
-		// Clear any headers to match requests with minimal headers
-		expectation.Headers = make(map[string]string)
-		fmt.Printf("    ✅ Configured to match requests with minimal headers\n")
-
-	case difference == "different-query-params":
-		// Query parameters are already set from the node
-		if len(expectation.QueryParams) > 0 {
-			fmt.Printf("    ✅ Configured %d query parameters\n", len(expectation.QueryParams))
-		}
-
-	case difference == "no-body":
-		// Set a marker to indicate body should not be present
-		expectation.Body = "__NOT_PRESENT__"
-		fmt.Printf("    ✅ Configured to match requests WITHOUT body\n")
-
-	case difference == "with-body":
-		// Body is already set from the node
-		if expectation.Body != nil && expectation.Body != "" {
-			fmt.Printf("    ✅ Configured to match requests WITH body\n")
-		}
-
-	case difference == "different-request-body":
-		// Body is already set from the node
-		if expectation.Body != nil && expectation.Body != "" {
-			fmt.Printf("    ✅ Configured specific request body matching\n")
-		}
-
-	case difference == "different-variables":
-		// GraphQL: Different variables in request
-		if expectation.Body != nil && expectation.Body != "" {
-			fmt.Printf("    ✅ Configured GraphQL variable matching\n")
-		}
-
-	case difference == "different-query":
-		// GraphQL: Different query/mutation
-		if expectation.Body != nil && expectation.Body != "" {
-			fmt.Printf("    ✅ Configured GraphQL query matching\n")
-		}
-
-	case difference == "graphql-variant":
-		// GraphQL: Generic variant
-		if expectation.Body != nil && expectation.Body != "" {
-			fmt.Printf("    ✅ Configured GraphQL request matching\n")
-		}
-
-	case strings.HasPrefix(difference, "status-"):
-		// Status code difference - no additional request matching needed
-		fmt.Printf("    ✅ Scenario differentiated by response status code\n")
-
-	default:
-		fmt.Printf("    ℹ️  Using default matching (exact path)\n")
-	}
-
-	return nil
-}
-
-// handlePriorityBasedScenarios configures scenarios with priority-based matching
-func (cp *CollectionProcessor) handlePriorityBasedScenarios(scenarios []APIScenario, nodes []ExecutionNode) ([]builders.MockExpectation, error) {
-	fmt.Println("\n📊 Priority-Based Scenario Configuration")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("Scenarios will be configured with priority-based matching order.")
-
-	// This is essentially the same as create-separate but with user input on priorities
-	return cp.handleCreateSeparateScenarios(scenarios, nodes)
-}
-
 // configureIndividualMatching handles non-scenario APIs (renamed from original)
 func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode) ([]builders.MockExpectation, error) {
 	fmt.Println("\n🔧 Individual API Matching Configuration")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("Configure matching for individual APIs (no scenarios detected)")
+	fmt.Println("Configure matching for individual APIs")
 
 	var expectations []builders.MockExpectation
 	var mock_configurator builders.MockConfigurator
@@ -293,55 +200,161 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 		// Build base expectation
 		path, queryParams := mock_configurator.ParsePathAndQueryParams(node.API.URL)
 		expectation := builders.MockExpectation{
-			Method:      node.API.Method,
-			Path:        cp.extractPath(path),
-			QueryParams: queryParams,
-			Headers:     node.API.Headers,
-
-			StatusCode:      node.Response.StatusCode,
-			ResponseHeaders: node.Response.Headers,
-			ResponseBody:    node.Response.Body,
+			HttpRequest: &builders.HttpRequest{
+				Method:                node.API.Method,
+				Path:                  cp.extractPath(path),
+				QueryStringParameters: queryParams,
+				Headers:               map[string][]any{
+					// Keep room for regex or exact values later
+				},
+			},
+			HttpResponse: &builders.HttpResponse{
+				StatusCode: node.Response.StatusCode,
+				Headers:    map[string][]string{"Content-Type": {"application/json"}},
+			},
 		}
+		// loop through headers and place in httpRequest.headers
+		for k, v := range node.API.Headers {
+			expectation.HttpRequest.Headers[k] = []any{v}
+		}
+		if node.ExecutionType == GRAPHQL {
+			// Decide transport by method and where query lives
+			method := strings.ToUpper(node.API.Method)
+			isGET := method == "GET"
 
-		// Request body for methods that typically have bodies
-		if node.API.Method == "POST" || node.API.Method == "PUT" || node.API.Method == "PATCH" {
-			if err := mock_configurator.CollectRequestBody(&expectation, node.API.Body); err != nil {
+			// Try to parse body as GraphQL envelope if present
+			var gql map[string]any
+			if node.API.Body != "" {
+				_ = json.Unmarshal([]byte(node.API.Body), &gql) // ok if fails; we’ll fallback
+			}
+			query, _ := gql["query"].(string)
+			opName, _ := gql["operationName"].(string)
+			vars, _ := gql["variables"].(map[string]any)
+
+			if isGET {
+				// GET: put fields in queryStringParameters.
+				if expectation.HttpRequest.QueryStringParameters == nil {
+					expectation.HttpRequest.QueryStringParameters = map[string][]string{}
+				}
+				if query != "" {
+					expectation.HttpRequest.QueryStringParameters["query"] = []string{query}
+				}
+				if opName != "" {
+					expectation.HttpRequest.QueryStringParameters["operationName"] = []string{opName}
+					expectation.HttpRequest.Headers["X-GraphQL-Operation-Type"] = []any{opName}
+				}
+				if vars != nil {
+					b, _ := json.Marshal(vars)
+					expectation.HttpRequest.QueryStringParameters["variables"] = []string{string(b)}
+				}
+			} else {
+				// POST: JSON body wrapper with selectable match type.
+				if expectation.HttpRequest.Headers == nil {
+					expectation.HttpRequest.Headers = map[string][]any{}
+				}
+				expectation.HttpRequest.Headers["Content-Type"] = []any{"application/json"}
+
+				// If body couldn’t be parsed but we still have a literal, try a minimal envelope
+				if query == "" && node.API.Body != "" && json.Valid([]byte(node.API.Body)) {
+					// Accept any JSON that contains query/variables the user chooses
+					var tmp any
+					_ = json.Unmarshal([]byte(node.API.Body), &tmp)
+					if m, ok := tmp.(map[string]any); ok {
+						query, _ = m["query"].(string)
+						opName, _ = m["operationName"].(string)
+						vars, _ = m["variables"].(map[string]any)
+					}
+				}
+
+				envelope := map[string]any{}
+				if query != "" {
+					envelope["query"] = query
+				}
+				if opName != "" {
+					envelope["operationName"] = opName
+					expectation.HttpRequest.Headers["X-GraphQL-Operation-Type"] = []any{opName}
+				}
+				if vars != nil {
+					envelope["variables"] = vars
+				}
+
+				// Let the user choose STRICT vs ONLY_MATCHING_FIELDS vs REGEX (full-body)
+				var mode string
+				if err := survey.AskOne(&survey.Select{
+					Message: "GraphQL POST body match mode:",
+					Options: []string{"ONLY_MATCHING_FIELDS", "STRICT"},
+					Default: "ONLY_MATCHING_FIELDS",
+				}, &mode); err != nil {
+					mode = "ONLY_MATCHING_FIELDS"
+				}
+
+				switch {
+				case mode == "STRICT":
+					expectation.HttpRequest.Body = map[string]any{
+						"type":      "JSON",
+						"json":      envelope,
+						"matchType": "STRICT",
+					}
+				default: // ONLY_MATCHING_FIELDS
+					expectation.HttpRequest.Body = map[string]any{
+						"type":      "JSON",
+						"json":      envelope,
+						"matchType": "ONLY_MATCHING_FIELDS",
+					}
+				}
+			}
+
+			// Response body: wrap as JSON if possible; else fall back to exact string
+			var respVal any
+			if json.Valid([]byte(node.Response.Body)) {
+				_ = json.Unmarshal([]byte(node.Response.Body), &respVal)
+				expectation.HttpResponse.Body = map[string]any{
+					"type": "JSON",
+					"json": respVal,
+				}
+			} else {
+				expectation.HttpResponse.Body = map[string]any{
+					"type":   "STRING",
+					"string": node.Response.Body,
+				}
+			}
+
+			if err := mock_configurator.CollectAdvancedFeatures(4, &expectation); err != nil {
+				return nil, err
+			}
+			// Optional: show a compact review prompt like your REST flow
+			if err := builders.ReviewGraphQLExpectation(&expectation); err != nil {
+				return nil, err
+			}
+		} else {
+			// Request body for methods that typically have bodies
+			if node.API.Method == "POST" || node.API.Method == "PUT" || node.API.Method == "PATCH" {
+				if err := mock_configurator.CollectRequestBody(&expectation, node.API.Body); err != nil {
+					return nil, err
+				}
+			}
+
+			// Configure matching criteria for this individual API
+			if err := mock_configurator.CollectQueryParameterMatching(1, &expectation); err != nil {
+				return nil, err
+			}
+
+			if err := mock_configurator.CollectPathMatchingStrategy(2, &expectation); err != nil {
+				return nil, err
+			}
+
+			if err := mock_configurator.CollectRequestHeaderMatching(3, &expectation); err != nil {
+				return nil, err
+			}
+
+			if err := mock_configurator.CollectAdvancedFeatures(4, &expectation); err != nil {
 				return nil, err
 			}
 		}
-
-		// Configure matching criteria for this individual API
-		if err := mock_configurator.CollectQueryParameterMatching(1, &expectation); err != nil {
-			return nil, err
-		}
-
-		if err := mock_configurator.CollectPathMatchingStrategy(2, &expectation); err != nil {
-			return nil, err
-		}
-
-		if err := mock_configurator.CollectRequestHeaderMatching(3, &expectation); err != nil {
-			return nil, err
-		}
-
-		if err := mock_configurator.CollectAdvancedFeatures(4, &expectation); err != nil {
-			return nil, err
-		}
-
 		expectations = append(expectations, expectation)
 	}
 
 	return expectations, nil
-}
-
-// handleIndividualScenarioConfiguration asks user to configure each scenario
-func (cp *CollectionProcessor) handleIndividualScenarioConfiguration(scenarios []APIScenario, nodes []ExecutionNode) ([]builders.MockExpectation, error) {
-	fmt.Println("\n🔧 Individual Scenario Configuration")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("You will be asked to configure each scenario individually.")
-
-	// For now, fall back to create-separate approach
-	// In a full implementation, this would ask user to configure each scenario
-	return cp.handleCreateSeparateScenarios(scenarios, nodes)
 }
 
 // Step 3: Execute APIs sequentially with variable resolution
@@ -549,73 +562,6 @@ func (cp *CollectionProcessor) executeAPIs(nodes []ExecutionNode) error {
 	return nil
 }
 
-// API scenario detection and grouping types
-type APIScenario struct {
-	BaseName  string
-	Method    string
-	Path      string
-	Scenarios []ScenarioVariant
-}
-
-type ScenarioVariant struct {
-	Node        ExecutionNode
-	Name        string
-	Description string
-	Difference  string // What makes this scenario different
-}
-
-// detectAPIScenarios groups APIs by endpoint and identifies scenarios
-func (cp *CollectionProcessor) detectAPIScenarios(nodes []ExecutionNode) []APIScenario {
-	// Group by method + path
-	groups := make(map[string][]ExecutionNode)
-	for _, node := range nodes {
-		if node.Response == nil {
-			continue
-		}
-
-		key := fmt.Sprintf("%s %s", node.API.Method, cp.extractPath(node.API.URL))
-		groups[key] = append(groups[key], node)
-	}
-
-	// Convert groups to scenarios
-	var scenarios []APIScenario
-	for key, nodeGroup := range groups {
-		if len(nodeGroup) == 1 {
-			// Single API, no scenarios needed
-			continue
-		}
-
-		parts := strings.SplitN(key, " ", 2)
-		scenario := APIScenario{
-			BaseName: fmt.Sprintf("%s %s", parts[0], parts[1]),
-			Method:   parts[0],
-			Path:     parts[1],
-		}
-
-		// Analyze each variant to determine differences
-		for i, node := range nodeGroup {
-			variant := ScenarioVariant{
-				Node: node,
-				Name: node.API.Name,
-			}
-
-			// Determine what makes this scenario different
-			variant.Difference = cp.identifyScenarioDifference(node, nodeGroup)
-			variant.Description = cp.generateScenarioDescription(node, variant.Difference)
-
-			if variant.Name == "" {
-				variant.Name = fmt.Sprintf("%s - Scenario %d", scenario.BaseName, i+1)
-			}
-
-			scenario.Scenarios = append(scenario.Scenarios, variant)
-		}
-
-		scenarios = append(scenarios, scenario)
-	}
-
-	return scenarios
-}
-
 // classifyAPIsByType separates REST and GraphQL APIs
 func (cp *CollectionProcessor) classifyAPIsByType(nodes []ExecutionNode) ([]ExecutionNode, []ExecutionNode) {
 	var restNodes, graphqlNodes []ExecutionNode
@@ -627,8 +573,10 @@ func (cp *CollectionProcessor) classifyAPIsByType(nodes []ExecutionNode) ([]Exec
 
 		// Check if it's a GraphQL request
 		if cp.isGraphQLRequest(node.API) {
+			node.ExecutionType = GRAPHQL
 			graphqlNodes = append(graphqlNodes, node)
 		} else {
+			node.ExecutionType = REST
 			restNodes = append(restNodes, node)
 		}
 	}
@@ -638,408 +586,60 @@ func (cp *CollectionProcessor) classifyAPIsByType(nodes []ExecutionNode) ([]Exec
 
 // isGraphQLRequest determines if an API request is GraphQL
 func (cp *CollectionProcessor) isGraphQLRequest(api APIRequest) bool {
-	// Check URL path
-	if strings.Contains(api.URL, "/graphql") || strings.Contains(api.URL, "/gql") {
+	urlLower := strings.ToLower(api.URL)
+
+	// 1️⃣ Path heuristic
+	if strings.Contains(urlLower, "/graphql") || strings.Contains(urlLower, "/gql") {
 		return true
 	}
 
-	// Check Content-Type header
-	if contentType, exists := api.Headers["Content-Type"]; exists {
-		if strings.Contains(strings.ToLower(contentType), "graphql") {
+	// 2️⃣ Header heuristic
+	for k, v := range api.Headers {
+		if strings.EqualFold(k, "Content-Type") &&
+			strings.Contains(strings.ToLower(v), "graphql") {
+			return true
+		}
+		if strings.EqualFold(k, "X-GraphQL-Operation-Name") {
 			return true
 		}
 	}
 
-	// Check body for GraphQL structure
-	if api.Body != "" {
-		var bodyMap map[string]interface{}
-		if err := json.Unmarshal([]byte(api.Body), &bodyMap); err == nil {
-			// Check for GraphQL query structure
-			if _, hasQuery := bodyMap["query"]; hasQuery {
-				return true
-			}
-		}
-
-		// Check if body contains GraphQL keywords
-		bodyLower := strings.ToLower(api.Body)
-		if strings.Contains(bodyLower, "query ") || strings.Contains(bodyLower, "mutation ") ||
-			strings.Contains(bodyLower, "subscription ") {
-			return true
-		}
-	}
-
-	return false
-}
-
-// detectGraphQLScenarios groups GraphQL requests by operation and identifies scenarios
-func (cp *CollectionProcessor) detectGraphQLScenarios(nodes []ExecutionNode) []APIScenario {
-	// Group by operation name or query content
-	groups := make(map[string][]ExecutionNode)
-	for _, node := range nodes {
-		if node.Response == nil {
-			continue
-		}
-
-		operationKey := cp.extractGraphQLOperationKey(node.API)
-		groups[operationKey] = append(groups[operationKey], node)
-	}
-
-	// Convert groups to scenarios
-	var scenarios []APIScenario
-	for key, nodeGroup := range groups {
-		if len(nodeGroup) == 1 {
-			// Single GraphQL operation, no scenarios needed
-			continue
-		}
-
-		scenario := APIScenario{
-			BaseName: fmt.Sprintf("GraphQL %s", key),
-			Method:   "POST",
-			Path:     "/graphql",
-		}
-
-		// Analyze each variant to determine differences
-		for i, node := range nodeGroup {
-			variant := ScenarioVariant{
-				Node: node,
-				Name: node.API.Name,
-			}
-
-			// Determine what makes this GraphQL scenario different
-			variant.Difference = cp.identifyGraphQLScenarioDifference(node, nodeGroup)
-			variant.Description = cp.generateGraphQLScenarioDescription(node, variant.Difference)
-
-			if variant.Name == "" {
-				variant.Name = fmt.Sprintf("%s - Scenario %d", scenario.BaseName, i+1)
-			}
-
-			scenario.Scenarios = append(scenario.Scenarios, variant)
-		}
-
-		scenarios = append(scenarios, scenario)
-	}
-
-	return scenarios
-}
-
-// extractGraphQLOperationKey creates a key for grouping GraphQL operations
-func (cp *CollectionProcessor) extractGraphQLOperationKey(api APIRequest) string {
-	if api.Body == "" {
-		return "unknown_operation"
-	}
-
-	var bodyMap map[string]interface{}
-	if err := json.Unmarshal([]byte(api.Body), &bodyMap); err == nil {
-		// Extract operation name if present
-		if operationName, ok := bodyMap["operationName"].(string); ok && operationName != "" {
-			return operationName
-		}
-
-		// Extract operation from query
-		if query, ok := bodyMap["query"].(string); ok {
-			return cp.extractOperationFromQuery(query)
-		}
-	}
-
-	// Fallback to generic key
-	return "graphql_operation"
-}
-
-// extractOperationFromQuery extracts operation name from GraphQL query string
-func (cp *CollectionProcessor) extractOperationFromQuery(query string) string {
-	// Simple regex to extract operation name
-	queryLower := strings.ToLower(query)
-	query = strings.TrimSpace(query)
-
-	// Look for operation patterns
-	if strings.Contains(queryLower, "query ") {
-		// Extract query name
-		if parts := strings.Fields(query); len(parts) >= 2 {
-			for i, part := range parts {
-				if strings.ToLower(part) == "query" && i+1 < len(parts) {
-					// Next part should be the operation name
-					opName := strings.Trim(parts[i+1], "({")
-					if opName != "" && opName != "{" {
-						return opName
-					}
-				}
-			}
-		}
-		return "query_operation"
-	} else if strings.Contains(queryLower, "mutation ") {
-		// Extract mutation name
-		if parts := strings.Fields(query); len(parts) >= 2 {
-			for i, part := range parts {
-				if strings.ToLower(part) == "mutation" && i+1 < len(parts) {
-					// Next part should be the operation name
-					opName := strings.Trim(parts[i+1], "({")
-					if opName != "" && opName != "{" {
-						return opName
-					}
-				}
-			}
-		}
-		return "mutation_operation"
-	} else if strings.Contains(queryLower, "subscription ") {
-		return "subscription_operation"
-	}
-
-	return "unknown_operation"
-}
-
-// identifyGraphQLScenarioDifference determines what makes a GraphQL scenario unique
-func (cp *CollectionProcessor) identifyGraphQLScenarioDifference(node ExecutionNode, group []ExecutionNode) string {
-	// Compare with other nodes in group to find differences
-	for _, other := range group {
-		if other.API.ID == node.API.ID {
-			continue
-		}
-
-		// Check status code differences (prioritized)
-		if node.Response.StatusCode != other.Response.StatusCode {
-			return fmt.Sprintf("status-%d", node.Response.StatusCode)
-		}
-
-		// Check for different variables
-		if cp.hasGraphQLVariableDifferences(node.API, other.API) {
-			return "different-variables"
-		}
-
-		// Check for authentication differences
-		if _, hasAuth := node.API.Headers["Authorization"]; !hasAuth {
-			if _, otherHasAuth := other.API.Headers["Authorization"]; otherHasAuth {
-				return "no-auth"
-			}
-		}
-
-		// Check for different queries (rare but possible)
-		if cp.hasGraphQLQueryDifferences(node.API, other.API) {
-			return "different-query"
-		}
-	}
-
-	return "graphql-variant"
-}
-
-// hasGraphQLVariableDifferences checks if GraphQL variables are different
-func (cp *CollectionProcessor) hasGraphQLVariableDifferences(api1, api2 APIRequest) bool {
-	vars1 := cp.extractGraphQLVariables(api1)
-	vars2 := cp.extractGraphQLVariables(api2)
-
-	// Compare variable maps
-	if len(vars1) != len(vars2) {
-		return true
-	}
-
-	for k, v1 := range vars1 {
-		if v2, exists := vars2[k]; !exists || fmt.Sprintf("%v", v1) != fmt.Sprintf("%v", v2) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// hasGraphQLQueryDifferences checks if GraphQL queries are different
-func (cp *CollectionProcessor) hasGraphQLQueryDifferences(api1, api2 APIRequest) bool {
-	query1 := cp.extractGraphQLQuery(api1)
-	query2 := cp.extractGraphQLQuery(api2)
-
-	return query1 != query2
-}
-
-// extractGraphQLVariables extracts variables from GraphQL request body
-func (cp *CollectionProcessor) extractGraphQLVariables(api APIRequest) map[string]interface{} {
-	if api.Body == "" {
-		return make(map[string]interface{})
-	}
-
-	var bodyMap map[string]interface{}
-	if err := json.Unmarshal([]byte(api.Body), &bodyMap); err == nil {
-		if vars, ok := bodyMap["variables"].(map[string]interface{}); ok {
-			return vars
-		}
-	}
-
-	return make(map[string]interface{})
-}
-
-// extractGraphQLQuery extracts query string from GraphQL request body
-func (cp *CollectionProcessor) extractGraphQLQuery(api APIRequest) string {
-	if api.Body == "" {
-		return ""
-	}
-
-	var bodyMap map[string]interface{}
-	if err := json.Unmarshal([]byte(api.Body), &bodyMap); err == nil {
-		if query, ok := bodyMap["query"].(string); ok {
-			return query
-		}
-	}
-
-	return ""
-}
-
-// generateGraphQLScenarioDescription creates a human-readable description for GraphQL scenarios
-func (cp *CollectionProcessor) generateGraphQLScenarioDescription(node ExecutionNode, difference string) string {
-	switch {
-	case strings.HasPrefix(difference, "status-"):
-		return fmt.Sprintf("Returns %d %s", node.Response.StatusCode, cp.getStatusText(node.Response.StatusCode))
-	case difference == "no-auth":
-		return "Missing Authorization header"
-	case difference == "different-variables":
-		return "Different GraphQL variables"
-	case difference == "different-query":
-		return "Different GraphQL query"
-	default:
-		return "Alternative GraphQL scenario"
-	}
-}
-
-// identifyScenarioDifference determines what makes a scenario unique
-func (cp *CollectionProcessor) identifyScenarioDifference(node ExecutionNode, group []ExecutionNode) string {
-	// Compare with other nodes in group to find differences
-	for _, other := range group {
-		if other.API.ID == node.API.ID {
-			continue
-		}
-
-		// Check status code differences (prioritized)
-		if node.Response.StatusCode != other.Response.StatusCode {
-			return fmt.Sprintf("status-%d", node.Response.StatusCode)
-		}
-
-		// Check for missing Authorization (common auth scenarios)
-		if _, hasAuth := node.API.Headers["Authorization"]; !hasAuth {
-			if _, otherHasAuth := other.API.Headers["Authorization"]; otherHasAuth {
-				return "no-auth"
-			}
-		}
-
-		// Check for invalid/expired Authorization
-		if authVal, hasAuth := node.API.Headers["Authorization"]; hasAuth {
-			if _, otherHasAuth := other.API.Headers["Authorization"]; otherHasAuth {
-				if strings.Contains(authVal, "invalid") || strings.Contains(authVal, "expired") {
-					return "invalid-auth"
-				}
-			}
-		}
-
-		// Check header count differences
-		if len(node.API.Headers) != len(other.API.Headers) {
-			if len(node.API.Headers) == 0 {
-				return "no-headers"
-			}
-			return "different-headers"
-		}
-
-		// Check specific header value differences
-		for key, val := range node.API.Headers {
-			if otherVal, exists := other.API.Headers[key]; exists && val != otherVal {
-				return "different-header-values"
-			}
-		}
-
-		// Check query parameter differences
-		if !cp.queryParamsEqual(node.API.QueryParams, other.API.QueryParams) {
-			return "different-query-params"
-		}
-
-		// Check request body differences (check for empty vs non-empty)
-		if (node.API.Body == "") != (other.API.Body == "") {
-			if node.API.Body == "" {
-				return "no-body"
-			}
-			return "with-body"
-		}
-
-		// Check for actual body content differences
-		if node.API.Body != other.API.Body {
-			return "different-request-body"
-		}
-	}
-
-	return "variant"
-}
-
-// generateScenarioDescription creates a human-readable description
-func (cp *CollectionProcessor) generateScenarioDescription(node ExecutionNode, difference string) string {
-	switch {
-	case strings.HasPrefix(difference, "status-"):
-		return fmt.Sprintf("Returns %d %s", node.Response.StatusCode, cp.getStatusText(node.Response.StatusCode))
-	case difference == "no-auth":
-		return "Missing Authorization header"
-	case difference == "invalid-auth":
-		return "Invalid or expired Authorization header"
-	case difference == "no-headers":
-		return "No special headers required"
-	case difference == "different-headers":
-		return "Different header requirements"
-	case difference == "different-header-values":
-		return "Different header values"
-	case difference == "different-query-params":
-		return "Different query parameter requirements"
-	case difference == "no-body":
-		return "Request without body"
-	case difference == "with-body":
-		return "Request with body"
-	case difference == "different-request-body":
-		return "Different request body requirements"
-	default:
-		return "Alternative scenario"
-	}
-}
-
-// getStatusText returns human-readable status text
-func (cp *CollectionProcessor) getStatusText(statusCode int) string {
-	switch statusCode {
-	case 200:
-		return "OK"
-	case 201:
-		return "Created"
-	case 400:
-		return "Bad Request"
-	case 401:
-		return "Unauthorized"
-	case 403:
-		return "Forbidden"
-	case 404:
-		return "Not Found"
-	case 409:
-		return "Conflict"
-	case 422:
-		return "Unprocessable Entity"
-	case 429:
-		return "Too Many Requests"
-	case 500:
-		return "Internal Server Error"
-	case 502:
-		return "Bad Gateway"
-	case 503:
-		return "Service Unavailable"
-	default:
-		return "Response"
-	}
-}
-
-// queryParamsEqual compares query parameter maps
-func (cp *CollectionProcessor) queryParamsEqual(a, b map[string]string) bool {
-	if len(a) != len(b) {
+	// 3️⃣ Body inspection
+	body := strings.TrimSpace(api.Body)
+	if body == "" {
 		return false
 	}
 
-	for k, v := range a {
-		if b[k] != v {
-			return false
+	// Try JSON form
+	var bodyMap map[string]interface{}
+	if err := json.Unmarshal([]byte(body), &bodyMap); err == nil {
+		if _, hasQuery := bodyMap["query"]; hasQuery {
+			return true
+		}
+		if _, hasOpName := bodyMap["operationName"]; hasOpName {
+			return true
 		}
 	}
 
-	return true
+	// 4️⃣ Raw GraphQL text fallback
+	bodyLower := strings.ToLower(body)
+	if strings.Contains(bodyLower, "query ") ||
+		strings.Contains(bodyLower, "mutation ") ||
+		strings.Contains(bodyLower, "subscription ") {
+		return true
+	}
+
+	// 5️⃣ GET-style queries (?query=...)
+	if strings.Contains(urlLower, "?query=") {
+		return true
+	}
+
+	return false
 }
 
-// configureMatchingCriteriaWithScenarios handles scenario detection and configuration
-func (cp *CollectionProcessor) configureMatchingCriteriaWithScenarios(nodes []ExecutionNode) ([]builders.MockExpectation, error) {
-	fmt.Println("\n🎯 ENHANCED SCENARIO-AWARE MATCHING CONFIGURATION")
+// configureExpectationCriteria handles scenario detection and configuration
+func (cp *CollectionProcessor) configureExpectationCriteria(nodes []ExecutionNode) ([]builders.MockExpectation, error) {
+	fmt.Println("\n🎯 ENHANCED SCENARIO-AWARE EXPECTATION CONFIGURATION")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("Analyzing APIs for scenarios and configuring intelligent matching...")
 
@@ -1051,168 +651,7 @@ func (cp *CollectionProcessor) configureMatchingCriteriaWithScenarios(nodes []Ex
 		fmt.Printf("   • REST APIs: %d\n", len(restNodes))
 		fmt.Printf("   • GraphQL APIs: %d\n\n", len(graphqlNodes))
 	}
-
-	// Step 2: Detect scenarios for REST APIs
-	restScenarios := cp.detectAPIScenarios(restNodes)
-
-	// Step 3: Detect scenarios for GraphQL APIs
-	graphqlScenarios := cp.detectGraphQLScenarios(graphqlNodes)
-
-	// Step 4: Combine all scenarios
-	allScenarios := append(restScenarios, graphqlScenarios...)
-
-	if len(allScenarios) > 0 {
-		fmt.Printf("\n🔍 SCENARIO DETECTION RESULTS\n")
-		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-		fmt.Printf("Found %d endpoints with multiple scenarios:\n\n", len(allScenarios))
-
-		for i, scenario := range allScenarios {
-			fmt.Printf("[%d] %s %s:\n", i+1, scenario.Method, scenario.Path)
-			for j, variant := range scenario.Scenarios {
-				fmt.Printf("   • Scenario %d: %s - %s\n", j+1, variant.Name, variant.Description)
-			}
-			fmt.Println()
-		}
-
-		return cp.configureScenarioBasedMatching(allScenarios, nodes)
-	}
-
-	// Step 5: Fall back to individual API configuration
-	fmt.Println("\n📝 No multiple scenarios detected - using individual API configuration")
 	return cp.configureIndividualMatching(nodes)
-}
-
-// configureScenarioBasedMatching handles APIs with multiple scenarios
-func (cp *CollectionProcessor) configureScenarioBasedMatching(scenarios []APIScenario, nodes []ExecutionNode) ([]builders.MockExpectation, error) {
-	fmt.Println("\n🎭 SCENARIO-BASED MATCHING CONFIGURATION")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	var action string
-	if err := survey.AskOne(&survey.Select{
-		Message: "How should these scenarios be handled?",
-		Options: []string{
-			"create-separate - Create separate expectations (recommended)",
-			"configure-priority - Configure with priority ordering",
-			"ask-each - Configure each scenario individually",
-			"skip-scenarios - Skip scenario configuration (treat as individual)",
-		},
-		Default: "create-separate - Create separate expectations (recommended)",
-	}, &action); err != nil {
-		return nil, err
-	}
-
-	actionType := strings.Split(action, " ")[0]
-	switch actionType {
-	case "create-separate":
-		return cp.handleCreateSeparateScenarios(scenarios, nodes)
-	case "configure-priority":
-		return cp.handlePriorityBasedScenarios(scenarios, nodes)
-	case "ask-each":
-		return cp.handleIndividualScenarioConfiguration(scenarios, nodes)
-	case "skip-scenarios":
-		return cp.configureIndividualMatching(nodes)
-	default:
-		return cp.handleCreateSeparateScenarios(scenarios, nodes)
-	}
-}
-
-// handleCreateSeparateScenarios creates separate expectations for each scenario
-func (cp *CollectionProcessor) handleCreateSeparateScenarios(scenarios []APIScenario, nodes []ExecutionNode) ([]builders.MockExpectation, error) {
-	fmt.Println("\n✨ Creating Separate Scenario Expectations")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("Each scenario will be created as a separate expectation with appropriate priority.")
-
-	var expectations []builders.MockExpectation
-	priority := 1
-	var mock_configurator builders.MockConfigurator
-
-	// Handle scenario-based APIs
-	for _, scenario := range scenarios {
-		fmt.Printf("\n🎭 Processing scenarios for %s %s:\n", scenario.Method, scenario.Path)
-
-		for i, variant := range scenario.Scenarios {
-			fmt.Printf("  [%d] %s - %s\n", i+1, variant.Name, variant.Description)
-
-			// Create expectation for this variant
-			path, queryParams := mock_configurator.ParsePathAndQueryParams(variant.Node.API.URL)
-			expectation := builders.MockExpectation{
-				Method:      variant.Node.API.Method,
-				Path:        cp.extractPath(path),
-				QueryParams: queryParams,
-				Headers:     variant.Node.API.Headers,
-
-				StatusCode:      variant.Node.Response.StatusCode,
-				ResponseHeaders: variant.Node.Response.Headers,
-				ResponseBody:    variant.Node.Response.Body,
-				Priority:        priority,
-			}
-
-			// Request body for methods that typically have bodies
-			if variant.Node.API.Method == "POST" || variant.Node.API.Method == "PUT" || variant.Node.API.Method == "PATCH" {
-				if err := mock_configurator.CollectRequestBody(&expectation, variant.Node.API.Body); err != nil {
-					return nil, err
-				}
-			}
-
-			// Auto-configure based on scenario difference
-			// but we're using builders.MockExpectation structure now.
-			// The auto-configuration logic should be applied directly to the expectation
-			if err := cp.applyScenarioConfigurationToExpectation(&expectation, variant.Difference); err != nil {
-				return nil, err
-			}
-			expectations = append(expectations, expectation)
-			priority++
-		}
-	}
-
-	// Handle non-scenario APIs
-	for _, node := range nodes {
-		if node.Response == nil {
-			continue
-		}
-
-		// Check if this node is already handled in scenarios
-		handled := false
-		for _, scenario := range scenarios {
-			for _, variant := range scenario.Scenarios {
-				if variant.Node.API.ID == node.API.ID {
-					handled = true
-					break
-				}
-			}
-			if handled {
-				break
-			}
-		}
-
-		if !handled {
-			// Create expectation for individual API
-			path, queryParams := mock_configurator.ParsePathAndQueryParams(node.API.URL)
-			expectation := builders.MockExpectation{
-				Method:      node.API.Method,
-				Path:        cp.extractPath(path),
-				QueryParams: queryParams,
-				Headers:     node.API.Headers,
-
-				StatusCode:      node.Response.StatusCode,
-				ResponseHeaders: node.Response.Headers,
-				ResponseBody:    node.Response.Body,
-				Priority:        priority,
-			}
-
-			// Request body for methods that typically have bodies
-			if node.API.Method == "POST" || node.API.Method == "PUT" || node.API.Method == "PATCH" {
-				if err := mock_configurator.CollectRequestBody(&expectation, node.API.Body); err != nil {
-					return nil, err
-				}
-			}
-			expectations = append(expectations, expectation)
-			priority++
-		}
-	}
-
-	fmt.Printf("\n✅ Created %d expectations with scenario-based priorities\n", len(expectations))
-	return expectations, nil
 }
 
 // Step 6: Enhanced Review expectations with configuration options
@@ -1224,15 +663,13 @@ func (cp *CollectionProcessor) reviewExpectations(expectations []builders.MockEx
 	fmt.Printf("✨ Successfully Generated %d Expectations!\n\n", len(expectations))
 	fmt.Println("📊 Summary:")
 	for i, exp := range expectations {
-		method := exp.Method
-		path := exp.Path
-		status := exp.StatusCode
+		method := exp.HttpRequest.Method
+		path := exp.HttpRequest.Path
+		status := exp.HttpResponse.StatusCode
 		fmt.Printf("   [%d] %s %s → %d\n", i+1, method, path, status)
 	}
 	return nil
 }
-
-// Helper methods for parsing different collection formats
 
 func (cp *CollectionProcessor) parsePostmanCollection(data []byte) ([]APIRequest, error) {
 	// Add panic recovery for JSON parsing

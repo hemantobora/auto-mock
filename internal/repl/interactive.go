@@ -9,7 +9,7 @@ import (
 )
 
 // StartInteractiveBuilder starts the 7-step interactive mock expectation builder
-func generateInteractiveWithMenu(projectName string) (string, error) {
+func generateInteractiveWithMenu() (string, error) {
 	fmt.Println("🔧 Interactive Builder (7-Step Process)")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("📝 Step-by-step endpoint building with validation")
@@ -56,6 +56,8 @@ func generateInteractiveWithMenu(projectName string) (string, error) {
 		}
 	}
 
+	fmt.Printf("\n✅ Created %d mock expectations\n", len(expectations))
+	expectations = builders.ExtendExpectationsForProgressive(expectations)
 	// Convert to MockServer JSON
 	mockServerJSON := builders.ExpectationsToMockServerJSON(expectations)
 	return mockServerJSON, nil
@@ -84,7 +86,7 @@ func buildRESTExpectation() (builders.MockExpectation, error) {
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// Delegate to REST builder
-	return builders.BuildRESTExpectation()
+	return builders.BuildRESTExpectationWithContext()
 }
 
 // buildGraphQLExpectation builds a single GraphQL expectation using 7-step process
@@ -93,5 +95,5 @@ func buildGraphQLExpectation() (builders.MockExpectation, error) {
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// Delegate to GraphQL builder
-	return builders.BuildGraphQLExpectation()
+	return builders.BuildGraphQLExpectationWithContext()
 }

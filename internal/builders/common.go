@@ -1,18 +1,25 @@
 package builders
 
 import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/AlecAivazis/survey/v2"
 	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 // Re-export types from models for backward compatibility
 type MockExpectation = models.MockExpectation
+type HttpRequest = models.HttpRequest
+type HttpResponse = models.HttpResponse
 type Times = models.Times
-type CallbackConfig = models.CallbackConfig
-type HttpCallback = models.HttpCallback
+type Delay = models.Delay
 type ConnectionOptions = models.ConnectionOptions
 type PathMatchingStrategy = models.PathMatchingStrategy
 type QueryParamMatchingStrategy = models.QueryParamMatchingStrategy
 type RequestBodyMatchingStrategy = models.RequestBodyMatchingStrategy
+type Progressive = models.Progressive
 
 // Re-export constants
 const (
@@ -229,481 +236,451 @@ func GetRegexDescription(pattern string) (description string, examples []string)
 	return "Custom regex pattern", []string{"pattern specific examples"}
 }
 
-// AdvancedFeatureCategories returns organized advanced feature categories
-func AdvancedFeatureCategories() map[string][]string {
-	return map[string][]string{
-		"Response Behavior": {
-			"delays - Add response delays (fixed/random/progressive)",
-			"limits - Limit response count/times with reset patterns",
-			"priority - Set expectation priority with conflict resolution",
-			"headers - Custom response headers with dynamic values",
-			"caching - Cache control and ETags",
-			"compression - Response compression settings",
-		},
-		"Dynamic Content": {
-			"templating - Echo request data with advanced processing",
-			"sequences - Multi-stage response sequences",
-			"conditions - Complex conditional logic trees",
-			"state-machine - Stateful response patterns",
-			"data-generation - Realistic fake data generation",
-			"interpolation - Advanced string interpolation",
-		},
-		"Integration & Callbacks": {
-			"webhooks - HTTP callbacks with retry logic",
-			"custom-code - Java callback classes with context",
-			"forward - Smart request forwarding with fallbacks",
-			"proxy - Advanced proxying capabilities",
-			"transformation - Request/response transformation",
-			"event-streaming - Real-time event streaming",
-		},
-		"Connection Control": {
-			"drop-connection - Network failure simulation",
-			"chunked-encoding - Transfer encoding control",
-			"keep-alive - Connection persistence patterns",
-			"error-simulation - TCP/HTTP error simulation",
-			"bandwidth - Bandwidth throttling",
-			"ssl-behavior - SSL/TLS behavior simulation",
-		},
-		"Testing Scenarios": {
-			"circuit-breaker - Service failure patterns",
-			"rate-limiting - Rate limit testing with backoff",
-			"chaos-engineering - Advanced chaos patterns",
-			"load-testing - Performance testing patterns",
-			"resilience - Resilience testing scenarios",
-			"security - Security testing patterns",
-		},
-		"Advanced Patterns": {
-			"stateful-mocking - Stateful interaction patterns",
-			"workflow-simulation - Multi-step workflow mocking",
-			"event-driven - Event-driven architecture simulation",
-			"microservice-patterns - Microservice interaction patterns",
-			"api-versioning - API version behavior simulation",
-			"tenant-isolation - Multi-tenant behavior patterns",
-		},
+// ensure maps exist before writes
+func ensureMaps(m *MockExpectation) {
+	if m.HttpRequest != nil && m.HttpRequest.Headers == nil {
+		m.HttpRequest.Headers = map[string][]any{}
+	}
+	if m.HttpResponse != nil && m.HttpResponse.Headers == nil {
+		m.HttpResponse.Headers = map[string][]string{}
+	}
+	if m.HttpRequest != nil && m.HttpRequest.QueryStringParameters == nil {
+		m.HttpRequest.QueryStringParameters = map[string][]string{}
 	}
 }
 
-// TemplateVariables returns available MockServer template variables
-func TemplateVariables() map[string][]string {
-	return map[string][]string{
-		"Request Data": {
-			"${request.pathParameters.id} - Path parameter values",
-			"${request.queryParameters.limit} - Query parameter values",
-			"${request.headers.authorization} - Request header values",
-			"${request.body.user.email} - Request body field values",
-			"${request.method} - HTTP method (GET, POST, etc.)",
-			"${request.path} - Request path",
-			"${request.url} - Full request URL",
-			"${request.protocol} - Protocol (HTTP/HTTPS)",
-			"${request.port} - Server port",
-			"${request.cookies.sessionId} - Cookie values",
-		},
-		"Generated Values": {
-			"${uuid} - Random UUID v4",
-			"${timestamp} - Unix timestamp",
-			"${now} - ISO datetime string",
-			"${random.integer} - Random integer (0-1000)",
-			"${random.string} - Random alphanumeric string",
-			"${random.boolean} - Random true/false",
-			"${random.float} - Random decimal (0.0-1.0)",
-			"${random.email} - Random email address",
-			"${random.phone} - Random phone number",
-			"${random.company} - Random company name",
-			"${random.person.firstName} - Random first name",
-			"${random.person.lastName} - Random last name",
-			"${random.address.street} - Random street address",
-			"${random.address.city} - Random city name",
-			"${random.ip} - Random IP address",
-		},
-		"Mathematical": {
-			"${math.add(5,3)} - Addition operation",
-			"${math.subtract(10,4)} - Subtraction operation",
-			"${math.multiply(6,7)} - Multiplication operation",
-			"${math.divide(10,2)} - Division operation",
-			"${math.modulo(10,3)} - Modulo operation",
-			"${math.random} - Random decimal (0-1)",
-			"${math.randomInt(1,100)} - Random integer in range",
-			"${math.round(3.14159,2)} - Round to decimals",
-			"${math.abs(-5)} - Absolute value",
-			"${math.min(5,10)} - Minimum value",
-			"${math.max(5,10)} - Maximum value",
-		},
-		"String Operations": {
-			"${string.toLowerCase(VALUE)} - Convert to lowercase",
-			"${string.toUpperCase(VALUE)} - Convert to uppercase",
-			"${string.substring(VALUE,0,5)} - Extract substring",
-			"${string.replace(VALUE,'old','new')} - Replace text",
-			"${string.trim(VALUE)} - Remove whitespace",
-			"${string.length(VALUE)} - String length",
-			"${string.concat(A,B,C)} - Concatenate strings",
-			"${string.split(VALUE,',')} - Split string",
-			"${string.contains(VALUE,'search')} - Check if contains",
-			"${string.startsWith(VALUE,'prefix')} - Check prefix",
-			"${string.endsWith(VALUE,'suffix')} - Check suffix",
-			"${string.reverse(VALUE)} - Reverse string",
-			"${string.base64Encode(VALUE)} - Base64 encode",
-			"${string.base64Decode(VALUE)} - Base64 decode",
-			"${string.urlEncode(VALUE)} - URL encode",
-			"${string.urlDecode(VALUE)} - URL decode",
-		},
-		"Date & Time": {
-			"${date.now} - Current date (YYYY-MM-DD)",
-			"${date.format(VALUE,'YYYY-MM-DD')} - Format date",
-			"${date.addDays(VALUE,7)} - Add days to date",
-			"${date.addHours(VALUE,2)} - Add hours to date",
-			"${date.year(VALUE)} - Extract year",
-			"${date.month(VALUE)} - Extract month",
-			"${date.day(VALUE)} - Extract day",
-			"${date.hour(VALUE)} - Extract hour",
-			"${date.minute(VALUE)} - Extract minute",
-			"${date.isoString} - ISO 8601 string",
-			"${date.unixTimestamp} - Unix timestamp",
-		},
-		"Array Operations": {
-			"${array.length(VALUE)} - Array length",
-			"${array.get(VALUE,0)} - Get element by index",
-			"${array.first(VALUE)} - First element",
-			"${array.last(VALUE)} - Last element",
-			"${array.contains(VALUE,'item')} - Check if contains",
-			"${array.join(VALUE,',')} - Join with separator",
-			"${array.slice(VALUE,1,3)} - Extract slice",
-			"${array.reverse(VALUE)} - Reverse array",
-			"${array.sort(VALUE)} - Sort array",
-			"${array.random(VALUE)} - Random element",
-		},
-		"Conditional Logic": {
-			"${if(CONDITION,TRUE_VALUE,FALSE_VALUE)} - Conditional expression",
-			"${equals(A,B)} - Check equality",
-			"${notEquals(A,B)} - Check inequality",
-			"${greaterThan(A,B)} - Greater than comparison",
-			"${lessThan(A,B)} - Less than comparison",
-			"${and(A,B)} - Logical AND",
-			"${or(A,B)} - Logical OR",
-			"${not(A)} - Logical NOT",
-			"${isEmpty(VALUE)} - Check if empty",
-			"${isNull(VALUE)} - Check if null",
-		},
-		"Context & State": {
-			"${context.requestCount} - Number of requests processed",
-			"${context.sessionId} - Session identifier",
-			"${context.userId} - User identifier from context",
-			"${state.get('key')} - Get state value",
-			"${state.set('key','value')} - Set state value",
-			"${state.increment('counter')} - Increment counter",
-			"${state.exists('key')} - Check if state exists",
-			"${cache.get('key')} - Get cached value",
-			"${cache.set('key','value',3600)} - Set cache with TTL",
-		},
+func CloneExpectation(src *MockExpectation) *MockExpectation {
+	if src == nil {
+		return nil
 	}
-}
+	dst := *src // copy scalars
 
-// AdvancedTestingPatterns returns sophisticated testing patterns
-func AdvancedTestingPatterns() map[string]TestingPattern {
-	return map[string]TestingPattern{
-		"Circuit Breaker": {
-			Name:        "Circuit Breaker Pattern",
-			Description: "Simulate service degradation and recovery patterns",
-			Scenarios: []string{
-				"Gradual failure increase (10% -> 50% -> 90%)",
-				"Immediate failure with exponential recovery",
-				"Random failure spikes with baseline stability",
-				"Time-based failure windows (business hours)",
-			},
-			Configuration: map[string]interface{}{
-				"failureThreshold": 50,
-				"recoveryTime":     30,
-				"healthCheckURL":   "/health",
-			},
-		},
-		"Rate Limiting": {
-			Name:        "Rate Limiting Scenarios",
-			Description: "Test rate limiting algorithms and backoff strategies",
-			Scenarios: []string{
-				"Token bucket with burst allowance",
-				"Sliding window rate limiting",
-				"Fixed window with reset timing",
-				"User-based vs global rate limits",
-				"Rate limit escalation (warnings -> errors)",
-			},
-			Configuration: map[string]interface{}{
-				"requestsPerMinute": 100,
-				"burstSize":         10,
-				"windowSize":        60,
-			},
-		},
-		"Chaos Engineering": {
-			Name:        "Chaos Engineering Patterns",
-			Description: "Advanced chaos testing scenarios",
-			Scenarios: []string{
-				"Latency injection with distribution curves",
-				"Intermittent connection drops",
-				"Memory pressure simulation",
-				"Cascading failure propagation",
-				"Byzantine failure patterns",
-				"Split-brain scenarios",
-			},
-			Configuration: map[string]interface{}{
-				"chaosPercentage": 15,
-				"maxLatency":      5000,
-				"minLatency":      100,
-			},
-		},
-		"Load Testing": {
-			Name:        "Load Testing Patterns",
-			Description: "Performance and scalability testing scenarios",
-			Scenarios: []string{
-				"Gradual ramp-up with sustained load",
-				"Spike testing with quick load increases",
-				"Stress testing beyond normal capacity",
-				"Volume testing with large datasets",
-				"Endurance testing for memory leaks",
-				"Breakpoint testing to find limits",
-			},
-			Configuration: map[string]interface{}{
-				"maxConcurrentUsers": 1000,
-				"rampUpTime":         300,
-				"sustainTime":        600,
-			},
-		},
-		"Security Testing": {
-			Name:        "Security Testing Patterns",
-			Description: "Security vulnerability testing scenarios",
-			Scenarios: []string{
-				"Authentication bypass attempts",
-				"SQL injection simulation",
-				"Cross-site scripting (XSS) patterns",
-				"CSRF token validation",
-				"Rate limiting bypass attempts",
-				"Privilege escalation scenarios",
-			},
-			Configuration: map[string]interface{}{
-				"enableSecurityHeaders": true,
-				"logSecurityEvents":     true,
-				"blockMaliciousIPs":     true,
-			},
-		},
-		"Resilience Testing": {
-			Name:        "Resilience Testing Patterns",
-			Description: "System resilience and recovery testing",
-			Scenarios: []string{
-				"Graceful degradation under load",
-				"Automatic failover and recovery",
-				"Data consistency during failures",
-				"Timeout and retry mechanism testing",
-				"Bulkhead isolation effectiveness",
-				"Disaster recovery procedures",
-			},
-			Configuration: map[string]interface{}{
-				"maxRetries":       3,
-				"backoffStrategy":  "exponential",
-				"timeoutThreshold": 30,
-			},
-		},
+	// ---- HttpRequest ----
+	if src.HttpRequest != nil {
+		dst.HttpRequest = new(models.HttpRequest)
+		*dst.HttpRequest = *src.HttpRequest // copy scalars
+
+		// PathParameters: map[string][]string
+		if src.HttpRequest.PathParameters != nil {
+			dst.HttpRequest.PathParameters = make(map[string][]string, len(src.HttpRequest.PathParameters))
+			for k, v := range src.HttpRequest.PathParameters {
+				cp := make([]string, len(v))
+				copy(cp, v)
+				dst.HttpRequest.PathParameters[k] = cp
+			}
+		}
+
+		// QueryStringParameters: map[string][]string
+		if src.HttpRequest.QueryStringParameters != nil {
+			dst.HttpRequest.QueryStringParameters = make(map[string][]string, len(src.HttpRequest.QueryStringParameters))
+			for k, v := range src.HttpRequest.QueryStringParameters {
+				cp := make([]string, len(v))
+				copy(cp, v)
+				dst.HttpRequest.QueryStringParameters[k] = cp
+			}
+		}
+
+		// Headers: map[string][]any   (deep copy slice + elements)
+		if src.HttpRequest.Headers != nil {
+			dst.HttpRequest.Headers = make(map[string][]any, len(src.HttpRequest.Headers))
+			for k, sv := range src.HttpRequest.Headers {
+				cp := make([]any, len(sv))
+				for i := range sv {
+					cp[i] = deepCopyInterface(sv[i]) // ensure objects like {"regex": "..."} are cloned
+				}
+				dst.HttpRequest.Headers[k] = cp
+			}
+		}
+
+		// Body: any
+		if src.HttpRequest.Body != nil {
+			dst.HttpRequest.Body = deepCopyInterface(src.HttpRequest.Body)
+		}
 	}
-}
 
-// TestingPattern represents a comprehensive testing pattern
-type TestingPattern struct {
-	Name          string                 `json:"name"`
-	Description   string                 `json:"description"`
-	Scenarios     []string               `json:"scenarios"`
-	Configuration map[string]interface{} `json:"configuration"`
-	Category      string                 `json:"category,omitempty"`
-	Difficulty    string                 `json:"difficulty,omitempty"`
-	DocumentURL   string                 `json:"documentUrl,omitempty"`
-}
+	// ---- HttpResponse ----
+	if src.HttpResponse != nil {
+		dst.HttpResponse = new(models.HttpResponse)
+		*dst.HttpResponse = *src.HttpResponse // copy scalars
 
-// MockServerFeatures returns advanced MockServer feature configurations
-func MockServerFeatures() map[string]MockServerFeature {
-	return map[string]MockServerFeature{
-		"Response Templating": {
-			Name:        "Advanced Response Templating",
-			Description: "Dynamic response generation with complex templating",
-			Features: []string{
-				"Request data interpolation",
-				"Mathematical expressions",
-				"Conditional logic",
-				"String manipulation",
-				"Date/time formatting",
-				"Random data generation",
-				"State management",
-			},
-			Examples: []string{
-				"${if(equals(request.method,'POST'),'created','retrieved')}",
-				"${string.toUpperCase(request.pathParameters.name)}",
-				"${math.add(request.body.quantity,10)}",
-				"${date.format(now,'yyyy-MM-dd HH:mm:ss')}",
-			},
-		},
-		"Request Matching": {
-			Name:        "Advanced Request Matching",
-			Description: "Sophisticated request matching strategies",
-			Features: []string{
-				"Regex pattern matching",
-				"JSONPath expressions",
-				"XPath for XML",
-				"Custom JavaScript matchers",
-				"Fuzzy matching",
-				"Schema validation",
-				"Multi-criteria matching",
-			},
-			Examples: []string{
-				"Path: /api/users/[0-9]+",
-				"Body: $.user.age > 18",
-				"Header: Authorization matches 'Bearer .*'",
-				"Query: limit between 1 and 100",
-			},
-		},
-		"Stateful Mocking": {
-			Name:        "Stateful Mock Interactions",
-			Description: "Maintain state across multiple requests",
-			Features: []string{
-				"Session state management",
-				"Request sequence tracking",
-				"Data persistence",
-				"State-based responses",
-				"Cross-request validation",
-				"Workflow simulation",
-			},
-			Examples: []string{
-				"Track user login state",
-				"Shopping cart persistence",
-				"Multi-step form validation",
-				"API rate limit enforcement",
-			},
-		},
-		"Event Streaming": {
-			Name:        "Real-time Event Streaming",
-			Description: "Simulate real-time event streams and webhooks",
-			Features: []string{
-				"Server-sent events (SSE)",
-				"WebSocket simulation",
-				"Webhook delivery",
-				"Event scheduling",
-				"Message queuing",
-				"Event filtering",
-			},
-			Examples: []string{
-				"Real-time notifications",
-				"Live data feeds",
-				"Chat message streaming",
-				"IoT sensor data",
-			},
-		},
-		"API Versioning": {
-			Name:        "API Version Simulation",
-			Description: "Simulate different API versions and migration scenarios",
-			Features: []string{
-				"Version-specific responses",
-				"Backward compatibility",
-				"Deprecation warnings",
-				"Migration guidance",
-				"Feature flag simulation",
-				"A/B testing support",
-			},
-			Examples: []string{
-				"Header: Accept-Version: v2",
-				"Path: /v1/users vs /v2/users",
-				"Query: ?version=beta",
-				"Feature: newUserFields=true",
-			},
-		},
+		// Headers: map[string][]string
+		if src.HttpResponse.Headers != nil {
+			dst.HttpResponse.Headers = make(map[string][]string, len(src.HttpResponse.Headers))
+			for k, v := range src.HttpResponse.Headers {
+				cp := make([]string, len(v))
+				copy(cp, v)
+				dst.HttpResponse.Headers[k] = cp
+			}
+		}
+
+		// Body: any
+		if src.HttpResponse.Body != nil {
+			dst.HttpResponse.Body = deepCopyInterface(src.HttpResponse.Body)
+		}
+
+		// Delay: *Delay
+		if src.HttpResponse.Delay != nil {
+			tmp := *src.HttpResponse.Delay
+			dst.HttpResponse.Delay = &tmp
+		}
+
+		// Template: *Template
+		if src.HttpResponse.Template != nil {
+			tmp := *src.HttpResponse.Template
+			dst.HttpResponse.Template = &tmp
+		}
 	}
-}
 
-// MockServerFeature represents an advanced MockServer feature
-type MockServerFeature struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Features    []string `json:"features"`
-	Examples    []string `json:"examples"`
-	Category    string   `json:"category,omitempty"`
-	Complexity  string   `json:"complexity,omitempty"`
-}
-
-// ResponseTemplateExamples returns comprehensive response template examples
-func ResponseTemplateExamples() map[string]TemplateExample {
-	return map[string]TemplateExample{
-		"User Management": {
-			Name:        "User Management API Templates",
-			Description: "Templates for user CRUD operations",
-			Templates: map[string]string{
-				"create_user": `{
-  "id": "${uuid}",
-  "name": "${request.body.name}",
-  "email": "${string.toLowerCase(request.body.email)}",
-  "createdAt": "${date.isoString}",
-  "status": "active",
-  "profile": {
-    "firstName": "${string.split(request.body.name,' ').0}",
-    "lastName": "${string.split(request.body.name,' ').1}",
-    "initials": "${string.substring(request.body.name,0,2)}"
-  },
-  "metadata": {
-    "requestId": "${request.headers.x-request-id}",
-    "userAgent": "${request.headers.user-agent}",
-    "ipAddress": "${request.headers.x-forwarded-for}"
-  }
-}`,
-				"get_user": `{
-  "id": "${request.pathParameters.id}",
-  "name": "${random.person.firstName} ${random.person.lastName}",
-  "email": "${string.toLowerCase(random.person.firstName)}.${string.toLowerCase(random.person.lastName)}@example.com",
-  "createdAt": "${date.addDays(date.now,-30)}",
-  "lastLoginAt": "${date.addHours(date.now,-2)}",
-  "loginCount": "${math.randomInt(1,100)}",
-  "isActive": "${random.boolean}",
-  "preferences": {
-    "theme": "${if(math.random > 0.5,'dark','light')}",
-    "notifications": "${random.boolean}",
-    "language": "${array.random(['en','es','fr','de'])}"
-  }
-}`,
-			},
-			UseCases: []string{
-				"User registration flow",
-				"Profile management",
-				"User lookup and search",
-				"Account deactivation",
-			},
-		},
-		"E-commerce": {
-			Name:        "E-commerce API Templates",
-			Description: "Templates for e-commerce operations",
-			Templates: map[string]string{
-				"product_catalog": `{
-  "products": [
-    {
-      "id": "product-${math.randomInt(1,1000)}",
-      "name": "${random.product.name}",
-      "price": "${math.round(math.randomFloat(10,1000),2)}",
-      "currency": "USD",
-      "inStock": "${random.boolean}",
-      "rating": "${math.round(math.randomFloat(1,5),1)}"
-    }
-  ],
-  "pagination": {
-    "page": "${request.queryParameters.page || 1}",
-    "limit": "${request.queryParameters.limit || 10}",
-    "total": "${math.randomInt(100,1000)}"
-  }
-}`,
-			},
-			UseCases: []string{
-				"Product browsing",
-				"Shopping cart management",
-				"Order processing",
-			},
-		},
+	// ---- Other pointers ----
+	if src.Times != nil {
+		tmp := *src.Times
+		dst.Times = &tmp
 	}
+	if src.ConnectionOptions != nil {
+		tmp := *src.ConnectionOptions
+		dst.ConnectionOptions = &tmp
+	}
+
+	return &dst
 }
 
-// TemplateExample represents a response template example
-type TemplateExample struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	Templates   map[string]string `json:"templates"`
-	UseCases    []string          `json:"useCases"`
-	Category    string            `json:"category,omitempty"`
-	Complexity  string            `json:"complexity,omitempty"`
+func deepCopyInterface(v interface{}) interface{} {
+	b, _ := json.Marshal(v)
+	var out interface{}
+	_ = json.Unmarshal(b, &out)
+	return out
+}
+
+// Enhanced regex pattern collection with comprehensive validation and hints
+func collectRegexPattern(expectation *MockExpectation) error {
+	fmt.Println("\n📝 Enhanced Regex Pattern Configuration")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	// Show quick common patterns first
+	fmt.Println("⚡ Quick Common Patterns:")
+	fmt.Println("   \\d+           - Numbers (123, 456)")
+	fmt.Println("   \\w+           - Words (user, test123)")
+	fmt.Println("   [a-zA-Z0-9]+  - Alphanumeric (abc123)")
+	fmt.Println("   .*            - Any characters")
+	fmt.Println("   /api/users/\\d+ - Users with numeric ID")
+
+	// Ask if user wants to see full library
+	var showFullLibrary bool
+	if err := survey.AskOne(&survey.Confirm{
+		Message: "Show complete regex pattern library?",
+		Default: false,
+		Help:    "View comprehensive patterns with examples and descriptions",
+	}, &showFullLibrary); err != nil {
+		return err
+	}
+
+	if showFullLibrary {
+		// Show comprehensive patterns with categories
+		fmt.Println("\n💡 Comprehensive Regex Pattern Library:")
+		patterns := RegexPatterns()
+		for name, pattern := range patterns {
+			fmt.Printf("\n   📂 %s:\n", name)
+			fmt.Printf("      Pattern: %s\n", pattern.Pattern)
+			fmt.Printf("      Description: %s\n", pattern.Description)
+			fmt.Printf("      Examples: %s\n", strings.Join(pattern.Examples, ", "))
+		}
+	}
+
+	fmt.Println("\n🔧 Regex Quick Reference:")
+	fmt.Println("   . = any character          \\d = digit           \\w = word char")
+	fmt.Println("   * = zero or more           + = one or more      ? = zero or one")
+	fmt.Println("   ^ = start of string        $ = end of string   \\b = word boundary")
+	fmt.Println("   [abc] = any of a,b,c      [^abc] = not a,b,c   | = OR")
+	fmt.Println("   () = grouping              {} = exact count     [] = character class")
+
+	var useTemplate bool
+	if err := survey.AskOne(&survey.Confirm{
+		Message: "Would you like to select from common patterns?",
+		Default: true,
+		Help:    "Choose from pre-built patterns or create custom regex",
+	}, &useTemplate); err != nil {
+		return err
+	}
+
+	var regexPattern string
+
+	if useTemplate {
+		// Quick selection menu with most common patterns
+		var selectedPattern string
+		if err := survey.AskOne(&survey.Select{
+			Message: "Select a pattern:",
+			Options: []string{
+				"\\d+ - Numbers (user IDs, order numbers)",
+				"\\w+ - Words (usernames, names)",
+				"[a-zA-Z0-9]+ - Alphanumeric (codes, tokens)",
+				"[a-zA-Z0-9_-]+ - IDs with dashes/underscores",
+				"\\d{4}-\\d{2}-\\d{2} - Dates (YYYY-MM-DD)",
+				"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} - UUIDs",
+				".* - Any characters (wildcard)",
+				"browse-all - Browse complete pattern library",
+				"custom - Create custom pattern",
+			},
+			Default: "\\d+ - Numbers (user IDs, order numbers)",
+		}, &selectedPattern); err != nil {
+			return err
+		}
+
+		// Handle browse-all option
+		if strings.HasPrefix(selectedPattern, "browse-all") {
+			// Show full library and let user select
+			patterns := RegexPatterns()
+			var patternOptions []string
+			for name := range patterns {
+				patternOptions = append(patternOptions, name)
+			}
+			patternOptions = append(patternOptions, "custom - Create custom pattern")
+
+			if err := survey.AskOne(&survey.Select{
+				Message: "Select from complete library:",
+				Options: patternOptions,
+			}, &selectedPattern); err != nil {
+				return err
+			}
+		}
+
+		if selectedPattern == "custom - Create custom pattern" {
+			useTemplate = false
+		} else if strings.HasPrefix(selectedPattern, "\\d+") {
+			// Quick pattern: Numbers
+			regexPattern = "\\d+"
+			fmt.Printf("\n✅ Selected: Numbers pattern (\\d+)\n")
+			fmt.Printf("   Matches: 123, 456, 789, 1001\n")
+		} else if strings.HasPrefix(selectedPattern, "\\w+") {
+			// Quick pattern: Words
+			regexPattern = "\\w+"
+			fmt.Printf("\n✅ Selected: Words pattern (\\w+)\n")
+			fmt.Printf("   Matches: user, test123, user_name\n")
+		} else if strings.HasPrefix(selectedPattern, "[a-zA-Z0-9]+") {
+			// Quick pattern: Alphanumeric
+			regexPattern = "[a-zA-Z0-9]+"
+			fmt.Printf("\n✅ Selected: Alphanumeric pattern ([a-zA-Z0-9]+)\n")
+			fmt.Printf("   Matches: abc123, Test789, ID42\n")
+		} else if strings.HasPrefix(selectedPattern, "[a-zA-Z0-9_-]+") {
+			// Quick pattern: IDs with dashes/underscores
+			regexPattern = "[a-zA-Z0-9_-]+"
+			fmt.Printf("\n✅ Selected: ID pattern ([a-zA-Z0-9_-]+)\n")
+			fmt.Printf("   Matches: user-123, item_abc, order-789\n")
+		} else if strings.HasPrefix(selectedPattern, "\\d{4}-\\d{2}-\\d{2}") {
+			// Quick pattern: Dates
+			regexPattern = "\\d{4}-\\d{2}-\\d{2}"
+			fmt.Printf("\n✅ Selected: Date pattern (\\d{4}-\\d{2}-\\d{2})\n")
+			fmt.Printf("   Matches: 2025-09-21, 2024-12-31, 2023-01-15\n")
+		} else if strings.Contains(selectedPattern, "[0-9a-f]{8}-") {
+			// Quick pattern: UUIDs
+			regexPattern = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+			fmt.Printf("\n✅ Selected: UUID pattern\n")
+			fmt.Printf("   Matches: 550e8400-e29b-41d4-a716-446655440000\n")
+		} else if strings.HasPrefix(selectedPattern, ".*") {
+			// Quick pattern: Wildcard
+			regexPattern = ".*"
+			fmt.Printf("\n✅ Selected: Wildcard pattern (.*)\n")
+			fmt.Printf("   Matches: Any characters\n")
+		} else {
+			// From complete library
+			patterns := RegexPatterns()
+			if pattern, exists := patterns[selectedPattern]; exists {
+				regexPattern = pattern.Examples[0] // Use first example as default
+				fmt.Printf("\n💡 Selected pattern: %s\n", pattern.Pattern)
+				fmt.Printf("   Description: %s\n", pattern.Description)
+				fmt.Printf("   Default example: %s\n", regexPattern)
+
+				var customize bool
+				if err := survey.AskOne(&survey.Confirm{
+					Message: "Customize this pattern?",
+					Default: false,
+				}, &customize); err != nil {
+					return err
+				}
+
+				if customize {
+					useTemplate = false
+				}
+			} else {
+				useTemplate = false
+			}
+		}
+	}
+
+	if !useTemplate {
+		if err := survey.AskOne(&survey.Input{
+			Message: "Enter custom regex pattern for path:",
+			Default: regexPattern,
+			Help:    "Use patterns above or create custom regex. Test at regex101.com",
+		}, &regexPattern); err != nil {
+			return err
+		}
+	}
+
+	fmt.Println("\n📚 Professional Regex Resources:")
+	fmt.Println("   Interactive Testing: https://regex101.com/")
+	fmt.Println("   Learning Tutorial: https://regexone.com/")
+	fmt.Println("   Reference Guide: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_Expressions")
+	fmt.Println("   MockServer Patterns: https://mock-server.com/mock_server/request_matchers.html#regex-matcher")
+
+	return nil
+}
+
+func ReviewGraphQLExpectation(exp *MockExpectation) error {
+	fmt.Println("\n🔄 Review and Confirm")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	// Optional custom header you sometimes set upstream
+	var opType string
+	if exp.HttpRequest != nil && exp.HttpRequest.Headers != nil {
+		if vals, ok := exp.HttpRequest.Headers["X-GraphQL-Operation-Type"]; ok && len(vals) > 0 {
+			switch v := vals[0].(type) {
+			case string:
+				opType = v
+			case map[string]string:
+				opType = v["regex"]
+			}
+		}
+	}
+
+	// Safe getters
+	method := ""
+	path := ""
+	if exp.HttpRequest != nil {
+		method = exp.HttpRequest.Method
+		path = exp.HttpRequest.Path
+	}
+
+	status := 200
+	if exp.HttpResponse != nil && exp.HttpResponse.StatusCode > 0 {
+		status = exp.HttpResponse.StatusCode
+	}
+
+	// Count request headers excluding the optional op-type header
+	reqHeaderCount := 0
+	if exp.HttpRequest != nil && exp.HttpRequest.Headers != nil {
+		for k := range exp.HttpRequest.Headers {
+			if strings.EqualFold(k, "X-GraphQL-Operation-Type") {
+				continue
+			}
+			reqHeaderCount++
+		}
+	}
+
+	// Work out body match mode & whether variables are present
+	bodyMode, hasVars := summarizeGraphQLBody(exp)
+
+	// Display summary
+	fmt.Printf("\n📋 GraphQL Expectation Summary:\n")
+	if exp.Description != "" {
+		fmt.Printf("   Description: %s\n", exp.Description)
+	}
+	if opType != "" {
+		fmt.Printf("   Operation Type: %s\n", opType)
+	}
+	fmt.Printf("   Endpoint: %s %s\n", method, path)
+	fmt.Printf("   Status Code: %d\n", status)
+
+	if reqHeaderCount > 0 {
+		fmt.Printf("   Request Headers: %d\n", reqHeaderCount)
+	}
+
+	// Request matching summary (POST vs GET)
+	if exp.HttpRequest != nil && strings.EqualFold(method, "GET") {
+		q := exp.HttpRequest.QueryStringParameters
+		_, hasQuery := q["query"]
+		_, hasOpName := q["operationName"]
+		_, hasV := q["variables"]
+		fmt.Printf("   Transport: GET (query string)\n")
+		fmt.Printf("   Query present: %v, OperationName: %v, Variables: %v\n", hasQuery, hasOpName, hasV)
+	} else {
+		fmt.Printf("   Transport: POST (application/json)\n")
+		fmt.Printf("   Body match mode: %s, Variables: %v\n", bodyMode, hasVars)
+	}
+
+	var confirm bool
+	if err := survey.AskOne(&survey.Confirm{
+		Message: "Create this GraphQL expectation?",
+		Default: true,
+	}, &confirm); err != nil {
+		return err
+	}
+	if !confirm {
+		return &models.ExpectationBuildError{
+			ExpectationType: "GraphQL",
+			Step:            "Review and Confirm",
+			Cause:           fmt.Errorf("expectation creation cancelled by user"),
+		}
+	}
+	return nil
+}
+
+func ExtendExpectationsForProgressive(expectations []MockExpectation) []MockExpectation {
+	fmt.Println("\n🚀 Extending Expectations for Progressive Responses")
+
+	// 1) Find starting max priority
+	maxPriority := 0
+	for i := range expectations {
+		if expectations[i].Priority > maxPriority {
+			maxPriority = expectations[i].Priority
+		}
+	}
+
+	added := 0
+
+	// 2) Walk the original slice by index so edits stick
+	for i := range expectations {
+		// ensure monotonically increasing priorities on originals
+		maxPriority++
+		if expectations[i].Priority < maxPriority {
+			expectations[i].Priority = maxPriority
+		}
+
+		p := expectations[i].Progressive
+		if p == nil || p.Step <= 0 || p.Base < 0 || p.Cap < p.Base {
+			continue
+		}
+
+		// 3) Generate progressive clones
+		delay := p.Base + p.Step
+		for delay <= p.Cap {
+			clone := CloneExpectation(&expectations[i])
+
+			// Description / delay
+			if clone.Description != "" {
+				clone.Description = fmt.Sprintf("%s [Progressive delay: %d ms]", clone.Description, delay)
+			} else {
+				clone.Description = fmt.Sprintf("Progressive delay: %d ms", delay)
+			}
+
+			// Times: fire once for all but the last; last can be unlimited
+			next := delay + p.Step
+			if next <= p.Cap {
+				clone.Times = &Times{RemainingTimes: 1}
+			} else {
+				clone.Times = &Times{Unlimited: true} // no remainingTimes when unlimited
+			}
+
+			// Response delay
+			if clone.HttpResponse == nil {
+				clone.HttpResponse = &HttpResponse{}
+			}
+			clone.HttpResponse.Delay = &Delay{
+				TimeUnit: "MILLISECONDS",
+				Value:    delay,
+			}
+
+			// Give each progressive a unique, increasing priority
+			maxPriority++
+			clone.Priority = maxPriority
+
+			// Append to the same slice we're returning
+			expectations = append(expectations, *clone)
+			added++
+
+			delay = next
+		}
+	}
+
+	fmt.Printf("   Added %d progressive expectations; total: %d\n", added, len(expectations))
+	return expectations
 }
