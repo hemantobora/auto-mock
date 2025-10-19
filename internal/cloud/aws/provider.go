@@ -146,6 +146,10 @@ func (p *Provider) SetProjectName(name string) {
 	p.projectID = name
 }
 
+func (p *Provider) GetRegion() string {
+	return p.region
+}
+
 func (p *Provider) InitProject(ctx context.Context, projectID string) error {
 	// Check if bucket exists
 	bucketName := p.naming.GenerateStorageName(projectID)

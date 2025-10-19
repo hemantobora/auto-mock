@@ -68,8 +68,9 @@ func collectRESTAPIDetails(step int, expectation *MockExpectation) error {
 	// Path collection
 	var path string
 	if err := survey.AskOne(&survey.Input{
-		Message: "Enter the API path (e.g., /api/users/{id}):",
+		Message: "Enter the API path:",
 		Help:    "Use {param} for path parameters, e.g., /api/users/{id}",
+		Default: "/api/users/{id}",
 	}, &path); err != nil {
 		return err
 	}
@@ -125,8 +126,15 @@ func collectResponseDefinition(step int, expectation *MockExpectation) error {
 	}
 
 	// Response body
-	if err := collectResponseBody(expectation); err != nil {
-		return err
+	if expectation.HttpResponse.StatusCode == 204 {
+		// No body for 204
+		expectation.HttpResponse.Body = ""
+		fmt.Println("ℹ️  204 No Content - no response body configured")
+		return nil
+	} else {
+		if err := collectResponseBody(expectation); err != nil {
+			return err
+		}
 	}
 
 	fmt.Printf("✅ Response: %d with body configured\n", expectation.HttpResponse.StatusCode)
@@ -197,7 +205,6 @@ func collectResponseBody(expectation *MockExpectation) error {
 		Options: []string{
 			"template - Generate from template",
 			"json - Type/paste JSON directly",
-			"empty - No response body (204 No Content)",
 		},
 		Default: "json - Type/paste JSON directly",
 	}, &bodyChoice); err != nil {
@@ -252,11 +259,6 @@ func collectResponseBody(expectation *MockExpectation) error {
 		// Format and store JSON
 		formattedJSON, _ := FormatJSON(responseJSON)
 		expectation.HttpResponse.Body = formattedJSON
-
-	case "empty":
-		expectation.HttpResponse.Body = ""
-		expectation.HttpResponse.StatusCode = 204 // No Content
-		fmt.Println("✅ Empty response configured (204 No Content)")
 	}
 
 	return nil
@@ -340,7 +342,7 @@ func generateResponseTemplate(expectation *MockExpectation) error {
 		case expectation.HttpResponse.StatusCode >= 500:
 			template = generateEnhancedServerErrorTemplate()
 		default:
-			template = `{"message": "Response", "timestamp": "${timestamp}"}`
+			template = `{"message": "Response", "timestamp": "$!now_epoch"}`
 		}
 	case "rest-api":
 		template = generateRESTAPITemplate()
@@ -376,260 +378,60 @@ func generateResponseTemplate(expectation *MockExpectation) error {
 	var manualJSON string
 	if err := survey.AskOne(&survey.Multiline{
 		Message: "Enter response JSON manually:",
-		Help:    "Use ${template.variables} for dynamic content",
+		Help:    "Use $!template.variables for dynamic content",
 	}, &manualJSON); err != nil {
 		return err
 	}
 	expectation.HttpResponse.Body = manualJSON
-
 	return nil
 }
 
 func generateEnhancedSuccessTemplate(method string) string {
 	switch method {
 	case "POST":
-		return `{
-  "id": "${uuid}",
-  "message": "Resource created successfully",
-  "timestamp": "${timestamp}",
-  "location": "/api/resource/${uuid}",
-  "requestId": "${request.headers.x-request-id}"
-}`
+		return `{"id": "$!uuid","message": "Resource created successfully","timestamp": "$!now_epoch","location": "/api/resource/$!uuid","requestId": "$!request.headers['x-request-id'][0]"}`
 	case "PUT", "PATCH":
-		return `{
-  "id": "${request.pathParameters.id}",
-  "message": "Resource updated successfully",
-  "timestamp": "${timestamp}",
-  "version": "${random.integer}",
-  "requestId": "${request.headers.x-request-id}"
-}`
+		return `{"id": "$!request.pathParameters['id'][0]","message": "Resource updated successfully","timestamp": "$!now_epoch","version": "$!rand_int_100","requestId": "$!request.headers['x-request-id'][0]"}`
 	case "DELETE":
-		return `{
-  "message": "Resource deleted successfully",
-  "deletedId": "${request.pathParameters.id}",
-  "timestamp": "${timestamp}",
-  "requestId": "${request.headers.x-request-id}"
-}`
+		return `{"message": "Resource deleted successfully","deletedId": "$!request.pathParameters['id'][0]","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]"}`
 	default: // GET
-		return `{
-  "id": "${uuid}",
-  "name": "Sample Resource",
-  "status": "active",
-  "createdAt": "${timestamp}",
-  "updatedAt": "${timestamp}",
-  "requestId": "${request.headers.x-request-id}",
-  "metadata": {
-    "version": "1.0",
-    "source": "mock-server"
-  }
-}`
+		return `{"id": "$!uuid","name": "Sample Resource","status": "active","createdAt": "$!now_epoch","updatedAt": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]","metadata": {"version": "1.0","source": "mock-server"}}`
 	}
 }
 
 func generateEnhancedClientErrorTemplate(statusCode int) string {
 	switch statusCode {
 	case 400:
-		return `{
-  "error": {
-    "code": "BAD_REQUEST",
-    "message": "Invalid request data provided",
-    "details": "Request validation failed",
-    "timestamp": "${timestamp}",
-    "requestId": "${request.headers.x-request-id}",
-    "path": "${request.path}"
-  },
-  "validationErrors": [
-    {
-      "field": "example_field",
-      "message": "Field is required",
-      "code": "REQUIRED"
-    }
-  ]
-}`
+		return `{"error": {"code": "BAD_REQUEST","message": "Invalid request data provided","details": "Request validation failed","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]","path": "$!request.path"},"validationErrors": [{"field": "example_field","message": "Field is required","code": "REQUIRED"}]}`
 	case 401:
-		return `{
-  "error": {
-    "code": "UNAUTHORIZED",
-    "message": "Authentication required",
-    "details": "Please provide valid authentication credentials",
-    "timestamp": "${timestamp}",
-    "requestId": "${request.headers.x-request-id}"
-  },
-  "authMethods": ["Bearer Token", "API Key"]
-}`
+		return `{"error": {"code": "UNAUTHORIZED","message": "Authentication required","details": "Please provide valid authentication credentials","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]"},"authMethods": ["Bearer Token", "API Key"]}`
 	case 403:
-		return `{
-  "error": {
-    "code": "FORBIDDEN",
-    "message": "Access denied",
-    "details": "Insufficient permissions for this resource",
-    "timestamp": "${timestamp}",
-    "requestId": "${request.headers.x-request-id}",
-    "requiredPermissions": ["read:resource"]
-  }
-}`
+		return `{"error": {"code": "FORBIDDEN","message": "Access denied","details": "Insufficient permissions for this resource","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]","requiredPermissions": ["read:resource"]}}`
 	case 404:
-		return `{
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Resource not found",
-    "details": "The requested resource does not exist",
-    "timestamp": "${timestamp}",
-    "requestId": "${request.headers.x-request-id}",
-    "path": "${request.path}",
-    "resourceId": "${request.pathParameters.id}"
-  }
-}`
+		return `{"error": {"code": "NOT_FOUND","message": "Resource not found","details": "The requested resource does not exist","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]","path": "$!request.path","resourceId": "$!request.pathParameters['id'][0]"}}`
 	case 429:
-		return `{
-  "error": {
-    "code": "RATE_LIMITED",
-    "message": "Too many requests",
-    "details": "Rate limit exceeded",
-    "timestamp": "${timestamp}",
-    "requestId": "${request.headers.x-request-id}",
-    "retryAfter": 60,
-    "limit": 100,
-    "remaining": 0
-  }
-}`
+		return `{"error": {"code": "RATE_LIMITED","message": "Too many requests","details": "Rate limit exceeded","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]","retryAfter": 60,"limit": 100,"remaining": 0}}`
 	default:
-		return `{
-  "error": {
-    "code": "CLIENT_ERROR",
-    "message": "Client error occurred",
-    "timestamp": "${timestamp}",
-    "requestId": "${request.headers.x-request-id}"
-  }
-}`
+		return `{"error": {"code": "CLIENT_ERROR","message": "Client error occurred","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]"}}`
 	}
 }
 
 func generateEnhancedServerErrorTemplate() string {
-	return `{
-  "error": {
-    "code": "INTERNAL_SERVER_ERROR",
-    "message": "An internal server error occurred",
-    "details": "Please try again later or contact support",
-    "timestamp": "${timestamp}",
-    "requestId": "${request.headers.x-request-id}",
-    "traceId": "${uuid}",
-    "supportContact": "support@example.com"
-  }
-}`
+	return `{"error": {"code": "INTERNAL_SERVER_ERROR","message": "An internal server error occurred","details": "Please try again later or contact support","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]","traceId": "$!uuid","supportContact": "support@example.com"}}`
 }
 
 func generateRESTAPITemplate() string {
-	return `{
-  "data": {
-    "id": "${uuid}",
-    "type": "resource",
-    "attributes": {
-      "name": "Sample Resource",
-      "status": "active",
-      "createdAt": "${timestamp}",
-      "updatedAt": "${timestamp}"
-    },
-    "relationships": {
-      "owner": {
-        "data": {"id": "${random.string}", "type": "user"}
-      }
-    }
-  },
-  "meta": {
-    "requestId": "${request.headers.x-request-id}",
-    "version": "1.0",
-    "timestamp": "${timestamp}"
-  }
-}`
+	return `{"data": {"id": "$!uuid","type": "resource","attributes": {"name": "Sample Resource","status": "active","createdAt": "$!now_epoch","updatedAt": "$!now_epoch"},"relationships": {"owner": {"data": {"id": "$!rand_bytes_64", "type": "user"}}}},"meta": {"requestId": "$!request.headers['x-request-id'][0]","version": "1.0","timestamp": "$!now_epoch"}}`
 }
 
 func generateMicroserviceTemplate() string {
-	return `{
-  "serviceInfo": {
-    "name": "mock-service",
-    "version": "1.0.0",
-    "environment": "mock",
-    "region": "us-east-1"
-  },
-  "data": {
-    "id": "${uuid}",
-    "status": "success",
-    "timestamp": "${timestamp}",
-    "processingTime": "${random.integer}ms"
-  },
-  "metadata": {
-    "requestId": "${request.headers.x-request-id}",
-    "correlationId": "${uuid}",
-    "traceId": "${uuid}",
-    "spanId": "${random.string}"
-  }
-}`
+	return `{"serviceInfo": {"name": "mock-service","version": "1.0.0","environment": "mock","region": "us-east-1"},"data": {"id": "$!uuid","status": "success","timestamp": "$!now_epoch","processingTimeMs": "$!rand_int_100"},"metadata": {"requestId": "$!request.headers['x-request-id'][0]","correlationId": "$!uuid","traceId": "$!uuid","spanId": "$!rand_bytes_64"}}`
 }
 
 func generateComprehensiveErrorTemplate(statusCode int) string {
-	return `{
-  "error": {
-    "code": "ERROR_CODE",
-    "message": "Human-readable error message",
-    "details": "Detailed error description",
-    "timestamp": "${timestamp}",
-    "requestId": "${request.headers.x-request-id}",
-    "traceId": "${uuid}",
-    "path": "${request.path}",
-    "method": "${request.method}",
-    "statusCode": ` + fmt.Sprintf("%d", statusCode) + `
-  },
-  "context": {
-    "userAgent": "${request.headers.user-agent}",
-    "clientIp": "${request.headers.x-forwarded-for}",
-    "timestamp": "${timestamp}"
-  },
-  "support": {
-    "documentation": "https://docs.example.com/errors",
-    "contact": "support@example.com",
-    "statusPage": "https://status.example.com"
-  }
-}`
+	return `{"error": {"code": "ERROR_CODE","message": "Human-readable error message","details": "Detailed error description","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]","traceId": "$!uuid","path": "$!request.path","method": "$!request.method","statusCode": ` + fmt.Sprintf("%d", statusCode) + `},"context": {"userAgent": "$!request.headers['user-agent'][0]}","clientIp": "$!request.headers['x-forwarded-for'][0]","timestamp": "$!now_epoch"},"support": {"documentation": "https://docs.example.com/errors","contact": "support@example.com","statusPage": "https://status.example.com"}}`
 }
 
 func generateMinimalTemplate() string {
-	return `{"success": true, "timestamp": "${timestamp}"}`
-}
-
-// Legacy template functions - kept for backward compatibility
-
-// generateSuccessTemplate generates simple success response templates
-func generateSuccessTemplate(method string) string {
-	switch method {
-	case "POST":
-		return `{"id": "generated-id-123", "message": "Resource created successfully", "timestamp": "2025-09-21T15:30:00Z"}`
-	case "PUT", "PATCH":
-		return `{"id": "resource-id-123", "message": "Resource updated successfully", "timestamp": "2025-09-21T15:30:00Z"}`
-	case "DELETE":
-		return `{"message": "Resource deleted successfully", "timestamp": "2025-09-21T15:30:00Z"}`
-	default: // GET
-		return `{"id": "resource-id-123", "name": "Sample Resource", "status": "active", "createdAt": "2025-09-21T10:00:00Z", "updatedAt": "2025-09-21T15:30:00Z"}`
-	}
-}
-
-// generateClientErrorTemplate generates simple 4xx error templates
-func generateClientErrorTemplate(statusCode int) string {
-	switch statusCode {
-	case 400:
-		return `{"error": "bad_request", "message": "Invalid request data provided", "timestamp": "2025-09-21T15:30:00Z"}`
-	case 401:
-		return `{"error": "unauthorized", "message": "Authentication required", "timestamp": "2025-09-21T15:30:00Z"}`
-	case 403:
-		return `{"error": "forbidden", "message": "Access denied", "timestamp": "2025-09-21T15:30:00Z"}`
-	case 404:
-		return `{"error": "not_found", "message": "Resource not found", "timestamp": "2025-09-21T15:30:00Z"}`
-	default:
-		return `{"error": "client_error", "message": "Client error occurred", "timestamp": "2025-09-21T15:30:00Z"}`
-	}
-}
-
-// generateServerErrorTemplate generates simple 5xx error templates
-func generateServerErrorTemplate(statusCode int) string {
-	return `{"error": "server_error", "message": "Internal server error", "timestamp": "2025-09-21T15:30:00Z"}`
+	return `{"success": true, "timestamp": "$!now_epoch"}`
 }

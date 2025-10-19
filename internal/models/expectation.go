@@ -43,12 +43,6 @@ type HttpResponse struct {
 	Body         any                 `json:"body,omitempty"`
 	Headers      map[string][]string `json:"headers,omitempty"`
 	Delay        *Delay              `json:"delay,omitempty"`
-	Template     *Template           `json:"template,omitempty"`
-}
-
-type Template struct {
-	TemplateType string `json:"templateType"` // "JAVASCRIPT" or "VELOCITY"
-	Template     string `json:"template"`
 }
 
 type HttpForward struct {

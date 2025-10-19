@@ -7,7 +7,7 @@ import (
 )
 
 // applyDropConnection returns a FeatureFunc for drop connection configuration
-func applyDropConnection(mc *MockConfigurator) FeatureFunc {
+func applyDropConnection() FeatureFunc {
 	return func(exp *MockExpectation) error {
 		fmt.Println("\n🔌 Drop Connection Configuration")
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -36,7 +36,7 @@ func applyDropConnection(mc *MockConfigurator) FeatureFunc {
 }
 
 // applyChunked returns a FeatureFunc for chunked encoding configuration
-func applyChunked(mc *MockConfigurator) FeatureFunc {
+func applyChunked() FeatureFunc {
 	return func(expectation *MockExpectation) error {
 		fmt.Println("\n📦 Chunked Encoding Configuration")
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -68,7 +68,7 @@ func applyChunked(mc *MockConfigurator) FeatureFunc {
 }
 
 // applyKeepAlive returns a FeatureFunc for keep-alive configuration
-func applyKeepAlive(mc *MockConfigurator) FeatureFunc {
+func applyKeepAlive() FeatureFunc {
 	return func(expectation *MockExpectation) error {
 		fmt.Println("\n🔄 Keep-Alive Configuration")
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━")

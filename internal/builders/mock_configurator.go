@@ -527,7 +527,7 @@ func (mc *MockConfigurator) CollectAdvancedFeatures(step int, expectation *MockE
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// 3.2 Feature picker
-	reg := Registry(mc)
+	reg := Registry()
 	choices, err := PickFeaturesInteractively(reg)
 	if err != nil {
 		return err

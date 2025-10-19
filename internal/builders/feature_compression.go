@@ -154,7 +154,7 @@ func bodyToBytes(body any, explicitCT string) ([]byte, string, error) {
 
 // --- Your feature function, fixed ---
 
-func applyCompression(mc *MockConfigurator) FeatureFunc {
+func applyCompression() FeatureFunc {
 	return func(exp *MockExpectation) error {
 		fmt.Println("\n🗜️  Response Compression Configuration")
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

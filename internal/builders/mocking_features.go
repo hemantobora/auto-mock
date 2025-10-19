@@ -25,7 +25,7 @@ type Category struct {
 }
 
 // Registry creates the complete feature catalog with all available features
-func Registry(mc *MockConfigurator) []Category {
+func Registry() []Category {
 	return []Category{
 		{
 			Key:   "response-behavior",
@@ -34,37 +34,37 @@ func Registry(mc *MockConfigurator) []Category {
 				{
 					Key:         "delays",
 					Label:       "Response Delays",
-					Apply:       applyDelays(mc),
+					Apply:       applyDelays(),
 					Description: "Add fixed, random, or progressive delays",
 				},
 				{
 					Key:         "limits",
 					Label:       "Response Limits",
-					Apply:       applyLimits(mc),
+					Apply:       applyLimits(),
 					Description: "Limit how many times expectation matches",
 				},
 				{
 					Key:         "priority",
 					Label:       "Expectation Priority",
-					Apply:       applyPriority(mc),
+					Apply:       applyPriority(),
 					Description: "Set priority for conflicting expectations",
 				},
 				{
 					Key:         "headers",
 					Label:       "Custom Response Headers",
-					Apply:       applyResponseHeaders(mc),
+					Apply:       applyResponseHeaders(),
 					Description: "Add dynamic response headers",
 				},
 				{
 					Key:         "caching",
 					Label:       "Cache Control",
-					Apply:       applyCaching(mc),
+					Apply:       applyCaching(),
 					Description: "Configure cache headers and ETags",
 				},
 				{
 					Key:         "compression",
 					Label:       "Response Compression",
-					Apply:       applyCompression(mc),
+					Apply:       applyCompression(),
 					Description: "Enable gzip/deflate compression",
 				},
 			},
@@ -76,19 +76,19 @@ func Registry(mc *MockConfigurator) []Category {
 				{
 					Key:         "drop-connection",
 					Label:       "Drop Connection",
-					Apply:       applyDropConnection(mc),
+					Apply:       applyDropConnection(),
 					Description: "Simulate network failures",
 				},
 				{
 					Key:         "chunked-encoding",
 					Label:       "Chunked Encoding",
-					Apply:       applyChunked(mc),
+					Apply:       applyChunked(),
 					Description: "Control chunked transfer encoding",
 				},
 				{
 					Key:         "keep-alive",
 					Label:       "Keep-Alive Settings",
-					Apply:       applyKeepAlive(mc),
+					Apply:       applyKeepAlive(),
 					Description: "Connection persistence patterns",
 				},
 			},
@@ -228,7 +228,7 @@ func CollectAdvancedFeaturesInteractive(mc *MockConfigurator, exp *MockExpectati
 	}
 
 	// Get the registry
-	registry := Registry(mc)
+	registry := Registry()
 
 	// Let user pick features interactively
 	selectedFeatures, err := PickFeaturesInteractively(registry)

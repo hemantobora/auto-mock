@@ -119,3 +119,16 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "cpu_units" {
+  description = "CPU units for the ECS task definition"
+  type        = number
+  default     = 256
+}
+
+variable "memory_units" {
+  description = "Memory (in MiB) for the ECS task definition"
+  type        = number
+  default     = 512
+}
+

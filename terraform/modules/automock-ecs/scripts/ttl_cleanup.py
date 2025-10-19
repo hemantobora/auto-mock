@@ -40,14 +40,17 @@ def lambda_handler(event, context):
         # Parse TTL expiry time
         ttl_datetime = datetime.fromisoformat(ttl_expiry.replace('Z', '+00:00'))
         now = datetime.utcnow().replace(tzinfo=ttl_datetime.tzinfo)
-        
-        if now < ttl_datetime:
-            remaining = (ttl_datetime - now).total_seconds() / 3600
-            print(f"TTL not expired. {remaining:.1f} hours remaining")
-            return {
-                'statusCode': 200,
-                'body': json.dumps(f'{remaining:.1f} hours remaining')
-            }
+
+        if event.get('force_destroy'):
+            print("Force destroy flag detected. Skipping TTL check.")
+        else:
+            if now < ttl_datetime:
+                remaining = (ttl_datetime - now).total_seconds() / 3600
+                print(f"TTL not expired. {remaining:.1f} hours remaining")
+                return {
+                    'statusCode': 200,
+                    'body': json.dumps(f'{remaining:.1f} hours remaining')
+                }
         
         # TTL expired - trigger destroy task
         print(f"⚠️  TTL expired! Starting Terraform destroy task...")

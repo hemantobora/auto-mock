@@ -61,7 +61,8 @@ resource "aws_iam_role_policy" "lambda_run_ecs_task" {
         Effect = "Allow"
         Action = [
           "ecs:RunTask",
-          "ecs:DescribeTasks"
+          "ecs:DescribeTasks",
+          "ecs:TagResource"
         ]
         Resource = "*"
       },

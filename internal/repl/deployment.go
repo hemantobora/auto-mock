@@ -48,8 +48,10 @@ func (d *Deployment) DeployInfrastructureWithTerraform(skip_confirmation bool) e
 		return err
 	}
 
-	// Show cost estimate
-	terraform.DisplayCostEstimate(d.Options.MinTasks, d.Options.MaxTasks, d.Options.TTLHours)
+	if d.Provider.GetProviderType() == "aws" {
+		// Show cost estimate
+		terraform.DisplayAwsCostEstimate(*d.Options)
+	}
 
 	// Confirm deployment
 	if !skip_confirmation {
@@ -72,7 +74,10 @@ func (d *Deployment) DeployInfrastructureWithTerraform(skip_confirmation bool) e
 
 	// Create Terraform manager
 	// The manager will automatically find the existing S3 bucket
-	manager := terraform.NewManager(d.ProjectName, d.Profile, d.Provider)
+	manager, err := terraform.NewManager(d.ProjectName, d.Profile, d.Provider)
+	if err != nil {
+		return fmt.Errorf("failed to create terraform manager: %w", err)
+	}
 
 	// Validate bucket was found
 	if manager.ExistingBucketName == "" {
@@ -122,6 +127,14 @@ func promptDeploymentOptionsREPL(options *terraform.DeploymentOptions) error {
 	fmt.Println("\n⚙️  Deployment Configuration")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
+	// Your size map (cpu in CPU units; memory in MiB)
+	taskConfig := map[string]struct{ CPU, MemMiB int }{
+		"small":  {CPU: 256, MemMiB: 512},   // 0.25 vCPU, 0.5 GB
+		"medium": {CPU: 512, MemMiB: 1024},  // 0.5 vCPU, 1 GB
+		"large":  {CPU: 1024, MemMiB: 2048}, // 1 vCPU, 2 GB
+		"xlarge": {CPU: 2048, MemMiB: 4096}, // 2 vCPU, 4 GB
+	}
+
 	// Instance size
 	if options.InstanceSize == "" {
 		var instanceSize string
@@ -150,6 +163,13 @@ func promptDeploymentOptionsREPL(options *terraform.DeploymentOptions) error {
 		}
 		options.InstanceSize = instanceSize
 	}
+
+	cfg, ok := taskConfig[options.InstanceSize]
+	if !ok {
+		return fmt.Errorf("  Unknown size %q. Valid: small, medium, large, xlarge", options.InstanceSize)
+	}
+	options.CPUUnits = cfg.CPU
+	options.MemoryUnits = cfg.MemMiB
 
 	// Min tasks
 	if options.MinTasks == 0 {
@@ -236,7 +256,7 @@ func promptDeploymentOptionsREPL(options *terraform.DeploymentOptions) error {
 		var ttlHours string
 		ttlPrompt := &survey.Input{
 			Message: "Auto-teardown timeout (hours, 0 = disabled):",
-			Default: "8",
+			Default: "4",
 			Help:    "Infrastructure will be automatically deleted after this time to prevent runaway costs",
 		}
 

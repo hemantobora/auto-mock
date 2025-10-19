@@ -31,7 +31,7 @@ func generateFromCollectionWithMenu(projectName string) (string, error) {
 		return "", err
 	}
 
-	// Process the collection - this saves to S3
+	// Process the collection - this saves to Storage bucket
 	processor, err := collections.NewCollectionProcessor(projectName, collectionType)
 	if err != nil {
 		return "", fmt.Errorf("failed to create collection processor: %w", err)

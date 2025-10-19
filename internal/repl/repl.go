@@ -22,13 +22,12 @@ func StartMockGenerationREPL(projectName string) (string, error) {
 	if err := survey.AskOne(&survey.Select{
 		Message: "How do you want to generate your mock configuration?",
 		Options: []string{
-			"describe - Describe your API in natural language (AI-powered)",
 			"interactive - Build endpoints step-by-step (7-step builder)",
 			"collection - Import from Postman/Bruno/Insomnia",
-			"template - Quick templates for common APIs",
+			"describe - Describe your API in natural language (AI-powered)",
 			"upload - Upload expectation file directly (JSON)",
 		},
-		Default: "describe - Describe your API in natural language (AI-powered)",
+		Default: "interactive - Build endpoints step-by-step (7-step builder)",
 	}, &method); err != nil {
 		return "", err
 	}
@@ -125,8 +124,6 @@ func generateMockConfiguration(method, projectName string) (string, error) {
 		return generateInteractiveWithMenu()
 	case "collection":
 		return generateFromCollectionWithMenu(projectName)
-	case "template":
-		return generateFromTemplate(ctx, projectName)
 	case "upload":
 		return configureUploadedExpectationWithMenu(projectName)
 	default:
@@ -184,38 +181,6 @@ func generateFromDescription(ctx context.Context, projectName string) (string, e
 	}
 	for _, suggestion := range result.Suggestions {
 		fmt.Printf("💡 %s\n", suggestion)
-	}
-
-	return result.MockServerJSON, nil
-}
-
-// generateFromTemplate uses quick templates
-func generateFromTemplate(ctx context.Context, projectName string) (string, error) {
-	fmt.Println("📝 Template Generator")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	// Choose template type
-	var templateType string
-	if err := survey.AskOne(&survey.Select{
-		Message: "Choose API template:",
-		Options: []string{
-			"user - User management API",
-			"auth - Authentication API",
-			"product - Product/catalog API",
-			"order - Order/payment API",
-			"file - File upload API",
-			"custom - Custom CRUD API",
-		},
-	}, &templateType); err != nil {
-		return "", err
-	}
-
-	templateType = strings.Split(templateType, " ")[0]
-
-	// Generate from template
-	result, err := mcp.GenerateWithProvider(ctx, templateType+" management API", "template", projectName)
-	if err != nil {
-		return "", fmt.Errorf("template generation failed: %w", err)
 	}
 
 	return result.MockServerJSON, nil

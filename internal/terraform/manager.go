@@ -3,6 +3,7 @@ package terraform
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -36,6 +37,8 @@ type DeploymentOptions struct {
 	EnableTTLCleanup  bool
 	MinTasks          int
 	MaxTasks          int
+	MemoryUnits       int
+	CPUUnits          int
 
 	// New fields
 	IAMRoleMode    string // "provided", "create", "skip"
@@ -62,7 +65,12 @@ type InfrastructureOutputs struct {
 }
 
 // NewManager creates a new Terraform manager
-func NewManager(cleanProject, profile string, provider internal.Provider) *Manager {
+func NewManager(cleanProject, profile string, provider internal.Provider) (*Manager, error) {
+
+	exists, err := provider.ProjectExists(context.Background(), cleanProject)
+	if !exists || err != nil {
+		return nil, fmt.Errorf("project %s does not exist", cleanProject)
+	}
 
 	// Get the project root directory
 	execPath, _ := os.Executable()
@@ -84,7 +92,8 @@ func NewManager(cleanProject, profile string, provider internal.Provider) *Manag
 		Provider:           provider,
 		ExistingBucketName: provider.GetStorageName(), // Use existing bucket if available
 		Profile:            profile,
-	}
+		Region:             provider.GetRegion(),
+	}, nil
 }
 
 func (m *Manager) createBackendConfig() error {
@@ -108,7 +117,7 @@ func (m *Manager) createBackendConfig() error {
 		return fmt.Errorf("failed to write backend config: %w", err)
 	}
 
-	fmt.Printf("✓ Configured Terraform backend: s3://%s/terraform/state/\n",
+	fmt.Printf("✓ Configured Terraform backend: %s/terraform/state/\n",
 		m.ExistingBucketName)
 	return nil
 }
@@ -119,7 +128,7 @@ func (m *Manager) Deploy(options *DeploymentOptions) (*InfrastructureOutputs, er
 
 	// Validate bucket name was found
 	if m.ExistingBucketName == "" {
-		return nil, fmt.Errorf("no S3 bucket found for project '%s'. Please run 'automock init' first", m.ProjectName)
+		return nil, fmt.Errorf("no Storage bucket found for project '%s'. Please run 'automock init' first", m.ProjectName)
 	}
 
 	// Step 1: Prepare Terraform workspace
@@ -322,10 +331,12 @@ func (m *Manager) createTerraformVars(options *DeploymentOptions) error {
 project_name = "%s"
 aws_region = "%s"
 instance_size = "%s"
+cpu_units = %d
+memory_units = %d
 ttl_hours = %d
 enable_ttl_cleanup = %t
 existing_bucket_name = "%s"
-`, m.ProjectName, m.Region, options.InstanceSize, options.TTLHours, options.EnableTTLCleanup, m.ExistingBucketName)
+`, m.ProjectName, m.Region, options.InstanceSize, options.CPUUnits, options.MemoryUnits, options.TTLHours, options.EnableTTLCleanup, m.ExistingBucketName)
 
 	if options.CustomDomain != "" {
 		vars += fmt.Sprintf(`custom_domain = "%s"`+"\n", options.CustomDomain)

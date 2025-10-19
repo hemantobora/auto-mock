@@ -24,16 +24,8 @@ locals {
   # Use auto-mock- prefix to match bucket naming convention
   name_prefix = "auto-mock-${var.project_name}"
   
-  # ECS task sizing
-  task_config = {
-    small  = { cpu = 256,  memory = 512 }
-    medium = { cpu = 512,  memory = 1024 }
-    large  = { cpu = 1024, memory = 2048 }
-    xlarge = { cpu = 2048, memory = 4096 }
-  }
-  
-  cpu_units    = local.task_config[var.instance_size].cpu
-  memory_units = local.task_config[var.instance_size].memory
+  cpu_units    = var.cpu_units
+  memory_units = var.memory_units
   
   common_tags = {
     Project     = "AutoMock"
@@ -218,22 +210,6 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  ingress {
-    description = "Dashboard HTTP"
-    from_port   = 8080
-    to_port     = 8080
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
- }
-
-  ingress {
-    description = "Dashboard HTTPS"
-    from_port   = 8443
-    to_port     = 8443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
   egress {
     from_port   = 0
     to_port     = 0
@@ -315,42 +291,14 @@ resource "aws_lb_target_group" "mockserver_api" {
     unhealthy_threshold = 3
     timeout             = 10
     interval            = 30
-    path                = "/mockserver/bind"
-    matcher             = "200"
+    path                = "/health"
+    matcher             = "200-399"
     port                = "traffic-port"
     protocol            = "HTTP"
   }
 
   tags = merge(local.common_tags, local.ttl_tags, {
     Name = "${local.name_prefix}-api-tg"
-  })
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
-resource "aws_lb_target_group" "mockserver_dashboard" {
-  name        = "${local.name_prefix}-dash-tg"
-  port        = 1090
-  protocol    = "HTTP"
-  vpc_id      = aws_vpc.main.id
-  target_type = "ip"
-
-  health_check {
-    enabled             = true
-    healthy_threshold   = 2
-    unhealthy_threshold = 2
-    timeout             = 10
-    interval            = 30
-    path                = "/"
-    matcher             = "200"
-    port                = "traffic-port"
-    protocol            = "HTTP"
-  }
-
-  tags = merge(local.common_tags, local.ttl_tags, {
-    Name = "${local.name_prefix}-dashboard-tg"
   })
 
   lifecycle {

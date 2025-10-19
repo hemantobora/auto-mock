@@ -195,7 +195,7 @@ output "mockserver_url" {
 }
 
 output "dashboard_url" {
-  value = "http://alb-dns-name:8080/mockserver/dashboard"
+  value = "http://alb-dns-name/mockserver/dashboard"
 }
 
 output "config_bucket" {

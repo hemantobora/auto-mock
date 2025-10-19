@@ -39,6 +39,7 @@ type Provider interface {
 	GetProjectName() string
 	SetStorageName(name string)
 	SetProjectName(name string)
+	GetRegion() string
 
 	// Cleanup
 	DeleteProject() error

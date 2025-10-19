@@ -323,12 +323,6 @@ func CloneExpectation(src *MockExpectation) *MockExpectation {
 			tmp := *src.HttpResponse.Delay
 			dst.HttpResponse.Delay = &tmp
 		}
-
-		// Template: *Template
-		if src.HttpResponse.Template != nil {
-			tmp := *src.HttpResponse.Template
-			dst.HttpResponse.Template = &tmp
-		}
 	}
 
 	// ---- Other pointers ----

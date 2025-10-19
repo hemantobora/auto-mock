@@ -8,7 +8,7 @@ import (
 )
 
 // applyResponseHeaders returns a FeatureFunc that collects custom response headers
-func applyResponseHeaders(mc *MockConfigurator) FeatureFunc {
+func applyResponseHeaders() FeatureFunc {
 	return func(exp *MockExpectation) error {
 		fmt.Println("\n📋 Custom Response Headers Configuration")
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

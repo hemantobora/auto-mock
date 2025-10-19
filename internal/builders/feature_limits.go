@@ -8,18 +8,23 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 )
 
-func applyLimits(mc *MockConfigurator) FeatureFunc {
+func applyLimits() FeatureFunc {
 	return func(exp *MockExpectation) error {
 		fmt.Println("\n🔢 Response Limits Configuration")
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 		var mode string
-		if err := survey.AskOne(&survey.Select{
-			Message: "Limit mode:",
-			Options: []string{"unlimited", "fixed-count"},
-			Default: "fixed-count",
-		}, &mode, survey.WithValidator(survey.Required)); err != nil {
-			return err
+		if exp.Progressive == nil {
+			if err := survey.AskOne(&survey.Select{
+				Message: "Limit mode:",
+				Options: []string{"unlimited", "fixed-count"},
+				Default: "fixed-count",
+			}, &mode, survey.WithValidator(survey.Required)); err != nil {
+				return err
+			}
+		} else {
+			fmt.Println("⚠️  Progressive responses are configured; unlimited response are not applicable for current expectation.")
+			mode = "fixed-count"
 		}
 
 		if exp.Times == nil {

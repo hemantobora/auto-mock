@@ -379,7 +379,7 @@ func (em *ExpectationManager) DeleteProjectPrompt() error {
 	fmt.Println("🗑️  This will permanently delete:")
 	fmt.Println("   • All mock expectations")
 	fmt.Println("   • All version history")
-	fmt.Println("   • S3 bucket and contents")
+	fmt.Println("   • Storage bucket and contents")
 	fmt.Println("   • Any running infrastructure (when implemented)")
 	fmt.Println("\n❌ THIS CANNOT BE UNDONE!")
 

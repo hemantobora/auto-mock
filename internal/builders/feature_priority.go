@@ -8,7 +8,7 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 )
 
-func applyPriority(mc *MockConfigurator) FeatureFunc {
+func applyPriority() FeatureFunc {
 	return func(exp *MockExpectation) error {
 		fmt.Println("\n⚖️  Expectation Priority Configuration")
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

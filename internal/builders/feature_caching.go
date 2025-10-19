@@ -11,7 +11,7 @@ import (
 )
 
 // applyCaching returns a FeatureFunc that collects cache control configuration
-func applyCaching(mc *MockConfigurator) FeatureFunc {
+func applyCaching() FeatureFunc {
 	return func(exp *MockExpectation) error {
 		fmt.Println("\n🗄️  Cache Control Configuration")
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

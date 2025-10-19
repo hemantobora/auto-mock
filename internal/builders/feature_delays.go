@@ -11,7 +11,7 @@ import (
 	"github.com/hemantobora/auto-mock/internal/models"
 )
 
-func applyDelays(mc *MockConfigurator) func(exp *MockExpectation) error {
+func applyDelays() func(exp *MockExpectation) error {
 	return func(exp *MockExpectation) error {
 		fmt.Println("\n⏱️  Response Delay Configuration")
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

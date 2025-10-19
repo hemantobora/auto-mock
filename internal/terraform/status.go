@@ -52,7 +52,6 @@ func (m *Manager) CheckInfrastructureExists() (bool, error) {
 		switch m.Provider.GetProviderType() {
 		case "aws":
 			cmd.Env = append(cmd.Env, fmt.Sprintf("AWS_PROFILE=%s", m.Profile))
-			break
 		case "gcp":
 			cmd.Env = append(cmd.Env, fmt.Sprintf("GOOGLE_CLOUD_PROJECT=%s", m.Profile))
 		case "azure":
@@ -115,7 +114,6 @@ func (m *Manager) GetInfrastructureSummary() (map[string]interface{}, error) {
 		switch m.Provider.GetProviderType() {
 		case "aws":
 			cmd.Env = append(cmd.Env, fmt.Sprintf("AWS_PROFILE=%s", m.Profile))
-			break
 		case "gcp":
 			cmd.Env = append(cmd.Env, fmt.Sprintf("GOOGLE_CLOUD_PROJECT=%s", m.Profile))
 		case "azure":

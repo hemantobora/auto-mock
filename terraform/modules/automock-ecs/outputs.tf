@@ -8,7 +8,7 @@ output "mockserver_url" {
 
 output "dashboard_url" {
   description = "URL to access the MockServer Dashboard"
-  value       = var.custom_domain != "" ? "https://${var.custom_domain}:8443/mockserver/dashboard" : "http://${aws_lb.main.dns_name}:8080/mockserver/dashboard"
+  value       = var.custom_domain != "" ? "https://${var.custom_domain}/mockserver/dashboard" : "http://${aws_lb.main.dns_name}/mockserver/dashboard"
 }
 
 output "alb_dns_name" {
@@ -98,7 +98,7 @@ output "infrastructure_summary" {
     region      = var.region
     endpoints = {
       api       = var.custom_domain != "" ? "https://${var.custom_domain}" : "http://${aws_lb.main.dns_name}"
-      dashboard = var.custom_domain != "" ? "https://${var.custom_domain}:8443/mockserver/dashboard" : "http://${aws_lb.main.dns_name}:8080/mockserver/dashboard"
+      dashboard = var.custom_domain != "" ? "https://${var.custom_domain}/mockserver/dashboard" : "http://${aws_lb.main.dns_name}/mockserver/dashboard"
     }
     compute = {
       cluster        = aws_ecs_cluster.main.name

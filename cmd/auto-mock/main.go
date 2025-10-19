@@ -232,7 +232,7 @@ func destroyCommand(c *cli.Context) error {
 		// First confirmation
 		var confirmed bool
 		prompt := &survey.Confirm{
-			Message: fmt.Sprintf("Type the project name '%s' to confirm:", projectName),
+			Message: fmt.Sprintf("Are you sure? Project '%s' will be destroyed. This action cannot be undone.", projectName),
 		}
 
 		// Ask for project name confirmation
@@ -268,11 +268,14 @@ func destroyCommand(c *cli.Context) error {
 	}
 
 	// Create Terraform manager
-	destroyer := terraform.NewManager(projectName, profile, manager.Provider)
+	destroyer, err := terraform.NewManager(projectName, profile, manager.Provider)
+	if err != nil {
+		return fmt.Errorf("failed to create terraform manager: %w", err)
+	}
 
 	// Destroy infrastructure
 	fmt.Println("\nDestroying infrastructure...")
-	err := destroyer.Destroy()
+	err = destroyer.Destroy()
 
 	terraform.DisplayDestroyResults(projectName, err == nil)
 
@@ -294,7 +297,10 @@ func statusCommand(c *cli.Context) error {
 		return err
 	}
 	// Create Terraform manager
-	status := terraform.NewManager(projectName, profile, manager.Provider)
+	status, err := terraform.NewManager(projectName, profile, manager.Provider)
+	if err != nil {
+		return fmt.Errorf("failed to create terraform manager: %w", err)
+	}
 
 	// Get current outputs (this requires terraform to be initialized)
 	// For now, we'll use a simpler approach - check AWS directly
@@ -342,12 +348,6 @@ func extendTTLCommand(c *cli.Context) error {
 	fmt.Printf("Adding %d hours to current TTL\n", additionalHours)
 	fmt.Println(strings.Repeat("=", 80))
 
-	// This would:
-	// 1. Read current metadata from S3
-	// 2. Calculate new TTL expiry
-	// 3. Update metadata in S3
-	// 4. Confirm to user
-
 	err := extendTTL(profile, projectName, additionalHours)
 	if err != nil {
 		return fmt.Errorf("failed to extend TTL: %w", err)
@@ -366,6 +366,11 @@ func extendTTL(profile, projectName string, additionalHours int) error {
 	// Step 1: Validate cloud provider credentials
 	if err := manager.AutoDetectProvider(profile); err != nil {
 		return err
+	}
+
+	exists, err := manager.Provider.ProjectExists(context.Background(), projectName)
+	if !exists || err != nil {
+		return fmt.Errorf("project %s does not exist", projectName)
 	}
 
 	// Get current metadata
@@ -427,7 +432,7 @@ WORKFLOW (Interactive Mode):
   2. Select or create project
   3. Generate expectations (AI, collection import, or interactive builder)
   4. Choose deployment option:
-     - Save to S3 only
+     - Save to Storage only
      - Deploy complete infrastructure (ECS + ALB)
      - Start local MockServer
   5. Infrastructure deploys automatically with TTL-based auto-teardown
@@ -475,7 +480,7 @@ EXAMPLES:
   # Clean up
   automock destroy --project user-service
 
-COST ESTIMATES (with TTL):
+APPROXIMATE COST ESTIMATES (with TTL):
   • 8 hours  = ~$10
   • 40 hours/month (5 days × 8 hours) = ~$50/month
   • Without TTL (24/7) = ~$125/month

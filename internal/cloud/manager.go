@@ -285,7 +285,6 @@ func (m *CloudManager) destroyInfrastructureAndDeleteProject() error {
 	// TODO: Tear down infrastructure when implemented
 	fmt.Println("   • Infrastructure teardown (placeholder)")
 
-	// Delete S3 bucket and contents
 	if err := m.Provider.DeleteConfig(context.Background(), m.getCurrentProject()); err != nil {
 		return fmt.Errorf("failed to delete project data: %w", err)
 	}
@@ -436,7 +435,6 @@ func (m *CloudManager) handleGeneratedMock(mockConfiguration string, profile str
 		case models.ActionSave:
 			return m.saveToFile(mockConfiguration)
 		case models.ActionDeploy:
-			// First save expectations to S3
 			if err := m.saveToFile(mockConfiguration); err != nil {
 				return fmt.Errorf("failed to save expectations: %w", err)
 			}
@@ -471,7 +469,6 @@ func (m *CloudManager) handleGeneratedMock(mockConfiguration string, profile str
 	}
 }
 
-// Save configuration to S3
 func (m *CloudManager) saveToFile(mockServerJSON string) error {
 	ctx := context.Background()
 
