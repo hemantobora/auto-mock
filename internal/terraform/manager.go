@@ -3,6 +3,7 @@ package terraform
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,17 +13,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hemantobora/auto-mock/internal/utils"
+	"github.com/hemantobora/auto-mock/internal"
 )
 
 // Manager handles Terraform operations for AutoMock infrastructure
 type Manager struct {
-	ProjectName  string
-	Environment  string
-	Region       string
-	TerraformDir string
-	WorkingDir   string
-	AWSProfile   string
+	ProjectName        string
+	Region             string
+	TerraformDir       string
+	WorkingDir         string
+	Provider           internal.Provider
+	Profile            string
+	ExistingBucketName string
 }
 
 // DeploymentOptions configures the infrastructure deployment
@@ -33,6 +35,14 @@ type DeploymentOptions struct {
 	HostedZoneID      string
 	NotificationEmail string
 	EnableTTLCleanup  bool
+	MinTasks          int
+	MaxTasks          int
+	MemoryUnits       int
+	CPUUnits          int
+
+	// New fields
+	IAMRoleMode    string // "provided", "create", "skip"
+	CleanupRoleARN string // User-provided role ARN
 }
 
 // DefaultDeploymentOptions returns sensible defaults for development
@@ -55,10 +65,12 @@ type InfrastructureOutputs struct {
 }
 
 // NewManager creates a new Terraform manager
-func NewManager(projectName, awsProfile string) *Manager {
-	// Extract clean project name and create environment
-	cleanProject := utils.ExtractUserProjectName(projectName)
-	environment := "dev" // Default to dev for now
+func NewManager(cleanProject, profile string, provider internal.Provider) (*Manager, error) {
+
+	exists, err := provider.ProjectExists(context.Background(), cleanProject)
+	if !exists || err != nil {
+		return nil, fmt.Errorf("project %s does not exist", cleanProject)
+	}
 
 	// Get the project root directory
 	execPath, _ := os.Executable()
@@ -67,7 +79,6 @@ func NewManager(projectName, awsProfile string) *Manager {
 	// Use embedded terraform directory or fallback to project terraform dir
 	terraformDir := filepath.Join(projectRoot, "terraform")
 	if _, err := os.Stat(terraformDir); os.IsNotExist(err) {
-		// Fallback to current directory terraform
 		terraformDir = "./terraform"
 	}
 
@@ -75,24 +86,61 @@ func NewManager(projectName, awsProfile string) *Manager {
 	workingDir := filepath.Join(os.TempDir(), fmt.Sprintf("automock-%s-%s", cleanProject, time.Now().Format("20060102-150405")))
 
 	return &Manager{
-		ProjectName:  cleanProject,
-		Environment:  environment,
-		Region:       "us-east-1", // Default region
-		TerraformDir: terraformDir,
-		WorkingDir:   workingDir,
-		AWSProfile:   awsProfile,
+		ProjectName:        cleanProject,
+		TerraformDir:       terraformDir,
+		WorkingDir:         workingDir,
+		Provider:           provider,
+		ExistingBucketName: provider.GetStorageName(), // Use existing bucket if available
+		Profile:            profile,
+		Region:             provider.GetRegion(),
+	}, nil
+}
+
+func (m *Manager) createBackendConfig() error {
+	if m.ExistingBucketName == "" {
+		return fmt.Errorf("no S3 bucket configured")
 	}
+
+	// NO leading spaces in the template string!
+	backendConfig := fmt.Sprintf(`terraform {
+  backend "s3" {
+    bucket  = "%s"
+    key     = "terraform/state/terraform.tfstate"
+    region  = "%s"
+    encrypt = true
+  }
+}
+`, m.ExistingBucketName, m.Region)
+
+	backendFile := filepath.Join(m.WorkingDir, "backend.tf")
+	if err := os.WriteFile(backendFile, []byte(backendConfig), 0644); err != nil {
+		return fmt.Errorf("failed to write backend config: %w", err)
+	}
+
+	fmt.Printf("✓ Configured Terraform backend: %s/terraform/state/\n",
+		m.ExistingBucketName)
+	return nil
 }
 
 // Deploy creates the complete infrastructure using Terraform
 func (m *Manager) Deploy(options *DeploymentOptions) (*InfrastructureOutputs, error) {
 	fmt.Printf("🚀 Deploying infrastructure for project: %s\n", m.ProjectName)
 
+	// Validate bucket name was found
+	if m.ExistingBucketName == "" {
+		return nil, fmt.Errorf("no Storage bucket found for project '%s'. Please run 'automock init' first", m.ProjectName)
+	}
+
 	// Step 1: Prepare Terraform workspace
 	if err := m.prepareWorkspace(); err != nil {
 		return nil, fmt.Errorf("failed to prepare workspace: %w", err)
 	}
-	defer m.cleanup() // Clean up temporary directory
+	defer m.cleanup()
+
+	// Create backend config
+	if err := m.createBackendConfig(); err != nil {
+		return nil, fmt.Errorf("failed to create backend config: %w", err)
+	}
 
 	// Step 2: Initialize Terraform
 	if err := m.initTerraform(); err != nil {
@@ -105,7 +153,6 @@ func (m *Manager) Deploy(options *DeploymentOptions) (*InfrastructureOutputs, er
 	}
 
 	// Step 4: Plan infrastructure
-	fmt.Println("📋 Planning infrastructure changes...")
 	if err := m.planTerraform(); err != nil {
 		return nil, fmt.Errorf("terraform plan failed: %w", err)
 	}
@@ -122,6 +169,11 @@ func (m *Manager) Deploy(options *DeploymentOptions) (*InfrastructureOutputs, er
 		return nil, fmt.Errorf("failed to get terraform outputs: %w", err)
 	}
 
+	// Step 7: Save deployment metadata
+	if err := m.saveDeploymentMetadata(outputs, options); err != nil {
+		fmt.Printf("⚠️  Warning: Failed to save deployment metadata: %v\n", err)
+	}
+
 	fmt.Printf("✅ Infrastructure deployed successfully for project: %s\n", m.ProjectName)
 	return outputs, nil
 }
@@ -130,24 +182,25 @@ func (m *Manager) Deploy(options *DeploymentOptions) (*InfrastructureOutputs, er
 func (m *Manager) Destroy() error {
 	fmt.Printf("🗑️  Destroying infrastructure for project: %s\n", m.ProjectName)
 
-	// Prepare workspace
 	if err := m.prepareWorkspace(); err != nil {
 		return fmt.Errorf("failed to prepare workspace: %w", err)
 	}
 	defer m.cleanup()
 
-	// Initialize Terraform
+	// Create backend config
+	if err := m.createBackendConfig(); err != nil {
+		return fmt.Errorf("failed to create backend config: %w", err)
+	}
+
 	if err := m.initTerraform(); err != nil {
 		return fmt.Errorf("failed to initialize terraform: %w", err)
 	}
 
-	// Create minimal terraform.tfvars for destroy
 	options := DefaultDeploymentOptions()
 	if err := m.createTerraformVars(options); err != nil {
 		return fmt.Errorf("failed to create terraform vars: %w", err)
 	}
 
-	// Destroy infrastructure
 	fmt.Println("💥 Destroying infrastructure...")
 	if err := m.destroyTerraform(); err != nil {
 		return fmt.Errorf("terraform destroy failed: %w", err)
@@ -159,12 +212,10 @@ func (m *Manager) Destroy() error {
 
 // prepareWorkspace sets up the Terraform working directory
 func (m *Manager) prepareWorkspace() error {
-	// Create working directory
 	if err := os.MkdirAll(m.WorkingDir, 0755); err != nil {
 		return fmt.Errorf("failed to create working directory: %w", err)
 	}
 
-	// Copy Terraform files to working directory
 	if err := m.copyTerraformFiles(); err != nil {
 		return fmt.Errorf("failed to copy terraform files: %w", err)
 	}
@@ -174,27 +225,63 @@ func (m *Manager) prepareWorkspace() error {
 
 // copyTerraformFiles copies the Terraform configuration to the working directory
 func (m *Manager) copyTerraformFiles() error {
-	return filepath.Walk(m.TerraformDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(m.TerraformDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// Calculate relative path
 		relPath, err := filepath.Rel(m.TerraformDir, path)
 		if err != nil {
 			return err
 		}
 
-		// Target path in working directory
 		targetPath := filepath.Join(m.WorkingDir, relPath)
 
 		if info.IsDir() {
 			return os.MkdirAll(targetPath, info.Mode())
 		}
 
-		// Copy file
 		return m.copyFile(path, targetPath)
 	})
+	if err != nil {
+		return err
+	}
+
+	// NEW: Also copy docker/ directory
+	projectRoot := filepath.Dir(filepath.Dir(m.TerraformDir)) // Go up from terraform/ to project root
+	dockerDir := filepath.Join(projectRoot, "docker")
+
+	if _, err := os.Stat(dockerDir); err == nil {
+		// docker/ directory exists, copy it
+		targetDockerDir := filepath.Join(m.WorkingDir, "docker")
+
+		err = filepath.Walk(dockerDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			relPath, err := filepath.Rel(dockerDir, path)
+			if err != nil {
+				return err
+			}
+
+			targetPath := filepath.Join(targetDockerDir, relPath)
+
+			if info.IsDir() {
+				return os.MkdirAll(targetPath, info.Mode())
+			}
+
+			return m.copyFile(path, targetPath)
+		})
+
+		if err != nil {
+			return fmt.Errorf("failed to copy docker directory: %w", err)
+		}
+
+		fmt.Println("✓ Copied docker/ directory to working directory")
+	}
+
+	return nil
 }
 
 // copyFile copies a single file
@@ -218,11 +305,17 @@ func (m *Manager) copyFile(src, dst string) error {
 // initTerraform initializes the Terraform working directory
 func (m *Manager) initTerraform() error {
 	fmt.Println("🔧 Initializing Terraform...")
+
+	done := make(chan bool)
+	go m.showProgress("Initializing", done)
+
 	cmd := exec.Command("terraform", "init")
 	cmd.Dir = m.WorkingDir
 	cmd.Env = append(os.Environ(), m.getTerraformEnv()...)
 
 	output, err := cmd.CombinedOutput()
+	done <- true
+
 	if err != nil {
 		return fmt.Errorf("terraform init failed: %w\nOutput: %s", err, string(output))
 	}
@@ -236,14 +329,15 @@ func (m *Manager) createTerraformVars(options *DeploymentOptions) error {
 # Generated automatically - do not edit manually
 
 project_name = "%s"
-environment = "%s"
 aws_region = "%s"
 instance_size = "%s"
+cpu_units = %d
+memory_units = %d
 ttl_hours = %d
 enable_ttl_cleanup = %t
-`, m.ProjectName, m.Environment, m.Region, options.InstanceSize, options.TTLHours, options.EnableTTLCleanup)
+existing_bucket_name = "%s"
+`, m.ProjectName, m.Region, options.InstanceSize, options.CPUUnits, options.MemoryUnits, options.TTLHours, options.EnableTTLCleanup, m.ExistingBucketName)
 
-	// Add optional variables
 	if options.CustomDomain != "" {
 		vars += fmt.Sprintf(`custom_domain = "%s"`+"\n", options.CustomDomain)
 	}
@@ -253,6 +347,15 @@ enable_ttl_cleanup = %t
 	if options.NotificationEmail != "" {
 		vars += fmt.Sprintf(`notification_email = "%s"`+"\n", options.NotificationEmail)
 	}
+	if options.CleanupRoleARN != "" {
+		vars += fmt.Sprintf(`cleanup_role_arn = "%s"`+"\n", options.CleanupRoleARN)
+	}
+	if options.MinTasks != 0 {
+		vars += fmt.Sprintf(`min_tasks = %d`+"\n", options.MinTasks)
+	}
+	if options.MaxTasks != 0 {
+		vars += fmt.Sprintf(`max_tasks = %d`+"\n", options.MaxTasks)
+	}
 
 	varsFile := filepath.Join(m.WorkingDir, "terraform.tfvars")
 	return os.WriteFile(varsFile, []byte(vars), 0644)
@@ -260,12 +363,23 @@ enable_ttl_cleanup = %t
 
 // planTerraform runs terraform plan
 func (m *Manager) planTerraform() error {
+	fmt.Println("📋 Planning infrastructure changes...")
+
+	done := make(chan bool)
+	go m.showProgress("Planning", done)
+
 	cmd := exec.Command("terraform", "plan", "-out=tfplan")
 	cmd.Dir = m.WorkingDir
 	cmd.Env = append(os.Environ(), m.getTerraformEnv()...)
 
-	// Stream output to user
-	return m.runCommandWithOutput(cmd)
+	output, err := cmd.CombinedOutput()
+	done <- true
+
+	if err != nil {
+		return fmt.Errorf("%w\nOutput: %s", err, string(output))
+	}
+
+	return nil
 }
 
 // applyTerraform runs terraform apply
@@ -274,7 +388,6 @@ func (m *Manager) applyTerraform() error {
 	cmd.Dir = m.WorkingDir
 	cmd.Env = append(os.Environ(), m.getTerraformEnv()...)
 
-	// Stream output to user
 	return m.runCommandWithOutput(cmd)
 }
 
@@ -284,7 +397,6 @@ func (m *Manager) destroyTerraform() error {
 	cmd.Dir = m.WorkingDir
 	cmd.Env = append(os.Environ(), m.getTerraformEnv()...)
 
-	// Stream output to user
 	return m.runCommandWithOutput(cmd)
 }
 
@@ -299,7 +411,6 @@ func (m *Manager) getOutputs() (*InfrastructureOutputs, error) {
 		return nil, fmt.Errorf("failed to get terraform outputs: %w", err)
 	}
 
-	// Parse Terraform outputs
 	var rawOutputs map[string]struct {
 		Value interface{} `json:"value"`
 	}
@@ -308,7 +419,6 @@ func (m *Manager) getOutputs() (*InfrastructureOutputs, error) {
 		return nil, fmt.Errorf("failed to parse terraform outputs: %w", err)
 	}
 
-	// Convert to our output structure
 	outputs := &InfrastructureOutputs{}
 
 	if val, ok := rawOutputs["mockserver_url"]; ok {
@@ -359,12 +469,16 @@ func (m *Manager) getOutputs() (*InfrastructureOutputs, error) {
 func (m *Manager) getTerraformEnv() []string {
 	env := []string{}
 
-	// Set AWS profile if specified
-	if m.AWSProfile != "" {
-		env = append(env, fmt.Sprintf("AWS_PROFILE=%s", m.AWSProfile))
+	if m.Profile != "" {
+		switch m.Provider.GetProviderType() {
+		case "aws":
+			env = append(env, fmt.Sprintf("AWS_PROFILE=%s", m.Profile))
+		case "gcp":
+			env = append(env, fmt.Sprintf("GOOGLE_CLOUD_PROJECT=%s", m.Profile))
+		case "azure":
+			env = append(env, fmt.Sprintf("AZURE_SUBSCRIPTION_ID=%s", m.Profile))
+		}
 	}
-
-	// Disable Terraform CLI auto-upgrades for stability
 	env = append(env, "TF_CLI_CONFIG_FILE=/dev/null")
 
 	return env
@@ -386,7 +500,6 @@ func (m *Manager) runCommandWithOutput(cmd *exec.Cmd) error {
 		return err
 	}
 
-	// Stream stdout
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
@@ -394,7 +507,6 @@ func (m *Manager) runCommandWithOutput(cmd *exec.Cmd) error {
 		}
 	}()
 
-	// Stream stderr
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
@@ -420,9 +532,27 @@ func CheckTerraformInstalled() error {
 		return fmt.Errorf("terraform not found in PATH. Please install Terraform: https://terraform.io/downloads")
 	}
 
-	// Extract version for user feedback
 	version := strings.Split(string(output), "\n")[0]
 	fmt.Printf("🔧 Found %s\n", version)
 
 	return nil
+}
+
+// showProgress displays a spinner/progress indicator during long operations
+func (m *Manager) showProgress(action string, done chan bool) {
+	spinners := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠇", "⠏", "⠉"}
+	i := 0
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-done:
+			fmt.Printf("\r\033[K✓ %s complete\n", action)
+			return
+		case <-ticker.C:
+			fmt.Printf("\r%s %s...", spinners[i%len(spinners)], action)
+			i++
+		}
+	}
 }

@@ -17,11 +17,6 @@ variable "project_name" {
   type        = string
 }
 
-variable "environment" {
-  description = "Environment (dev, staging, prod)"
-  type        = string
-  default     = "dev"
-}
 
 variable "region" {
   description = "AWS region"
@@ -59,14 +54,19 @@ variable "ecs_service_name" {
   default     = ""
 }
 
+variable "tags" {
+  description = "Additional tags to apply to all resources"
+  type        = map(string)
+  default     = {}
+}
+
 # Local values
 locals {
-  name_prefix = "automock-${var.project_name}-${var.environment}"
+  name_prefix = "automock-${var.project_name}"
   
-  common_tags = {
+  base_tags = {
     Project     = "AutoMock"
     ProjectName = var.project_name
-    Environment = var.environment
     ManagedBy   = "Terraform"
     CreatedAt   = timestamp()
     Region      = var.region
@@ -77,6 +77,9 @@ locals {
     TTLExpiry  = timeadd(timestamp(), "${var.ttl_hours}h")
     AutoDelete = "true"
   } : {}
+  
+  # Merge passed tags with base tags
+  common_tags = merge(local.base_tags, var.tags)
 }
 
 # Random suffix for unique naming
@@ -214,7 +217,6 @@ resource "aws_lambda_function" "config_reload" {
       ECS_CLUSTER_ARN  = var.ecs_cluster_arn
       ECS_SERVICE_NAME = var.ecs_service_name
       PROJECT_NAME     = var.project_name
-      ENVIRONMENT      = var.environment
     }
   }
 
@@ -233,7 +235,6 @@ data "archive_file" "config_reload_zip" {
   source {
     content = templatefile("${path.module}/scripts/config_reload.py", {
       project_name = var.project_name
-      environment  = var.environment
     })
     filename = "index.py"
   }
@@ -321,7 +322,6 @@ resource "aws_s3_object" "project_metadata" {
   
   content = jsonencode({
     project_name    = var.project_name
-    environment     = var.environment
     created_at      = timestamp()
     region          = var.region
     ttl_hours       = var.ttl_hours
@@ -364,7 +364,6 @@ resource "aws_s3_object" "default_expectations" {
           status = "healthy"
           service = "automock"
           project = var.project_name
-          environment = var.environment
         }
       }
     }

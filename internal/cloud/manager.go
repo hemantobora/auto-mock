@@ -2,23 +2,24 @@ package cloud
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"os"
 	"strings"
+	"time"
 
-	"github.com/aws/aws-sdk-go-v2/service/sts"
-
-	awscloud "github.com/hemantobora/auto-mock/internal/cloud/aws"
-	"github.com/hemantobora/auto-mock/internal/provider"
+	"github.com/AlecAivazis/survey/v2"
+	"github.com/hemantobora/auto-mock/internal"
+	"github.com/hemantobora/auto-mock/internal/expectations"
+	"github.com/hemantobora/auto-mock/internal/models"
 	"github.com/hemantobora/auto-mock/internal/repl"
-	"github.com/hemantobora/auto-mock/internal/utils"
+	"github.com/hemantobora/auto-mock/internal/terraform"
 )
 
 // InitializationMode defines how the tool should operate
 type InitializationMode int
 
 const (
-	// ModeInteractive - Primary mode: REPL-driven with AI guidance (default)
+	// ModeInteractive - Primary mode: REPL-driven (default)
 	ModeInteractive InitializationMode = iota
 	// ModeCollection - Secondary mode: CLI-driven collection import
 	ModeCollection
@@ -54,13 +55,16 @@ func (c *CLIContext) HasProject() bool {
 
 // CloudManager orchestrates the auto-mock initialization workflow
 type CloudManager struct {
-	profile string
+	profile  string
+	Provider internal.Provider
+	factory  *Factory
 }
 
 // NewCloudManager creates a new cloud manager instance
 func NewCloudManager(profile string) *CloudManager {
 	return &CloudManager{
 		profile: profile,
+		factory: NewFactory(),
 	}
 }
 
@@ -68,57 +72,146 @@ func NewCloudManager(profile string) *CloudManager {
 // It supports both interactive (REPL) and CLI-driven (collection import) workflows.
 func AutoDetectAndInit(profile string, cliContext *CLIContext) error {
 	manager := NewCloudManager(profile)
+	// Step 1: Validate cloud provider credentials
+	if err := manager.AutoDetectProvider(profile); err != nil {
+		return err
+	}
 	return manager.Initialize(cliContext)
+}
+
+func (m *CloudManager) AutoDetectProvider(profile string) error {
+	ctx := context.Background()
+	provider, err := m.factory.AutoDetectProvider(ctx, profile)
+	if err != nil {
+		return err
+	}
+	m.Provider = *provider
+	return nil
 }
 
 // Initialize runs the complete initialization workflow
 func (m *CloudManager) Initialize(cliContext *CLIContext) error {
-	// Step 1: Validate cloud provider credentials
-	if err := m.validateCloudProviders(); err != nil {
-		return err
-	}
-
-	// Step 2: Resolve project (CLI-driven or interactive)
-	projectName, err := m.resolveProject(cliContext)
+	// Step 1: Resolve project (CLI-driven or interactive)
+	actionType, err := m.resolveProject(cliContext)
 	if err != nil {
-		// Handle special case: project deletion completed
-		if strings.Contains(err.Error(), "PROJECT_DELETED") {
-			return nil // Exit cleanly after successful deletion
+		return err
+	}
+	if actionType == models.ActionExit || actionType == models.ActionCancel {
+		return nil
+	}
+
+	existingConfig, err := m.getMockConfiguration()
+	if err != nil && actionType != models.ActionCreate && actionType != models.ActionGenerate {
+		return fmt.Errorf("failed to load expectations: %w", err)
+	}
+	project := m.getCurrentProject()
+	expManager, err := expectations.NewExpectationManager(project)
+	if err != nil {
+		return fmt.Errorf("failed to create expectation manager: %w", err)
+	}
+
+	switch actionType {
+	case models.ActionCreate:
+		m.createNewProject("")
+		fallthrough
+	case models.ActionGenerate:
+		// Proceed to generation flow
+		fmt.Printf("➕ Generating new expectations for project: %s\n", project)
+		return m.generateMockConfiguration(cliContext)
+	case models.ActionAdd:
+		fmt.Printf("➕ Adding new expectations to project: %s\n", project)
+		return m.addMockConfiguration(cliContext, existingConfig)
+	case models.ActionView:
+		fmt.Printf("👁️  Viewing expectations for project: %s\n", project)
+		if err := expManager.ViewExpectations(existingConfig); err != nil {
+			return fmt.Errorf("view failed: %w", err)
 		}
-		return err
+		return nil
+	case models.ActionDownload:
+		fmt.Printf("💾 Downloading expectations for project: %s\n", project)
+		if err := expManager.DownloadExpectations(existingConfig); err != nil {
+			return fmt.Errorf("download failed: %w", err)
+		}
+		return nil
+	case models.ActionEdit:
+		if err := m.handleEditExpectations(expManager, existingConfig); err != nil {
+			return fmt.Errorf("edit failed: %w", err)
+		}
+		return nil
+	case models.ActionRemove:
+		// Manager handles actual removal (data operations)
+		if err := m.handleRemoveExpectations(expManager, existingConfig); err != nil {
+			return fmt.Errorf("remove failed: %w", err)
+		}
+		return nil
+	case models.ActionDelete:
+		fmt.Printf("🗑️ Deleting project: %s\n", project)
+		if err := expManager.DeleteProjectPrompt(); err != nil {
+			return err
+		}
+		if err := m.destroyInfrastructureAndDeleteProject(); err != nil {
+			return fmt.Errorf("failed to destroy infrastructure: %w", err)
+		}
+		return nil
+	case models.ActionReplace:
+		fmt.Printf("🔄 Replacing expectations for project: %s\n", project)
+		if err := expManager.ReplaceExpectationsPrompt(); err != nil {
+			return fmt.Errorf("replace failed: %w", err)
+		}
+		return m.generateMockConfiguration(cliContext)
+	default:
+		return fmt.Errorf("unsupported action type")
 	}
-
-	// Step 3: Initialize cloud infrastructure for project
-	if err := m.initializeProjectInfrastructure(projectName); err != nil {
-		return err
-	}
-
-	// Step 4: Generate mock configuration based on mode
-	return m.generateMockConfiguration(projectName, cliContext)
 }
 
-// validateCloudProviders checks if valid cloud provider credentials exist
-func (m *CloudManager) validateCloudProviders() error {
-	validProviders := []string{}
+func (m *CloudManager) addMockConfiguration(cliContext *CLIContext, existingConfiguration *models.MockConfiguration) error {
+	additionalExpectations, err := m.generateMockExpectations(cliContext)
+	if err != nil {
+		return fmt.Errorf("failed to generate mock expectations: %w", err)
+	}
+	additionalConfigurations, err := models.ParseMockServerJSON(additionalExpectations)
+	if err != nil {
+		return fmt.Errorf("failed to parse additional expectations: %w", err)
+	}
+	existingConfiguration.Expectations = append(existingConfiguration.Expectations, additionalConfigurations.Expectations...)
+	return m.Provider.UpdateConfig(context.Background(), existingConfiguration)
+}
 
-	if m.checkAWSCredentials() {
-		validProviders = append(validProviders, "aws")
-		fmt.Println("🔍 Detected valid AWS credentials — proceeding with AWS provider...")
+func (m *CloudManager) generateMockConfiguration(cliContext *CLIContext) error {
+	mockConfiguration, err := m.generateMockExpectations(cliContext)
+	if err != nil {
+		return fmt.Errorf("failed to generate mock expectations: %w", err)
+	}
+	return m.handleGeneratedMock(mockConfiguration, m.profile)
+}
+
+// createNewProject handles new project creation flow. Expectations would be handled later.
+func (m *CloudManager) createNewProject(project string) (models.ActionType, error) {
+	var name string
+	if project == "" {
+		if err := survey.AskOne(&survey.Input{
+			Message: "Project name:",
+			Help:    "Choose a unique name for your mock project",
+		}, &name); err != nil {
+			return models.ActionExit, err
+		}
+
+		if err := m.Provider.ValidateProjectName(name); err != nil {
+			return models.ActionExit, fmt.Errorf("invalid project name: %w", err)
+		}
+	} else {
+		name = project
 	}
 
-	if len(validProviders) == 0 {
-		return errors.New("❌ No valid cloud provider credentials found. Please configure AWS credentials")
+	fmt.Printf("📂 Creating new project: %s\n", name)
+	if err := m.Provider.InitProject(context.Background(), name); err != nil {
+		return models.ActionExit, fmt.Errorf("failed to initialize project: %w", err)
 	}
-
-	if len(validProviders) > 1 {
-		return errors.New("⚠️ Multiple cloud providers detected — interactive selection not yet implemented")
-	}
-
-	return nil
+	return models.ActionGenerate, nil
 }
 
 // resolveProject determines the project name through CLI or interactive selection
-func (m *CloudManager) resolveProject(cliContext *CLIContext) (string, error) {
+func (m *CloudManager) resolveProject(cliContext *CLIContext) (models.ActionType, error) {
 	if cliContext.HasProject() {
 		// CLI-driven: use provided project name
 		return m.handleCLIProject(cliContext.ProjectName)
@@ -129,178 +222,306 @@ func (m *CloudManager) resolveProject(cliContext *CLIContext) (string, error) {
 }
 
 // handleCLIProject processes CLI-provided project names
-func (m *CloudManager) handleCLIProject(projectName string) (string, error) {
-	buckets, err := awscloud.ListBucketsWithPrefix(m.profile, "auto-mock-")
-	if err != nil {
-		// If we can't list buckets, create new project
-		return m.generateNewProject(projectName), nil
+func (m *CloudManager) handleCLIProject(projectName string) (models.ActionType, error) {
+	if err := m.Provider.ValidateProjectName(projectName); err != nil {
+		return models.ActionExit, fmt.Errorf("invalid project name: %w", err)
 	}
-
-	// Check if project exists
-	existingProject := m.findExistingProject(buckets, projectName)
-	if existingProject != "" {
+	exists, _ := m.Provider.ProjectExists(context.Background(), projectName)
+	if exists {
 		fmt.Printf("📂 Using existing project: %s\n", projectName)
-		return existingProject, nil
+		existingConfig, _ := m.Provider.GetConfig(context.Background(), projectName)
+		return repl.SelectProjectAction(projectName, existingConfig), nil
 	}
-
-	// Create new project
-	newProject := m.generateNewProject(projectName)
-	fmt.Printf("📂 Creating new project: %s\n", projectName)
-	return newProject, nil
+	return m.createNewProject(projectName)
 }
 
 // handleInteractiveProject manages interactive project selection via REPL
-func (m *CloudManager) handleInteractiveProject() (string, error) {
-	buckets, err := awscloud.ListBucketsWithPrefix(m.profile, "auto-mock-")
+func (m *CloudManager) handleInteractiveProject() (models.ActionType, error) {
+	projects, err := m.Provider.ListProjects(context.Background())
 	if err != nil {
-		return "", fmt.Errorf("failed to list existing projects: %w", err)
+		return models.ActionExit, fmt.Errorf("failed to list existing projects: %w", err)
 	}
 
-	selectedProject, exists, err := repl.ResolveProjectInteractively(buckets)
+	if len(projects) == 0 {
+		// No existing projects - force new project creation
+		fmt.Println("📂 No existing projects found. Let's create a new one.")
+		return m.createNewProject("")
+	}
+
+	selectedProject, err := repl.ResolveProjectInteractively(projects)
 	if err != nil {
-		return "", fmt.Errorf("project selection failed: %w", err)
+		return models.ActionExit, fmt.Errorf("project selection failed: %w", err)
 	}
 
-	if exists {
-		return m.handleExistingProjectAction(selectedProject)
+	if strings.TrimSpace(selectedProject.ProjectID) == "" {
+		return m.createNewProject("")
 	}
-
-	return selectedProject, nil
+	m.Provider.SetProjectName(selectedProject.ProjectID)
+	m.Provider.SetStorageName(selectedProject.StorageName)
+	existingConfig, _ := m.getMockConfiguration()
+	return repl.SelectProjectAction(selectedProject.ProjectID, existingConfig), nil
 }
 
-// handleExistingProjectAction processes user actions on existing projects
-func (m *CloudManager) handleExistingProjectAction(projectName string) (string, error) {
-	action := repl.SelectProjectAction(projectName)
-	cleanName := utils.ExtractUserProjectName(projectName)
-
-	switch action {
-	case "Generate":
-		fmt.Printf("🚀 Proceeding with mock generation for project: %s\n", cleanName)
-		return projectName, nil
-
-	case "Edit":
-		fmt.Printf("🛠️ Edit stubs for project '%s' coming soon...\n", cleanName)
-		return "", fmt.Errorf("edit functionality not implemented yet")
-
-	case "Delete":
-		fmt.Printf("🗑️ Deleting project: %s\n", cleanName)
-		return "", m.deleteProject(projectName)
-
-	case "Cancel":
-		return "", fmt.Errorf("operation cancelled by user")
-
-	default:
-		return "", fmt.Errorf("invalid action selected: %s", action)
-	}
-}
-
-// initializeProjectInfrastructure sets up cloud infrastructure for the project
-func (m *CloudManager) initializeProjectInfrastructure(projectName string) error {
-	awsProvider, err := awscloud.NewProvider(m.profile, projectName)
-	if err != nil {
-		return fmt.Errorf("failed to initialize AWS provider: %w", err)
-	}
-
-	var prov provider.Provider = awsProvider
-	if err := prov.InitProject(); err != nil {
-		return fmt.Errorf("failed to initialize project infrastructure: %w", err)
-	}
-
-	cleanName := utils.ExtractUserProjectName(projectName)
-	fmt.Printf("✅ Project '%s' initialized successfully!\n", cleanName)
-	return nil
-}
-
-// generateMockConfiguration orchestrates mock config generation based on mode
-func (m *CloudManager) generateMockConfiguration(projectName string, cliContext *CLIContext) error {
-	fmt.Println("🧠 Starting mock configuration generation...")
+// generateMockExpectations orchestrates mock expectation generation based on mode
+func (m *CloudManager) generateMockExpectations(cliContext *CLIContext) (string, error) {
+	fmt.Println("🧠 Starting mock expectation generation...")
 
 	switch cliContext.GetMode() {
 	case ModeCollection:
 		// CLI-driven: Process collection file with AI assistance
-		return m.handleCollectionMode(projectName, cliContext)
+		return repl.HandleCollectionMode(cliContext.CollectionType, cliContext.CollectionFile, m.getCurrentProject())
 
 	case ModeInteractive:
 		// REPL-driven: Interactive AI-guided configuration (primary experience)
-		return m.handleInteractiveMode(projectName, cliContext)
-
+		return repl.StartMockGenerationREPL(m.getCurrentProject())
 	default:
-		return fmt.Errorf("unsupported initialization mode")
+		return "", fmt.Errorf("unsupported initialization mode")
 	}
 }
 
-// handleCollectionMode processes collection files with AI assistance
-func (m *CloudManager) handleCollectionMode(projectName string, cliContext *CLIContext) error {
-	cleanName := utils.ExtractUserProjectName(projectName)
-	fmt.Printf("📂 Processing %s collection for project: %s\n", cliContext.CollectionType, cleanName)
+func (m *CloudManager) destroyInfrastructureAndDeleteProject() error {
+	fmt.Println("\n🗑️  Deleting project...")
 
-	// Validate collection parameters
-	if cliContext.CollectionType == "" {
-		return fmt.Errorf("collection-type is required when using collection-file")
+	// TODO: Tear down infrastructure when implemented
+	fmt.Println("   • Infrastructure teardown (placeholder)")
+
+	if err := m.Provider.DeleteConfig(context.Background(), m.getCurrentProject()); err != nil {
+		return fmt.Errorf("failed to delete project data: %w", err)
 	}
 
-	// The actual collection processing will be handled by REPL with pre-loaded context
-	// This allows the AI to still ask intelligent questions about the collection
-	return repl.StartCollectionImportREPL(projectName, cliContext.CollectionFile, cliContext.CollectionType)
+	fmt.Printf("✅ Project '%s' deleted successfully!\n", m.getCurrentProject())
+	return nil
 }
 
-// handleInteractiveMode starts the interactive REPL experience
-func (m *CloudManager) handleInteractiveMode(projectName string, cliContext *CLIContext) error {
-	cleanName := utils.ExtractUserProjectName(projectName)
-	fmt.Printf("🎛️  Starting interactive mock generation for project: %s\n", cleanName)
-
-	// Pass CLI context to REPL for any user preferences (provider, auth, etc.)
-	return repl.StartMockGenerationREPL(projectName)
+func (m *CloudManager) getMockConfiguration() (*models.MockConfiguration, error) {
+	return m.Provider.GetConfig(context.Background(), m.Provider.GetProjectName())
 }
 
-// Helper methods
+func (m *CloudManager) getCurrentProject() string {
+	return m.Provider.GetProjectName()
+}
 
-// findExistingProject searches for an existing project by name
-func (m *CloudManager) findExistingProject(buckets []string, projectName string) string {
-	for _, bucket := range buckets {
-		trimmed := utils.RemoveBucketPrefix(bucket)
-		parts := strings.Split(trimmed, "-")
-		if len(parts) < 2 {
+// handleRemoveExpectations processes the removal of expectations
+func (m *CloudManager) handleRemoveExpectations(expManager *expectations.ExpectationManager, existingConfig *models.MockConfiguration) error {
+
+	fmt.Printf("🗑️ Removing expectations for project: %s\n", m.getCurrentProject())
+	// Prompt user for which expectations to remove (REPL handles UI)
+	indicesToRemove, err := expManager.RemoveExpectations(existingConfig)
+	if err != nil {
+		return fmt.Errorf("remove selection failed: %w", err)
+	}
+
+	// No indices means user cancelled
+	if len(indicesToRemove) == 0 {
+		fmt.Println("✅ No expectations removed.")
+		return nil
+	}
+
+	ctx := context.Background()
+	// Get current configuration
+	config, err := m.getMockConfiguration()
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+
+	// Special case: remove all (indices contains -1)
+	if len(indicesToRemove) == 1 && indicesToRemove[0] == -1 {
+		fmt.Println("\n🔄 Clearing project...")
+		fmt.Println("   • Tearing down infrastructure (placeholder)")
+		fmt.Println("   • Clearing expectation file")
+
+		// Delete the configuration (empties the project)
+		if err := m.Provider.DeleteConfig(ctx, m.getCurrentProject()); err != nil {
+			return fmt.Errorf("failed to clear expectations: %w", err)
+		}
+
+		fmt.Printf("\n✅ All expectations removed successfully!\n")
+		fmt.Printf("📁 Project '%s' is now empty but still exists\n", m.getCurrentProject())
+		fmt.Println("💡 You can add new expectations anytime using 'automock init'")
+		return nil
+	}
+
+	// Partial removal: filter out selected indices
+	filteredExpectations := []models.MockExpectation{}
+	for i, exp := range config.Expectations {
+		shouldRemove := false
+		for _, idx := range indicesToRemove {
+			if i == idx {
+				shouldRemove = true
+				break
+			}
+		}
+		if !shouldRemove {
+			filteredExpectations = append(filteredExpectations, exp)
+		}
+	}
+
+	// Update configuration with filtered expectations
+	config.Expectations = filteredExpectations
+	config.Metadata.Version = fmt.Sprintf("v%d", time.Now().Unix())
+	config.Metadata.UpdatedAt = time.Now()
+
+	// Save updated configuration
+	fmt.Printf("\n🔄 Creating new version with %d expectation(s) removed...\n", len(indicesToRemove))
+
+	if err := m.Provider.UpdateConfig(ctx, config); err != nil {
+		return fmt.Errorf("failed to save after removal: %w", err)
+	}
+
+	// If infrastructure exists, redeploy with updated expectations
+	fmt.Println("   • Checking for running infrastructure...")
+	fmt.Println("   • Redeployment with updated expectations (placeholder)")
+
+	fmt.Printf("\n✅ Successfully removed %d expectation(s)!\n", len(indicesToRemove))
+	fmt.Printf("📊 Remaining expectations: %d\n", len(filteredExpectations))
+
+	fmt.Printf("✅ Remove completed successfully!\n")
+	return nil
+}
+
+func (m *CloudManager) handleEditExpectations(expManager *expectations.ExpectationManager, existingConfig *models.MockConfiguration) error {
+	fmt.Printf("🛠️ Starting expectation editor for project: %s\n", existingConfig.GetProjectID())
+
+	// Get current config from storage (manager handles storage)
+	config, err := m.getMockConfiguration()
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+
+	// Call expectations package for UI/editing (expectations handles UI)
+	modifiedConfig, err := expManager.EditExpectations(config)
+	if err != nil {
+		return fmt.Errorf("edit failed: %w", err)
+	}
+
+	// User cancelled
+	if modifiedConfig == nil {
+		fmt.Println("✅ Edit cancelled.")
+		return nil
+	}
+
+	// Save modified config back to storage (manager handles storage)
+	ctx := context.Background()
+	modifiedConfig.Metadata.Version = fmt.Sprintf("v%d", time.Now().Unix())
+	modifiedConfig.Metadata.UpdatedAt = time.Now()
+
+	if err := m.Provider.UpdateConfig(ctx, modifiedConfig); err != nil {
+		return fmt.Errorf("failed to save changes: %w", err)
+	}
+	fmt.Printf("✅ Edit completed successfully!\n")
+	return nil
+}
+
+// Handle final result
+func (m *CloudManager) handleGeneratedMock(mockConfiguration string, profile string) error {
+	for {
+		var action string
+		if err := survey.AskOne(&survey.Select{
+			Message: "What would you like to do with this configuration?",
+			Options: []string{
+				"save - Save the expectation file",
+				"view - View full JSON configuration",
+				"deploy - Deploy complete infrastructure (ECS + ALB)",
+				"local - Start MockServer locally",
+				"exit - Exit without saving",
+			},
+		}, &action); err != nil {
+			return err
+		}
+
+		action = strings.Split(action, " ")[0]
+
+		switch models.ActionType(action) {
+		case models.ActionSave:
+			return m.saveToFile(mockConfiguration)
+		case models.ActionDeploy:
+			if err := m.saveToFile(mockConfiguration); err != nil {
+				return fmt.Errorf("failed to save expectations: %w", err)
+			}
+			// Then deploy infrastructure
+			options := &terraform.DeploymentOptions{
+				MinTasks:         10,
+				MaxTasks:         200,
+				EnableTTLCleanup: false,
+			}
+			deploy := repl.NewDeployment(m.getCurrentProject(), profile, m.getCloudProvider(), options)
+			return deploy.DeployInfrastructureWithTerraform(false)
+		case models.ActionLocal:
+			return startLocalMockServer(mockConfiguration, m.getCurrentProject())
+		case models.ActionView:
+			fmt.Printf("\n📋 Full JSON Configuration:\n%s\n\n", mockConfiguration)
+			continue
+		case models.ActionExit:
+			fmt.Println("\n⚠️  Are you sure you want to exit without saving?")
+			fmt.Println("   • The uploaded expectations will not be saved")
+			var confirmExit bool
+			if err := survey.AskOne(&survey.Confirm{
+				Message: "Exit without saving?",
+				Default: false,
+			}, &confirmExit); err != nil {
+				return err
+			}
+			if confirmExit {
+				return fmt.Errorf("user cancelled upload")
+			}
 			continue
 		}
-		base := strings.Join(parts[:len(parts)-1], "-")
-		if strings.EqualFold(base, projectName) {
-			return trimmed
-		}
 	}
-	return ""
 }
 
-// generateNewProject creates a new project name with random suffix
-func (m *CloudManager) generateNewProject(projectName string) string {
-	suffix, _ := utils.GenerateRandomSuffix()
-	return fmt.Sprintf("%s-%s", projectName, suffix)
-}
+func (m *CloudManager) saveToFile(mockServerJSON string) error {
+	ctx := context.Background()
 
-// deleteProject removes a project and its infrastructure
-func (m *CloudManager) deleteProject(projectName string) error {
-	awsProvider, err := awscloud.NewProvider(m.profile, projectName)
+	fmt.Println("\n☁️ Saving expectation file to your cloud storage")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	// Parse MockServer JSON to MockConfiguration format
+	mockConfig, err := models.ParseMockServerJSON(mockServerJSON)
 	if err != nil {
-		return fmt.Errorf("failed to initialize AWS provider for deletion: %w", err)
+		return fmt.Errorf("failed to parse mock server JSON: %w", err)
 	}
 
-	var prov provider.Provider = awsProvider
-	if err := prov.DeleteProject(); err != nil {
-		return fmt.Errorf("failed to delete project: %w", err)
+	// Set metadata
+	mockConfig.Metadata.ProjectID = m.getCurrentProject()
+	mockConfig.Metadata.Provider = "auto-mock-cli"
+	mockConfig.Metadata.Description = "Generated via interactive mock generation"
+	mockConfig.Metadata.Version = fmt.Sprintf("v%d", time.Now().Unix())
+	mockConfig.Metadata.CreatedAt = time.Now()
+	mockConfig.Metadata.UpdatedAt = time.Now()
+
+	// Save to S3
+	if err := m.Provider.SaveConfig(ctx, mockConfig); err != nil {
+		return fmt.Errorf("failed to save to S3: %w", err)
 	}
 
-	// Project deleted successfully - exit the program cleanly
-	fmt.Println("✅ Project deletion completed successfully!")
-	return fmt.Errorf("PROJECT_DELETED") // Special error code to signal completion
+	fmt.Printf("\n✅ MockServer configuration saved to cloud storage!\n")
+	fmt.Printf("📁 Project: %s\n", m.getCurrentProject())
+	fmt.Printf("🔗 Configuration stored for team access\n")
+	return nil
 }
 
-// checkAWSCredentials verifies if AWS credentials are configured and valid
-func (m *CloudManager) checkAWSCredentials() bool {
-	cfg, err := awscloud.LoadAWSConfig(m.profile)
-	if err != nil {
-		return false
+// Start local MockServer
+func startLocalMockServer(mockServerJSON, projectName string) error {
+	fmt.Println("\n🚀 Local MockServer Setup")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	configFile := fmt.Sprintf("%s-expectations.json", projectName)
+
+	if err := os.WriteFile(configFile, []byte(mockServerJSON), 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
 	}
-	client := sts.NewFromConfig(cfg)
-	_, err = client.GetCallerIdentity(context.TODO(), &sts.GetCallerIdentityInput{})
-	return err == nil
+
+	fmt.Printf("✅ Configuration saved as: %s\n\n", configFile)
+	fmt.Println("🐳 Docker commands:")
+	fmt.Println("1. Start MockServer:")
+	fmt.Println("   docker run -d -p 1080:1080 -p 1090:1090 mockserver/mockserver:5.15.0")
+	fmt.Println("2. Load expectations:")
+	fmt.Printf("   curl -X PUT http://localhost:1080/mockserver/expectation -d @%s\n", configFile)
+	fmt.Println("3. Access your API: http://localhost:1080")
+	fmt.Println("4. View dashboard: http://localhost:1080/mockserver/dashboard")
+	return nil
+}
+
+func (m *CloudManager) getCloudProvider() internal.Provider {
+	return m.Provider
 }

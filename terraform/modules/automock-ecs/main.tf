@@ -7,83 +7,29 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+    }
+    docker = {
+      source  = "kreuzwerker/docker"
+      version = "~> 3.0"
+    }    
   }
   required_version = ">= 1.0"
 }
 
-# Variables
-variable "project_name" {
-  description = "AutoMock project name"
-  type        = string
-}
-
-variable "environment" {
-  description = "Environment (dev, staging, prod)"
-  type        = string
-  default     = "dev"
-}
-
-variable "region" {
-  description = "AWS region"
-  type        = string
-  default     = "us-east-1"
-}
-
-variable "ttl_hours" {
-  description = "Infrastructure TTL in hours (0 = no TTL)"
-  type        = number
-  default     = 4
-}
-
-variable "custom_domain" {
-  description = "Custom domain for the API (optional)"
-  type        = string
-  default     = ""
-}
-
-variable "hosted_zone_id" {
-  description = "Route53 hosted zone ID for custom domain"
-  type        = string
-  default     = ""
-}
-
-variable "instance_size" {
-  description = "ECS task size (small, medium, large, xlarge)"
-  type        = string
-  default     = "small"
-}
-
-variable "enable_ttl_cleanup" {
-  description = "Enable automatic infrastructure cleanup"
-  type        = bool
-  default     = true
-}
-
-variable "notification_email" {
-  description = "Email for TTL notifications"
-  type        = string
-  default     = ""
-}
-
 # Local values
 locals {
-  name_prefix = "automock-${var.project_name}-${var.environment}"
+  # Use auto-mock- prefix to match bucket naming convention
+  name_prefix = "auto-mock-${var.project_name}"
   
-  # ECS task sizing
-  task_config = {
-    small  = { cpu = 256,  memory = 512 }
-    medium = { cpu = 512,  memory = 1024 }
-    large  = { cpu = 1024, memory = 2048 }
-    xlarge = { cpu = 2048, memory = 4096 }
-  }
-  
-  cpu_units    = local.task_config[var.instance_size].cpu
-  memory_units = local.task_config[var.instance_size].memory
+  cpu_units    = var.cpu_units
+  memory_units = var.memory_units
   
   common_tags = {
     Project     = "AutoMock"
     ProjectName = var.project_name
-    Environment = var.environment
     ManagedBy   = "Terraform"
     CreatedAt   = timestamp()
     Region      = var.region
@@ -177,27 +123,24 @@ resource "aws_subnet" "private" {
   })
 }
 
-# NAT Gateway for private subnet internet access
+# Single NAT Gateway for cost optimization
+# Both private subnets will route through this one NAT
 resource "aws_eip" "nat" {
-  count = 2
-
   domain = "vpc"
   depends_on = [aws_internet_gateway.main]
 
   tags = merge(local.common_tags, local.ttl_tags, {
-    Name = "${local.name_prefix}-nat-eip-${count.index + 1}"
+    Name = "${local.name_prefix}-nat-eip"
   })
 }
 
 resource "aws_nat_gateway" "main" {
-  count = 2
-
-  allocation_id = aws_eip.nat[count.index].id
-  subnet_id     = aws_subnet.public[count.index].id
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public[0].id
   depends_on    = [aws_internet_gateway.main]
 
   tags = merge(local.common_tags, local.ttl_tags, {
-    Name = "${local.name_prefix}-nat-${count.index + 1}"
+    Name = "${local.name_prefix}-nat"
   })
 }
 
@@ -215,6 +158,7 @@ resource "aws_route_table" "public" {
   })
 }
 
+# Private route tables - both point to single NAT Gateway
 resource "aws_route_table" "private" {
   count = 2
 
@@ -222,7 +166,7 @@ resource "aws_route_table" "private" {
 
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main[count.index].id
+    nat_gateway_id = aws_nat_gateway.main.id
   }
 
   tags = merge(local.common_tags, local.ttl_tags, {
@@ -344,45 +288,17 @@ resource "aws_lb_target_group" "mockserver_api" {
   health_check {
     enabled             = true
     healthy_threshold   = 2
-    unhealthy_threshold = 2
+    unhealthy_threshold = 3
     timeout             = 10
     interval            = 30
-    path                = "/mockserver/status"
-    matcher             = "200"
+    path                = "/health"
+    matcher             = "200-399"
     port                = "traffic-port"
     protocol            = "HTTP"
   }
 
   tags = merge(local.common_tags, local.ttl_tags, {
     Name = "${local.name_prefix}-api-tg"
-  })
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
-resource "aws_lb_target_group" "mockserver_dashboard" {
-  name        = "${local.name_prefix}-dash-tg"
-  port        = 1090
-  protocol    = "HTTP"
-  vpc_id      = aws_vpc.main.id
-  target_type = "ip"
-
-  health_check {
-    enabled             = true
-    healthy_threshold   = 2
-    unhealthy_threshold = 2
-    timeout             = 10
-    interval            = 30
-    path                = "/"
-    matcher             = "200"
-    port                = "traffic-port"
-    protocol            = "HTTP"
-  }
-
-  tags = merge(local.common_tags, local.ttl_tags, {
-    Name = "${local.name_prefix}-dashboard-tg"
   })
 
   lifecycle {

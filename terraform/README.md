@@ -1,299 +1,392 @@
-# AutoMock ECS Fargate Infrastructure
+# AutoMock Terraform Infrastructure
 
-Complete **ECS Fargate + ALB + S3** infrastructure for deploying MockServer with automatic TTL cleanup, custom domains, and Route53 DNS support.
+Complete Infrastructure-as-Code for deploying AutoMock mock API servers on AWS.
 
-## 🏗️ **Architecture Overview**
+## Overview
 
-This Terraform module deploys a production-ready MockServer infrastructure on AWS:
+This directory contains modular Terraform configurations for deploying production-ready mock API infrastructure on AWS ECS Fargate with auto-scaling, TTL-based cleanup, and optional custom domains.
 
-- **ECS Fargate** - Serverless container platform
-- **Application Load Balancer** - HTTPS/TLS termination
-- **VPC + Networking** - Isolated network with public/private subnets
-- **S3** - Configuration storage with versioning
-- **Route53 + ACM** - Custom domains with SSL certificates
-- **EventBridge + Lambda** - Automatic TTL cleanup
-- **CloudWatch** - Logging and monitoring
-- **Auto Scaling** - CPU/Memory based scaling
-
-## 🚀 **Quick Start**
-
-### 1. **Deploy with AutoMock CLI** (Recommended)
-
-```bash
-cd /Users/hemantobora/Desktop/Projects/auto-mock
-./automock init
-# Select "deploy" when prompted
-```
-
-### 2. **Deploy with Terraform Directly**
-
-```bash
-cd terraform
-
-# Initialize Terraform
-terraform init
-
-# Deploy infrastructure
-terraform apply -var="project_name=my-mock-api" \
-                -var="environment=dev" \
-                -var="ttl_hours=4" \
-                -var="notification_email=you@company.com"
-```
-
-## 📋 **Configuration Options**
-
-### **Basic Configuration**
-```hcl
-module "automock_ecs" {
-  source = "./modules/automock-ecs"
-  
-  project_name     = "my-api"           # Required: Your project name
-  environment      = "dev"              # dev, staging, prod
-  region           = "us-east-1"        # AWS region
-  instance_size    = "small"            # small, medium, large, xlarge
-}
-```
-
-### **TTL Auto-Cleanup**
-```hcl
-ttl_hours          = 4                  # Auto-delete after 4 hours
-enable_ttl_cleanup = true               # Enable automatic cleanup
-notification_email = "you@company.com"  # Get notified before cleanup
-```
-
-### **Custom Domain**
-```hcl
-custom_domain   = "api.mycompany.com"   # Your domain
-hosted_zone_id  = "Z1234567890ABC"      # Route53 hosted zone ID
-```
-
-## 🌐 **Domain Options**
-
-### **Auto-Generated Domain** (Default)
-- **Format**: `project-env-random.region.elb.amazonaws.com`
-- **TLS**: Automatic AWS ALB certificate
-- **Cost**: Free
-- **Setup**: Instant
-
-### **Custom Domain** 
-- **Requirements**: Domain ownership + Route53 hosted zone
-- **TLS**: Automatic ACM certificate
-- **DNS**: Automatic Route53 record creation
-- **Validation**: Automatic DNS validation
-
-## ⏰ **TTL Auto-Cleanup**
-
-Prevents unexpected AWS costs by automatically destroying infrastructure:
-
-```hcl
-ttl_hours = 4    # Options: 2, 4, 8, 12, 24, 48, 72 hours
-```
-
-**Cleanup Process:**
-1. **15 min before**: Email notification (if configured)
-2. **At TTL expiry**: Automatic resource deletion
-3. **After cleanup**: Completion notification
-
-**Resources Cleaned:**
-- ECS Service & Cluster
-- Application Load Balancer  
-- VPC & Networking (subnets, NAT gateways, etc.)
-- S3 Configuration Bucket
-- SSL Certificates
-- Route53 DNS Records
-
-## 💰 **Cost Optimization**
-
-### **Development** (~$20/month)
-```hcl
-instance_size = "small"    # 256 CPU, 512MB RAM
-environment   = "dev"      # Minimal resources
-ttl_hours     = 4          # Auto-cleanup after 4 hours
-```
-
-### **Production** (~$80/month)
-```hcl
-instance_size = "large"    # 1024 CPU, 2GB RAM  
-environment   = "prod"     # High availability
-ttl_hours     = 0          # No auto-cleanup
-```
-
-## 📊 **Outputs**
-
-After deployment, Terraform provides:
-
-```hcl
-# Access URLs
-mockserver_url = "https://my-api-dev-abc123.us-east-1.elb.amazonaws.com"
-dashboard_url  = "https://my-api-dev-abc123.us-east-1.elb.amazonaws.com/mockserver/dashboard"
-
-# Infrastructure Details
-config_bucket  = "automock-my-api-dev-1a2b3c4d"
-ecs_cluster    = "automock-my-api-dev-cluster"
-vpc_id         = "vpc-1234567890abcdef0"
-```
-
-## 🛠️ **Management Commands**
-
-### **View Logs**
-```bash
-aws logs tail /ecs/automock-my-api-dev/mockserver --follow
-```
-
-### **Scale Service**
-```bash
-# Scale up
-aws ecs update-service --cluster automock-my-api-dev-cluster \
-                       --service automock-my-api-dev-mockserver \
-                       --desired-count 3
-
-# Scale down  
-aws ecs update-service --cluster automock-my-api-dev-cluster \
-                       --service automock-my-api-dev-mockserver \
-                       --desired-count 1
-```
-
-### **Update Configuration**
-```bash
-# Upload new expectations to S3
-aws s3 cp new-expectations.json s3://automock-my-api-dev-1a2b3c4d/expectations.json
-
-# Restart ECS service to reload
-aws ecs update-service --cluster automock-my-api-dev-cluster \
-                       --service automock-my-api-dev-mockserver \
-                       --force-new-deployment
-```
-
-### **Extend TTL**
-```bash
-# Extend by 2 hours (modify EventBridge rule)
-aws events put-rule --name automock-my-api-dev-ttl-check \
-                    --schedule-expression "rate(2 hours)"
-```
-
-### **Manual Cleanup**
-```bash
-terraform destroy -auto-approve
-```
-
-## 🔧 **Advanced Configuration**
-
-### **Auto Scaling**
-```hcl
-auto_scaling_min_capacity     = 1     # Minimum tasks
-auto_scaling_max_capacity     = 10    # Maximum tasks  
-cpu_utilization_threshold     = 70    # CPU scale trigger
-memory_utilization_threshold  = 80    # Memory scale trigger
-```
-
-### **Networking**
-```hcl
-vpc_cidr           = "10.0.0.0/16"    # VPC CIDR block
-availability_zones = 2                # Number of AZs
-enable_nat_gateway = true             # NAT for private subnets
-```
-
-### **Security**
-```hcl
-enable_waf                   = true   # AWS WAF protection
-ssl_policy                   = "ELBSecurityPolicy-TLS-1-2-2017-01"
-enable_deletion_protection   = false  # ALB deletion protection
-```
-
-### **Monitoring**
-```hcl
-enable_container_insights = true      # CloudWatch Container Insights
-log_retention_days       = 7          # Log retention period
-```
-
-## 📁 **Module Structure**
+## Architecture
 
 ```
 terraform/
-├── main.tf                           # Main configuration
-├── modules/automock-ecs/
-│   ├── main.tf                       # Core infrastructure
-│   ├── ecs.tf                        # ECS Fargate configuration
-│   ├── ssl.tf                        # SSL/TLS and Route53
-│   ├── ttl.tf                        # Auto-cleanup with EventBridge
-│   ├── variables.tf                  # Input variables
-│   ├── outputs.tf                    # Module outputs
-│   └── scripts/
-│       └── ttl_cleanup.py           # Python cleanup Lambda
+├── main.tf              # Root configuration
+├── variables.tf         # Input variables
+├── outputs.tf           # Output values
+└── modules/
+    ├── state-backend/   # S3 + DynamoDB for Terraform state
+    ├── automock-s3/     # Configuration storage bucket
+    ├── networking/      # VPC, subnets, security groups
+    ├── iam/             # Roles and policies
+    └── automock-ecs/    # Complete ECS + ALB + Auto-Scaling + TTL
 ```
 
-## 🔐 **Security Features**
+## Quick Start
 
-- **TLS Encryption**: All traffic encrypted in transit
-- **Private Networking**: ECS tasks in private subnets
-- **IAM Least Privilege**: Minimal required permissions
-- **VPC Isolation**: Dedicated network per deployment
-- **Security Groups**: Restrictive inbound/outbound rules
-- **S3 Encryption**: Configuration encrypted at rest
+### Prerequisites
 
-## 🌍 **Multi-Region Support**
+- Terraform >= 1.0
+- AWS CLI configured
+- Valid AWS credentials
+
+### Deploy Infrastructure
+
+```bash
+# Initialize Terraform
+terraform init
+
+# Review changes
+terraform plan
+
+# Deploy
+terraform apply
+
+# Get outputs
+terraform output
+```
+
+### Using from Go CLI
+
+```go
+import "github.com/hemantobora/auto-mock/internal/terraform"
+
+manager := terraform.NewManager("user-api", "default")
+outputs, err := manager.Deploy(&terraform.DeploymentOptions{
+    InstanceSize: "small",
+    TTLHours:     4,
+})
+```
+
+## Modules
+
+### 1. State Backend (`modules/state-backend/`)
+
+Creates centralized S3 bucket and DynamoDB table for Terraform state management.
+
+**Resources:**
+- S3 bucket (versioned, encrypted)
+- DynamoDB table for state locking
+
+**Cost:** ~$0.50/month
+
+### 2. S3 Configuration (`modules/automock-s3/`)
+
+Manages S3 bucket for storing MockServer expectations and metadata.
+
+**Resources:**
+- S3 bucket with versioning
+- Bucket policies
+- Lifecycle rules
+
+**Cost:** ~$0.05/month
+
+### 3. Networking (`modules/networking/`)
+
+VPC and networking infrastructure.
+
+**Resources:**
+- VPC (10.0.0.0/16)
+- 2 Public subnets
+- 2 Private subnets
+- Internet Gateway
+- 2 NAT Gateways
+- Route tables
+- Security groups
+
+**Cost:** ~$65/month (NAT Gateways)
+
+### 4. IAM (`modules/iam/`)
+
+IAM roles and policies with least privilege access.
+
+**Resources:**
+- ECS Task Execution Role
+- ECS Task Role
+- Lambda Cleanup Role
+- Auto-Scaling Role
+
+**Cost:** Free
+
+### 5. ECS Infrastructure (`modules/automock-ecs/`)
+
+Complete deployment including ECS, ALB, auto-scaling, and TTL cleanup.
+
+**Resources:**
+- ECS Cluster
+- ECS Service (Fargate)
+- Task Definition (MockServer + Config Loader)
+- Application Load Balancer
+- Target Groups (API + Dashboard)
+- Auto-Scaling policies
+- CloudWatch alarms
+- EventBridge rule
+- Lambda function (TTL cleanup)
+- SNS topic (notifications)
+
+**Cost:** ~$60/month base + scaling
+
+## Configuration
+
+### Input Variables
 
 ```hcl
-# Deploy to different regions
-module "us_east_1" {
-  source = "./modules/automock-ecs"
-  region = "us-east-1"
-  project_name = "my-api-east"
+# Required
+variable "project_name" {
+  type = string
 }
 
-module "eu_west_1" {
-  source = "./modules/automock-ecs" 
-  region = "eu-west-1"
-  project_name = "my-api-eu"
+# Optional with defaults
+variable "environment" {
+  type    = string
+  default = "dev"
+}
+
+variable "aws_region" {
+  type    = string
+  default = "us-east-1"
+}
+
+variable "instance_size" {
+  type    = string
+  default = "small"  # small, medium, large, xlarge
+}
+
+variable "min_tasks" {
+  type    = number
+  default = 10
+}
+
+variable "max_tasks" {
+  type    = number
+  default = 200
+}
+
+variable "ttl_hours" {
+  type    = number
+  default = 4
+}
+
+variable "enable_ttl_cleanup" {
+  type    = bool
+  default = true
+}
+
+variable "custom_domain" {
+  type    = string
+  default = ""
+}
+
+variable "hosted_zone_id" {
+  type    = string
+  default = ""
+}
+
+variable "notification_email" {
+  type    = string
+  default = ""
 }
 ```
 
-## 🚨 **Troubleshooting**
+### Outputs
 
-### **Common Issues**
+```hcl
+output "mockserver_url" {
+  value = "http://alb-dns-name" or "https://custom-domain"
+}
 
-**ECS Service Won't Start**
-```bash
-# Check service events
-aws ecs describe-services --cluster CLUSTER_NAME --services SERVICE_NAME
+output "dashboard_url" {
+  value = "http://alb-dns-name/mockserver/dashboard"
+}
 
-# Check task logs
-aws logs tail /ecs/automock-PROJECT-ENV/mockserver --follow
+output "config_bucket" {
+  value = "automock-project-config-abc123"
+}
+
+output "infrastructure_summary" {
+  value = {
+    # Complete summary object
+  }
+}
 ```
 
-**Domain Not Resolving**
-```bash
-# Check certificate status
-aws acm describe-certificate --certificate-arn CERT_ARN
+## Auto-Scaling Configuration
 
-# Check Route53 records
-aws route53 list-resource-record-sets --hosted-zone-id ZONE_ID
+### Scaling Policies
+
+| Metric | Threshold | Action | Result |
+|--------|-----------|--------|--------|
+| CPU | 70-80% | +50% | 10 → 15 tasks |
+| CPU | 80-90% | +100% | 10 → 20 tasks |
+| CPU | 90%+ | +200% | 10 → 30 tasks |
+| Memory | 70-80% | +50% | 10 → 15 tasks |
+| Memory | 80-90% | +100% | 10 → 20 tasks |
+| Memory | 90%+ | +200% | 10 → 30 tasks |
+| Requests | 500-1000/min | +50% | 10 → 15 tasks |
+| Requests | 1000+/min | +100% | 10 → 20 tasks |
+
+### Scale Down
+
+- Threshold: CPU < 40% for 5 minutes
+- Action: Remove 25% of tasks
+- Cooldown: 5 minutes
+
+## TTL Cleanup
+
+### How It Works
+
+1. **EventBridge Rule**: Triggers Lambda hourly
+2. **Lambda Function**: Checks TTL expiration
+3. **Cleanup Sequence**:
+   - Scale ECS to 0
+   - Delete ECS resources
+   - Delete ALB + Target Groups
+   - Delete VPC resources
+   - Delete S3 bucket
+   - Delete logs
+   - Self-destruct
+
+### Notifications
+
+Optional SNS notifications for:
+- TTL warning (1 hour before expiry)
+- Cleanup started
+- Cleanup complete
+- Cleanup errors
+
+## Cost Estimates
+
+### Base Cost (10 tasks, 24/7)
+
+| Component | Monthly Cost |
+|-----------|--------------|
+| ECS Fargate | ~$35 |
+| ALB | ~$16 |
+| NAT Gateways | ~$64 |
+| Data Transfer | ~$9 |
+| CloudWatch | ~$0.50 |
+| S3 + DynamoDB | ~$0.30 |
+| **Total** | **~$125** |
+
+### With TTL (Cost Savings)
+
+| TTL Duration | Actual Cost |
+|--------------|-------------|
+| 4 hours | ~$0.68 |
+| 8 hours | ~$1.37 |
+| 24 hours | ~$4.11 |
+| 1 week | ~$28.77 |
+
+## Security
+
+### IAM Policies
+- Least privilege access
+- Separate task and execution roles
+- No hardcoded credentials
+
+### Networking
+- Private subnets for ECS
+- Security groups restrict traffic
+- ALB terminates SSL
+- NAT for outbound only
+
+### Data
+- S3 encryption at rest
+- Versioning enabled
+- Lifecycle policies
+- No sensitive data
+
+## Monitoring
+
+### CloudWatch Metrics
+- ECS: CPU, Memory, Task Count
+- ALB: Response Time, Requests, Errors
+- Custom: TTL warnings, Config reloads
+
+### Logs
+- `/ecs/automock/{project}/mockserver`
+- `/ecs/automock/{project}/config-loader`
+- `/aws/lambda/automock-{project}-ttl-cleanup`
+
+### Alarms
+- UnhealthyHostCount > 0
+- 5XX errors > 10
+- CPU > 70% for 10 min
+- TTL expiration warning
+
+## Troubleshooting
+
+### Tasks Not Starting
+
+```bash
+aws ecs describe-services \
+  --cluster automock-{project} \
+  --services automock-{project}-service
+
+aws logs tail /ecs/automock/{project}/mockserver --follow
 ```
 
-**TTL Cleanup Failed**
-```bash
-# Check Lambda logs
-aws logs tail /aws/lambda/automock-PROJECT-ENV-ttl-cleanup --follow
+### Health Checks Failing
 
-# Manual cleanup
-terraform destroy -auto-approve
+```bash
+curl http://{alb-dns}/mockserver/status
+
+aws elbv2 describe-target-health \
+  --target-group-arn {arn}
 ```
 
-## 📚 **Next Steps**
+### Configuration Issues
 
-1. **Test Your API**: Use the provided URLs to test your MockServer
-2. **Upload Expectations**: Use the S3 bucket to store mock configurations
-3. **Monitor**: Check CloudWatch logs and metrics
-4. **Scale**: Adjust ECS service capacity based on load
-5. **Extend**: Modify TTL or disable auto-cleanup for production
+```bash
+aws s3 ls s3://automock-{project}-config-{suffix}/
+aws s3 cp s3://automock-{project}-config-{suffix}/expectations.json -
+```
 
-## 🤝 **Support**
+## Development
 
-- **Documentation**: Check `/GETTING_STARTED.md` in your AutoMock project
-- **Issues**: File issues in your AutoMock repository
-- **AWS Costs**: Monitor AWS billing dashboard for usage
-- **Security**: Review AWS security best practices
+### Local Testing
 
----
+```bash
+# Validate
+terraform validate
 
-**Built with ❤️ using Terraform + AWS ECS Fargate + MockServer**
+# Format
+terraform fmt -recursive
+
+# Plan
+terraform plan
+
+# Package Lambda
+cd modules/automock-ecs/scripts
+./package_lambda.sh
+```
+
+### Module Testing
+
+Each module can be tested independently:
+
+```bash
+cd modules/networking
+terraform init
+terraform plan -var="name_prefix=test" -var="region=us-east-1"
+```
+
+## Contributing
+
+When adding or modifying modules:
+
+1. Follow Terraform best practices
+2. Use variables for configurable values
+3. Document all outputs
+4. Add examples
+5. Test thoroughly
+6. Update this README
+
+## License
+
+MIT License - See LICENSE file for details
+
+## Support
+
+For issues or questions:
+- GitHub Issues: https://github.com/hemantobora/auto-mock/issues
+- Documentation: See INFRASTRUCTURE.md

@@ -9,11 +9,10 @@ import (
 )
 
 // StartInteractiveBuilder starts the 7-step interactive mock expectation builder
-func StartInteractiveBuilder(projectName string) (string, error) {
+func generateInteractiveWithMenu() (string, error) {
 	fmt.Println("🔧 Interactive Builder (7-Step Process)")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("📝 Step-by-step endpoint building with validation")
-	fmt.Println("🚫 No AI involved - Pure user-driven configuration")
 	fmt.Println()
 
 	// Step 0: Choose API Type (REST vs GraphQL)
@@ -23,11 +22,11 @@ func StartInteractiveBuilder(projectName string) (string, error) {
 	}
 
 	var expectations []builders.MockExpectation
-	
+
 	// Build expectations based on API type
 	for {
 		var expectation builders.MockExpectation
-		
+
 		switch apiType {
 		case "REST":
 			expectation, err = buildRESTExpectation()
@@ -36,13 +35,13 @@ func StartInteractiveBuilder(projectName string) (string, error) {
 		default:
 			return "", fmt.Errorf("unsupported API type: %s", apiType)
 		}
-		
+
 		if err != nil {
 			return "", fmt.Errorf("failed to build expectation: %w", err)
 		}
-		
+
 		expectations = append(expectations, expectation)
-		
+
 		// Ask if user wants to add more expectations
 		var addMore bool
 		if err := survey.AskOne(&survey.Confirm{
@@ -51,12 +50,14 @@ func StartInteractiveBuilder(projectName string) (string, error) {
 		}, &addMore); err != nil {
 			return "", err
 		}
-		
+
 		if !addMore {
 			break
 		}
 	}
-	
+
+	fmt.Printf("\n✅ Created %d mock expectations\n", len(expectations))
+	expectations = builders.ExtendExpectationsForProgressive(expectations)
 	// Convert to MockServer JSON
 	mockServerJSON := builders.ExpectationsToMockServerJSON(expectations)
 	return mockServerJSON, nil
@@ -75,7 +76,7 @@ func chooseAPIType() (string, error) {
 	}, &apiType); err != nil {
 		return "", err
 	}
-	
+
 	return strings.Split(apiType, " ")[0], nil
 }
 
@@ -83,16 +84,16 @@ func chooseAPIType() (string, error) {
 func buildRESTExpectation() (builders.MockExpectation, error) {
 	fmt.Println("\n📡 Creating REST Expectation")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	// Delegate to REST builder
-	return builders.BuildRESTExpectation()
+	return builders.BuildRESTExpectationWithContext()
 }
 
 // buildGraphQLExpectation builds a single GraphQL expectation using 7-step process
 func buildGraphQLExpectation() (builders.MockExpectation, error) {
 	fmt.Println("\n🔗 Creating GraphQL Expectation")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	// Delegate to GraphQL builder
-	return builders.BuildGraphQLExpectation()
+	return builders.BuildGraphQLExpectationWithContext()
 }

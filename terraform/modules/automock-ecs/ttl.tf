@@ -1,80 +1,58 @@
 # terraform/modules/automock-ecs/ttl.tf
-# Auto-Teardown TTL Configuration with EventBridge
+# TTL-Based Auto-Cleanup using EventBridge and Lambda
+
+# Only create TTL resources if TTL cleanup is enabled
+locals {
+  create_ttl = var.ttl_hours > 0 && var.enable_ttl_cleanup
+}
+
+# Archive Lambda source code
+data "archive_file" "ttl_cleanup" {
+  count = local.create_ttl ? 1 : 0
+
+  type        = "zip"
+  source_file = "${path.module}/scripts/ttl_cleanup.py"
+  output_path = "${path.module}/scripts/ttl_cleanup.zip"
+}
 
 # Lambda function for TTL cleanup
 resource "aws_lambda_function" "ttl_cleanup" {
-  count = var.enable_ttl_cleanup && var.ttl_hours > 0 ? 1 : 0
+  count = var.ttl_hours > 0 && var.enable_ttl_cleanup ? 1 : 0
 
-  filename         = data.archive_file.ttl_cleanup_zip[0].output_path
+  filename         = data.archive_file.ttl_cleanup[0].output_path
+  source_code_hash = data.archive_file.ttl_cleanup[0].output_base64sha256
   function_name    = "${local.name_prefix}-ttl-cleanup"
-  role            = aws_iam_role.ttl_cleanup[0].arn
-  handler         = "index.handler"
-  runtime         = "python3.9"
-  timeout         = 300
-  source_code_hash = data.archive_file.ttl_cleanup_zip[0].output_base64sha256
+  role             = aws_iam_role.lambda_ttl_cleanup[0].arn
+  handler          = "ttl_cleanup.lambda_handler"
+  runtime          = "python3.11"
+  timeout          = 900 # 15 minutes
+  memory_size      = 256
 
   environment {
     variables = {
-      CLUSTER_NAME        = aws_ecs_cluster.main.name
-      SERVICE_NAME        = aws_ecs_service.mockserver.name
-      ALB_ARN            = aws_lb.main.arn
-      VPC_ID             = aws_vpc.main.id
-      CONFIG_BUCKET      = local.config_bucket_name
-      NOTIFICATION_EMAIL = var.notification_email
-      TTL_HOURS          = var.ttl_hours
-      PROJECT_NAME       = var.project_name
-      ENVIRONMENT        = var.environment
+      PROJECT_NAME            = var.project_name
+      CLUSTER_NAME            = aws_ecs_cluster.main.name
+      DESTROY_TASK_DEFINITION = aws_ecs_task_definition.terraform_destroy[0].family
+      SUBNETS                 = join(",", aws_subnet.private[*].id)
+      SECURITY_GROUP          = aws_security_group.ecs_tasks.id
+      CONFIG_BUCKET           = local.config_bucket_name
     }
   }
+
+  # Ensure task definition exists before Lambda
+  depends_on = [
+    aws_ecs_task_definition.terraform_destroy
+  ]
 
   tags = merge(local.common_tags, local.ttl_tags, {
     Name = "${local.name_prefix}-ttl-cleanup"
   })
 }
 
-# Create TTL cleanup Lambda zip file
-data "archive_file" "ttl_cleanup_zip" {
-  count = var.enable_ttl_cleanup && var.ttl_hours > 0 ? 1 : 0
-
-  type        = "zip"
-  output_path = "/tmp/ttl_cleanup_${local.name_prefix}.zip"
-  
-  source {
-    content = templatefile("${path.module}/scripts/ttl_cleanup.py", {
-      sns_topic_arn = var.notification_email != "" ? aws_sns_topic.ttl_notifications[0].arn : ""
-    })
-    filename = "index.py"
-  }
-}
-
-# IAM Role for TTL cleanup Lambda
-resource "aws_iam_role" "ttl_cleanup" {
-  count = var.enable_ttl_cleanup && var.ttl_hours > 0 ? 1 : 0
-  
-  name = "${local.name_prefix}-ttl-cleanup-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "lambda.amazonaws.com"
-        }
-      }
-    ]
-  })
-
-  tags = merge(local.common_tags, local.ttl_tags)
-}
-
-# IAM Policy for TTL cleanup
-resource "aws_iam_role_policy" "ttl_cleanup" {
-  count = var.enable_ttl_cleanup && var.ttl_hours > 0 ? 1 : 0
-  
-  name = "${local.name_prefix}-ttl-cleanup-policy"
-  role = aws_iam_role.ttl_cleanup[0].id
+# Lambda needs permission to run ECS tasks
+resource "aws_iam_role_policy" "lambda_run_ecs_task" {
+  name = "run-ecs-task"
+  role = aws_iam_role.lambda_ttl_cleanup[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -82,54 +60,110 @@ resource "aws_iam_role_policy" "ttl_cleanup" {
       {
         Effect = "Allow"
         Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
+          "ecs:RunTask",
+          "ecs:DescribeTasks",
+          "ecs:TagResource"
         ]
-        Resource = "arn:aws:logs:${var.region}:${data.aws_caller_identity.current.account_id}:*"
+        Resource = "*"
       },
       {
         Effect = "Allow"
+        Action = "iam:PassRole"
+        Resource = [
+          aws_iam_role.ecs_task_execution.arn,
+          aws_iam_role.terraform_destroy[0].arn
+        ]
+      }
+    ]
+  })
+}
+
+# IAM Role for Lambda
+resource "aws_iam_role" "lambda_ttl_cleanup" {
+  count = var.ttl_hours > 0 && var.enable_ttl_cleanup && var.cleanup_role_arn == "" ? 1 : 0
+
+  name_prefix = "${local.name_prefix}-lambda-"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "lambda.amazonaws.com"
+      }
+    }]
+  })
+
+  tags = merge(local.common_tags, local.ttl_tags, {
+    Name = "${local.name_prefix}-lambda-role"
+  })
+}
+
+# Lambda Basic Execution Policy
+resource "aws_iam_role_policy_attachment" "lambda_basic_execution" {
+  count = local.create_ttl ? 1 : 0
+
+  role       = aws_iam_role.lambda_ttl_cleanup[0].name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# Lambda Cleanup Policy
+resource "aws_iam_role_policy" "lambda_cleanup_policy" {
+  count = local.create_ttl ? 1 : 0
+
+  name_prefix = "cleanup-policy-"
+  role        = aws_iam_role.lambda_ttl_cleanup[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
         Action = [
-          "ecs:UpdateService",
           "ecs:DeleteService",
           "ecs:DeleteCluster",
+          "ecs:UpdateService",
           "ecs:DescribeServices",
-          "ecs:ListServices"
-        ]
-        Resource = [
-          aws_ecs_cluster.main.arn,
-          "${aws_ecs_cluster.main.arn}/*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "elbv2:DeleteLoadBalancer",
-          "elbv2:DeleteTargetGroup",
-          "elbv2:DescribeLoadBalancers",
-          "elbv2:DescribeTargetGroups"
+          "ecs:DescribeClusters",
+          "ecs:ListServices",
+          "ecs:ListTasks",
+          "ecs:StopTask"
         ]
         Resource = "*"
       },
       {
         Effect = "Allow"
         Action = [
-          "ec2:DeleteVpc",
-          "ec2:DeleteSubnet",
-          "ec2:DeleteInternetGateway",
-          "ec2:DeleteNatGateway",
-          "ec2:DeleteRouteTable",
+          "elasticloadbalancing:DeleteLoadBalancer",
+          "elasticloadbalancing:DeleteTargetGroup",
+          "elasticloadbalancing:DeleteListener",
+          "elasticloadbalancing:DescribeLoadBalancers",
+          "elasticloadbalancing:DescribeTargetGroups",
+          "elasticloadbalancing:DescribeListeners",
+          "elasticloadbalancing:DescribeTags"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "ec2:DeleteSecurityGroup",
+          "ec2:DeleteSubnet",
+          "ec2:DeleteVpc",
+          "ec2:DeleteInternetGateway",
+          "ec2:DeleteRouteTable",
+          "ec2:DeleteNatGateway",
           "ec2:ReleaseAddress",
           "ec2:DetachInternetGateway",
           "ec2:DisassociateRouteTable",
-          "ec2:DescribeVpcs",
-          "ec2:DescribeSubnets",
-          "ec2:DescribeInternetGateways",
-          "ec2:DescribeNatGateways",
-          "ec2:DescribeRouteTables",
           "ec2:DescribeSecurityGroups",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeVpcs",
+          "ec2:DescribeInternetGateways",
+          "ec2:DescribeRouteTables",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DescribeNatGateways",
           "ec2:DescribeAddresses"
         ]
         Resource = "*"
@@ -139,7 +173,12 @@ resource "aws_iam_role_policy" "ttl_cleanup" {
         Action = [
           "s3:DeleteBucket",
           "s3:DeleteObject",
-          "s3:ListBucket"
+          "s3:DeleteObjectVersion",
+          "s3:GetObject",
+          "s3:GetObjectVersion",
+          "s3:GetObjectAttributes",
+          "s3:ListBucket",
+          "s3:ListBucketVersions"
         ]
         Resource = [
           local.config_bucket_arn,
@@ -149,67 +188,65 @@ resource "aws_iam_role_policy" "ttl_cleanup" {
       {
         Effect = "Allow"
         Action = [
-          "route53:DeleteHostedZone",
-          "route53:ChangeResourceRecordSets",
-          "route53:ListResourceRecordSets"
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DeleteLogGroup"
         ]
-        Resource = var.custom_domain != "" ? [
-          "arn:aws:route53:::hostedzone/${var.hosted_zone_id}"
-        ] : []
+        Resource = "*"
       },
       {
         Effect = "Allow"
         Action = [
-          "acm:DeleteCertificate",
-          "acm:DescribeCertificate"
+          "events:RemoveTargets",
+          "events:DeleteRule"
         ]
-        Resource = var.custom_domain != "" ? [
-          aws_acm_certificate.main[0].arn
-        ] : []
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "lambda:DeleteFunction",
+          "lambda:RemovePermission"
+        ]
+        Resource = "*"
       },
       {
         Effect = "Allow"
         Action = [
           "sns:Publish"
         ]
-        Resource = var.notification_email != "" ? [
-          aws_sns_topic.ttl_notifications[0].arn
-        ] : []
+        Resource = var.notification_email != "" ? aws_sns_topic.ttl_notifications[0].arn : "*"
       }
     ]
   })
 }
 
-# EventBridge rule for TTL check
+# EventBridge Rule for TTL Check
 resource "aws_cloudwatch_event_rule" "ttl_check" {
-  count = var.enable_ttl_cleanup && var.ttl_hours > 0 ? 1 : 0
+  count = local.create_ttl ? 1 : 0
 
   name                = "${local.name_prefix}-ttl-check"
-  description         = "Check TTL expiry for AutoMock infrastructure"
-  schedule_expression = "rate(15 minutes)"
+  description         = "Hourly check for TTL expiration"
+  schedule_expression = "rate(1 hour)"
 
-  tags = merge(local.common_tags, local.ttl_tags)
-}
-
-# EventBridge target for TTL Lambda
-resource "aws_cloudwatch_event_target" "ttl_lambda" {
-  count = var.enable_ttl_cleanup && var.ttl_hours > 0 ? 1 : 0
-
-  rule      = aws_cloudwatch_event_rule.ttl_check[0].name
-  target_id = "TriggerTTLCleanup"
-  arn       = aws_lambda_function.ttl_cleanup[0].arn
-
-  input = jsonencode({
-    project_name = var.project_name
-    environment  = var.environment
-    ttl_hours    = var.ttl_hours
-    created_at   = timestamp()
+  tags = merge(local.common_tags, local.ttl_tags, {
+    Name = "${local.name_prefix}-ttl-rule"
   })
 }
 
-# Lambda permission for EventBridge
+# EventBridge Target
+resource "aws_cloudwatch_event_target" "lambda" {
+  count = local.create_ttl ? 1 : 0
+
+  rule      = aws_cloudwatch_event_rule.ttl_check[0].name
+  target_id = "TTLCleanupLambda"
+  arn       = aws_lambda_function.ttl_cleanup[0].arn
+}
+
+# Lambda Permission for EventBridge
 resource "aws_lambda_permission" "allow_eventbridge" {
-  count = var.enable_ttl_cleanup && var.ttl_hours > 0 ? 1 : 0
+  count = local.create_ttl ? 1 : 0
 
   statement_id  = "AllowExecutionFromEventBridge"
   action        = "lambda:InvokeFunction"
@@ -218,38 +255,153 @@ resource "aws_lambda_permission" "allow_eventbridge" {
   source_arn    = aws_cloudwatch_event_rule.ttl_check[0].arn
 }
 
-# SNS Topic for notifications
+# SNS Topic for TTL Notifications
 resource "aws_sns_topic" "ttl_notifications" {
-  count = var.notification_email != "" ? 1 : 0
+  count = local.create_ttl && var.notification_email != "" ? 1 : 0
 
-  name = "${local.name_prefix}-ttl-notifications"
+  name_prefix = "${local.name_prefix}-ttl-"
 
-  tags = merge(local.common_tags, local.ttl_tags)
+  tags = merge(local.common_tags, local.ttl_tags, {
+    Name = "${local.name_prefix}-ttl-notifications"
+  })
 }
 
-# SNS Subscription for email notifications
+# SNS Subscription
 resource "aws_sns_topic_subscription" "email" {
-  count = var.notification_email != "" ? 1 : 0
+  count = local.create_ttl && var.notification_email != "" ? 1 : 0
 
   topic_arn = aws_sns_topic.ttl_notifications[0].arn
   protocol  = "email"
   endpoint  = var.notification_email
 }
 
-# CloudWatch Alarm for early TTL warning
+# CloudWatch Metric Alarm for TTL Warning (1 hour before expiry)
 resource "aws_cloudwatch_metric_alarm" "ttl_warning" {
-  count = var.enable_ttl_cleanup && var.ttl_hours > 0 && var.notification_email != "" ? 1 : 0
+  count = local.create_ttl && var.notification_email != "" ? 1 : 0
 
   alarm_name          = "${local.name_prefix}-ttl-warning"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "1"
-  metric_name         = "UpTime"
-  namespace           = "AutoMock"
+  metric_name         = "TTLWarning"
+  namespace           = "AutoMock/TTL"
   period              = "3600"
-  statistic           = "Average"
-  threshold           = var.ttl_hours - 0.5  # Alert 30 minutes before expiry
-  alarm_description   = "AutoMock infrastructure approaching TTL expiry"
+  statistic           = "Sum"
+  threshold           = "0"
+  alarm_description   = "TTL expiration warning (1 hour remaining)"
   alarm_actions       = [aws_sns_topic.ttl_notifications[0].arn]
 
   tags = merge(local.common_tags, local.ttl_tags)
+}
+
+
+# ECS Task Definition for Terraform Destroy
+resource "aws_ecs_task_definition" "terraform_destroy" {
+  count = var.enable_ttl_cleanup ? 1 : 0
+  family                   = "${local.name_prefix}-terraform-destroy"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = 512   # Increased for Terraform
+  memory                   = 1024  # Increased for Terraform
+  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+  task_role_arn            = aws_iam_role.terraform_destroy[0].arn
+
+  container_definitions = jsonencode([{
+    name      = "terraform-destroy"
+    image     = "${aws_ecr_repository.terraform_destroy[0].repository_url}:latest"  # ← Uses ECR image
+    essential = true
+
+    environment = [
+      {
+        name  = "PROJECT_NAME"
+        value = var.project_name
+      },
+      {
+        name  = "AWS_REGION"
+        value = var.region
+      },
+      {
+        name  = "S3_BUCKET"
+        value = local.config_bucket_name
+      }
+    ]
+
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = aws_cloudwatch_log_group.terraform_destroy[0].name
+        "awslogs-region"        = var.region
+        "awslogs-stream-prefix" = "terraform-destroy"
+      }
+    }
+  }])
+
+  tags = merge(local.common_tags, local.ttl_tags, {
+    Name = "${local.name_prefix}-terraform-destroy-task"
+  })
+  
+  # Ensure image is built before task definition
+  depends_on = [
+    docker_registry_image.terraform_destroy
+  ]
+}
+
+# CloudWatch Log Group
+resource "aws_cloudwatch_log_group" "terraform_destroy" {
+  count = var.enable_ttl_cleanup ? 1 : 0
+  name              = "/ecs/automock/${var.project_name}/terraform-destroy"
+  retention_in_days = 7
+
+  tags = merge(local.common_tags, local.ttl_tags, {
+    Name = "${local.name_prefix}-terraform-destroy-logs"
+  })
+}
+
+# IAM Role for Terraform Destroy Task
+resource "aws_iam_role" "terraform_destroy" {
+  count = var.enable_ttl_cleanup ? 1 : 0
+  name = "${local.name_prefix}-terraform-destroy-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "ecs-tasks.amazonaws.com"
+      }
+    }]
+  })
+
+  tags = merge(local.common_tags, local.ttl_tags, {
+    Name = "${local.name_prefix}-terraform-destroy-role"
+  })
+}
+
+# IAM Policy - Full permissions to destroy everything
+resource "aws_iam_role_policy" "terraform_destroy_permissions" {
+  count = var.enable_ttl_cleanup ? 1 : 0
+  name = "terraform-destroy-permissions"
+  role = aws_iam_role.terraform_destroy[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecs:*",
+          "ec2:*",
+          "elasticloadbalancing:*",
+          "s3:*",
+          "logs:*",
+          "iam:*",
+          "lambda:*",
+          "events:*",
+          "cloudwatch:*",
+          "ecr:*"  # ← Added: Can delete ECR repo
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }

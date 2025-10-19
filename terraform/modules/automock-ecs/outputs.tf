@@ -1,54 +1,49 @@
 # terraform/modules/automock-ecs/outputs.tf
-# Outputs for AutoMock ECS Fargate Infrastructure
+# Output Values for AutoMock ECS Module
 
 output "mockserver_url" {
   description = "URL to access the MockServer API"
-  value       = var.custom_domain != "" ? "https://${var.custom_domain}" : "https://${aws_lb.main.dns_name}"
+  value       = var.custom_domain != "" ? "https://${var.custom_domain}" : "http://${aws_lb.main.dns_name}"
 }
 
 output "dashboard_url" {
-  description = "URL to access the MockServer dashboard"
-  value       = var.custom_domain != "" ? "https://${var.custom_domain}/mockserver/dashboard" : "https://${aws_lb.main.dns_name}/mockserver/dashboard"
+  description = "URL to access the MockServer Dashboard"
+  value       = var.custom_domain != "" ? "https://${var.custom_domain}/mockserver/dashboard" : "http://${aws_lb.main.dns_name}/mockserver/dashboard"
 }
 
-output "load_balancer_dns" {
+output "alb_dns_name" {
   description = "DNS name of the Application Load Balancer"
   value       = aws_lb.main.dns_name
 }
 
-output "load_balancer_arn" {
-  description = "ARN of the Application Load Balancer"
-  value       = aws_lb.main.arn
+output "alb_zone_id" {
+  description = "Zone ID of the Application Load Balancer"
+  value       = aws_lb.main.zone_id
 }
 
-output "ecs_cluster_name" {
+output "cluster_name" {
   description = "Name of the ECS cluster"
   value       = aws_ecs_cluster.main.name
 }
 
-output "ecs_cluster_arn" {
+output "cluster_arn" {
   description = "ARN of the ECS cluster"
   value       = aws_ecs_cluster.main.arn
 }
 
-output "ecs_service_name" {
+output "service_name" {
   description = "Name of the ECS service"
   value       = aws_ecs_service.mockserver.name
 }
 
-output "ecs_service_arn" {
+output "service_arn" {
   description = "ARN of the ECS service"
   value       = aws_ecs_service.mockserver.id
 }
 
-output "config_bucket_name" {
-  description = "Name of the S3 bucket for configuration storage"
-  value       = local.config_bucket_name
-}
-
-output "config_bucket_arn" {
-  description = "ARN of the S3 bucket for configuration storage"
-  value       = local.config_bucket_arn
+output "task_definition_arn" {
+  description = "ARN of the ECS task definition"
+  value       = aws_ecs_task_definition.mockserver.arn
 }
 
 output "vpc_id" {
@@ -56,89 +51,93 @@ output "vpc_id" {
   value       = aws_vpc.main.id
 }
 
-output "private_subnet_ids" {
-  description = "IDs of the private subnets"
-  value       = aws_subnet.private[*].id
-}
-
 output "public_subnet_ids" {
   description = "IDs of the public subnets"
   value       = aws_subnet.public[*].id
 }
 
-output "ssl_certificate_arn" {
-  description = "ARN of the SSL certificate (if custom domain is used)"
-  value       = var.custom_domain != "" ? aws_acm_certificate.main[0].arn : null
+output "private_subnet_ids" {
+  description = "IDs of the private subnets"
+  value       = aws_subnet.private[*].id
 }
 
-output "route53_zone_id" {
-  description = "Route53 hosted zone ID (if custom domain is used)"
-  value       = var.custom_domain != "" ? var.hosted_zone_id : null
+output "alb_security_group_id" {
+  description = "ID of the ALB security group"
+  value       = aws_security_group.alb.id
 }
 
-output "ttl_lambda_function_name" {
-  description = "Name of the TTL cleanup Lambda function"
-  value       = var.enable_ttl_cleanup && var.ttl_hours > 0 ? aws_lambda_function.ttl_cleanup[0].function_name : null
+output "ecs_security_group_id" {
+  description = "ID of the ECS tasks security group"
+  value       = aws_security_group.ecs_tasks.id
 }
 
-output "ttl_expiry_time" {
-  description = "TTL expiry timestamp"
-  value       = var.ttl_hours > 0 ? timeadd(timestamp(), "${var.ttl_hours}h") : null
+output "config_bucket" {
+  description = "S3 bucket name for configuration"
+  value       = local.s3_config.bucket_name
 }
 
-output "deployment_info" {
-  description = "Comprehensive deployment information"
+output "ttl_expiry" {
+  description = "TTL expiry timestamp (if enabled)"
+  value       = var.ttl_hours > 0 && var.enable_ttl_cleanup ? timeadd(timestamp(), "${var.ttl_hours}h") : "N/A"
+}
+
+output "region" {
+  description = "AWS region"
+  value       = var.region
+}
+
+output "project_name" {
+  description = "Project name"
+  value       = var.project_name
+}
+
+output "infrastructure_summary" {
+  description = "Complete infrastructure summary"
   value = {
-    project_name     = var.project_name
-    environment      = var.environment
-    region           = var.region
-    instance_size    = var.instance_size
-    mockserver_url   = var.custom_domain != "" ? "https://${var.custom_domain}" : "https://${aws_lb.main.dns_name}"
-    dashboard_url    = var.custom_domain != "" ? "https://${var.custom_domain}/mockserver/dashboard" : "https://${aws_lb.main.dns_name}/mockserver/dashboard"
-    
-    infrastructure = {
-      vpc_id           = aws_vpc.main.id
-      cluster_name     = aws_ecs_cluster.main.name
-      service_name     = aws_ecs_service.mockserver.name
-      load_balancer_arn = aws_lb.main.arn
-      config_bucket    = local.config_bucket_name
+    project     = var.project_name
+    region      = var.region
+    endpoints = {
+      api       = var.custom_domain != "" ? "https://${var.custom_domain}" : "http://${aws_lb.main.dns_name}"
+      dashboard = var.custom_domain != "" ? "https://${var.custom_domain}/mockserver/dashboard" : "http://${aws_lb.main.dns_name}/mockserver/dashboard"
     }
-    
-    domain = {
-      type            = var.custom_domain != "" ? "custom" : "auto"
-      custom_domain   = var.custom_domain
-      certificate_arn = var.custom_domain != "" ? aws_acm_certificate.main[0].arn : null
-      hosted_zone_id  = var.custom_domain != "" ? var.hosted_zone_id : null
+    compute = {
+      cluster        = aws_ecs_cluster.main.name
+      service        = aws_ecs_service.mockserver.name
+      instance_size  = var.instance_size
+      min_tasks      = var.min_tasks
+      max_tasks      = var.max_tasks
+      current_tasks  = var.min_tasks
     }
-    
+    storage = {
+      config_bucket = local.s3_config.bucket_name
+    }
     ttl = {
-      enabled        = var.enable_ttl_cleanup && var.ttl_hours > 0
-      hours          = var.ttl_hours
-      expiry_time    = var.ttl_hours > 0 ? timeadd(timestamp(), "${var.ttl_hours}h") : null
-      cleanup_lambda = var.enable_ttl_cleanup && var.ttl_hours > 0 ? aws_lambda_function.ttl_cleanup[0].function_name : null
+      enabled    = var.enable_ttl_cleanup
+      hours      = var.ttl_hours
+      expiry     = var.ttl_hours > 0 && var.enable_ttl_cleanup ? timeadd(timestamp(), "${var.ttl_hours}h") : "N/A"
     }
-    
-    tags = merge(local.common_tags, local.ttl_tags)
   }
 }
 
-output "terraform_state_info" {
-  description = "Information for managing Terraform state"
+output "cli_integration_commands" {
+  description = "CLI commands for integration and management"
   value = {
-    module_path = path.module
-    workspace   = terraform.workspace
-    resources = {
-      main_resources = [
-        aws_vpc.main.id,
-        aws_ecs_cluster.main.arn,
-        aws_ecs_service.mockserver.arn,
-        aws_lb.main.arn,
-        aws_s3_bucket.config_bucket.arn
-      ]
-      conditional_resources = compact([
-        var.custom_domain != "" ? aws_acm_certificate.main[0].arn : "",
-        var.enable_ttl_cleanup && var.ttl_hours > 0 ? aws_lambda_function.ttl_cleanup[0].arn : ""
-      ])
-    }
+    health_check       = "curl ${var.custom_domain != "" ? "https://${var.custom_domain}" : "http://${aws_lb.main.dns_name}"}/mockserver/status"
+    list_expectations  = "curl ${var.custom_domain != "" ? "https://${var.custom_domain}" : "http://${aws_lb.main.dns_name}"}/mockserver/expectation"
+    clear_expectations = "curl -X PUT ${var.custom_domain != "" ? "https://${var.custom_domain}" : "http://${aws_lb.main.dns_name}"}/mockserver/clear"
+    view_logs          = "aws logs tail /ecs/automock/${var.project_name}/mockserver --follow --region ${var.region}"
+    scale_service      = "aws ecs update-service --cluster ${aws_ecs_cluster.main.name} --service ${aws_ecs_service.mockserver.name} --desired-count <COUNT> --region ${var.region}"
+  }
+}
+
+output "integration_summary" {
+  description = "Integration details for S3 bucket and configuration"
+  value = {
+    s3_bucket          = local.s3_config.bucket_name
+    expectations_path  = local.s3_config.expectations_path
+    metadata_path      = local.s3_config.metadata_path
+    versions_prefix    = local.s3_config.versions_prefix
+    upload_command     = "aws s3 cp expectations.json s3://${local.s3_config.bucket_name}/${local.s3_config.expectations_path}"
+    download_command   = "aws s3 cp s3://${local.s3_config.bucket_name}/${local.s3_config.expectations_path} expectations.json"
   }
 }
