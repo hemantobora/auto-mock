@@ -250,76 +250,18 @@ func promptDeploymentOptionsREPL(options *terraform.DeploymentOptions) error {
 			break
 		}
 	}
-
-	// TTL hours
-	if options.TTLHours == 0 {
-		var ttlHours string
-		ttlPrompt := &survey.Input{
-			Message: "Auto-teardown timeout (hours, 0 = disabled):",
-			Default: "4",
-			Help:    "Infrastructure will be automatically deleted after this time to prevent runaway costs",
-		}
-
-		if err := survey.AskOne(ttlPrompt, &ttlHours); err != nil {
-			return err
-		}
-
-		// Convert to int
-		var ttlInt int
-		fmt.Sscanf(ttlHours, "%d", &ttlInt)
-		options.TTLHours = ttlInt
-		options.EnableTTLCleanup = ttlInt > 0
-
-		// IAM Role Configuration (if TTL enabled)
-		if ttlInt > 0 {
-			mode, roleARN, err := promptIAMRoleConfiguration()
-			if err != nil {
-				return err
-			}
-
-			options.IAMRoleMode = mode
-			options.CleanupRoleARN = roleARN
-
-			// Auto-cleanup is only enabled when mode is "create"
-			// If user provides their own role or skips, we can't auto-cleanup
-			switch mode {
-			case "skip":
-				options.EnableTTLCleanup = false
-				fmt.Println("⚠️  Auto-cleanup disabled (user chose skip)")
-			case "provided":
-				options.EnableTTLCleanup = false
-				fmt.Println("⚠️  Auto-cleanup disabled (user-provided role cannot be deleted)")
-			case "create":
-				options.EnableTTLCleanup = true
-				fmt.Println("✓ Auto-cleanup enabled (auto-mock will create and manage cleanup resources)")
-			}
-		}
-
-		// Notification email (if TTL enabled)
-		if ttlInt > 0 {
-			var emailWanted bool
-			emailPrompt := &survey.Confirm{
-				Message: "Receive notification before auto-teardown?",
-				Default: false,
-			}
-
-			if err := survey.AskOne(emailPrompt, &emailWanted); err != nil {
-				return err
-			}
-
-			if emailWanted {
-				var email string
-				emailInputPrompt := &survey.Input{
-					Message: "Notification email:",
-				}
-
-				if err := survey.AskOne(emailInputPrompt, &email); err != nil {
-					return err
-				}
-				options.NotificationEmail = email
-			}
-		}
+	roleARN, err := promptIAMRoleConfiguration()
+	if err != nil {
+		return err
 	}
+	if roleARN != "" {
+		options.CleanupRoleARN = roleARN
+		options.IAMRoleMode = "provided"
+	} else {
+		options.IAMRoleMode = "create"
+		options.CleanupRoleARN = ""
+	}
+
 	// Custom domain (optional)
 	var useCustomDomain bool
 	domainPrompt := &survey.Confirm{
@@ -356,21 +298,20 @@ func promptDeploymentOptionsREPL(options *terraform.DeploymentOptions) error {
 	return nil
 }
 
-func promptIAMRoleConfiguration() (string, string, error) {
+func promptIAMRoleConfiguration() (string, error) {
 	var mode string
 	modePrompt := &survey.Select{
 		Message: "How do you want to handle IAM roles for auto-cleanup?",
 		Options: []string{
-			"provided - I'll provide an existing role ARN (Recommended if organization governed, no auto-teardown)",
-			"create - Let auto-mock create roles (requires iam:CreateRole)",
-			"skip - Skip cleanup feature (manual teardown only)",
+			"provided - I'll provide an roles, policies, n/w setup etc. (Recommended if organization governed)",
+			"create - Let auto-mock create roles, policies and infrastructure (requires power access)",
 		},
-		Default: "skip - Skip cleanup feature (manual teardown only)",
-		Help:    "Auto-cleanup requires IAM roles. Choose how to handle them.",
+		Default: "create - Let auto-mock create roles, policies and infrastructure (requires power access)",
+		Help:    "Choose how to handle infrastructure generation.",
 	}
 
 	if err := survey.AskOne(modePrompt, &mode); err != nil {
-		return "", "", err
+		return "", err
 	}
 
 	mode = strings.Split(mode, " ")[0]
@@ -379,16 +320,13 @@ func promptIAMRoleConfiguration() (string, string, error) {
 	case "provided":
 		return promptForExistingRole()
 	case "create":
-		return "create", "", nil
-	case "skip":
-		fmt.Println("\n⚠️  Auto-cleanup disabled. You must manually destroy infrastructure.")
-		return "skip", "", nil
+		return "", nil
 	default:
-		return "skip", "", nil
+		return "", nil
 	}
 }
 
-func promptForExistingRole() (string, string, error) {
+func promptForExistingRole() (string, error) {
 	// Display required policy
 	fmt.Println("\n📋 Required IAM Policy for Cleanup Role")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -407,25 +345,25 @@ func promptForExistingRole() (string, string, error) {
 	}
 
 	if err := survey.AskOne(arnPrompt, &roleARN); err != nil {
-		return "", "", err
+		return "", err
 	}
 
 	// Validate ARN format
 	if !strings.HasPrefix(roleARN, "arn:aws:iam::") {
-		return "", "", fmt.Errorf("invalid role ARN format")
+		return "", fmt.Errorf("invalid role ARN format")
 	}
 
 	// Validate role exists
 	fmt.Println("\n🔍 Validating role...")
 	if err := validateIAMRole(roleARN); err != nil {
-		return "", "", fmt.Errorf("role validation failed: %w", err)
+		return "", fmt.Errorf("role validation failed: %w", err)
 	}
 
 	fmt.Println("✓ Role validated")
 	fmt.Println("\n⚠️  Note: User-provided roles are not eligible for auto-teardown")
 	fmt.Println("    Infrastructure must be destroyed manually")
 
-	return "provided", roleARN, nil
+	return roleARN, nil
 }
 
 func generateCleanupPolicyJSON() string {

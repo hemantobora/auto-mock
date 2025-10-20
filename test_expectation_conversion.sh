@@ -90,6 +90,20 @@ transform_file() { # in: /tmp/current.json -> out: /tmp/exp.json
   echo "$out"
 }
 
+add_health_check() {
+  # ── Seed /health (optional) ───────────────────────────────────────────────────
+  curl -s -X PUT "${MOCKSERVER_URL}/mockserver/expectation" \
+    -H "Content-Type: application/json" \
+    -d '[
+      {
+        "httpRequest": { "method": "GET", "path": "/health" },
+        "httpResponse": { "statusCode": 200, "body": "OK" },
+        "priority": 0,
+        "times": { "unlimited": true }
+      }
+    ]' >/dev/null || true
+}
+
 # ── Wait for MockServer ───────────────────────────────────────────────────────
 echo "⏳ Waiting for MockServer to be ready..."
 MAX_WAIT=60; WAITED=0
@@ -106,18 +120,7 @@ if [[ $WAITED -ge $MAX_WAIT ]]; then
   echo "⚠️  Warning: MockServer not ready after ${MAX_WAIT}s, continuing anyway..."
 fi
 
-# ── Seed /health (optional) ───────────────────────────────────────────────────
-curl -s -X PUT "${MOCKSERVER_URL}/mockserver/expectation" \
-  -H "Content-Type: application/json" \
-  -d '[
-    {
-      "httpRequest": { "method": "GET", "path": "/health" },
-      "httpResponse": { "statusCode": 200, "body": "OK" },
-      "priority": 0,
-      "times": { "unlimited": true }
-    }
-  ]' >/dev/null || true
-
+add_health_check
 LAST_ETAG=""
 UPDATE_COUNT=0
 ERROR_COUNT=0
@@ -207,6 +210,7 @@ while true; do
   echo "🧹 Resetting MockServer before loading new expectations..."
   curl -s -X PUT "${MOCKSERVER_URL}/mockserver/reset" >/dev/null || true
 
+  add_health_check
   HTTP_CODE="$(load_file "$EXP_FILE")"
   if [[ "$HTTP_CODE" =~ ^20[01]$ ]]; then
     UPDATE_COUNT=$((UPDATE_COUNT + 1))

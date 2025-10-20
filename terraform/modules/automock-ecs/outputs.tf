@@ -76,11 +76,6 @@ output "config_bucket" {
   value       = local.s3_config.bucket_name
 }
 
-output "ttl_expiry" {
-  description = "TTL expiry timestamp (if enabled)"
-  value       = var.ttl_hours > 0 && var.enable_ttl_cleanup ? timeadd(timestamp(), "${var.ttl_hours}h") : "N/A"
-}
-
 output "region" {
   description = "AWS region"
   value       = var.region
@@ -110,11 +105,6 @@ output "infrastructure_summary" {
     }
     storage = {
       config_bucket = local.s3_config.bucket_name
-    }
-    ttl = {
-      enabled    = var.enable_ttl_cleanup
-      hours      = var.ttl_hours
-      expiry     = var.ttl_hours > 0 && var.enable_ttl_cleanup ? timeadd(timestamp(), "${var.ttl_hours}h") : "N/A"
     }
   }
 }

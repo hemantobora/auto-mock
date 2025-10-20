@@ -50,23 +50,6 @@ variable "max_tasks" {
   }
 }
 
-variable "ttl_hours" {
-  description = "Infrastructure TTL in hours (0 = no TTL)"
-  type        = number
-  default     = 4
-
-  validation {
-    condition     = var.ttl_hours >= 0 && var.ttl_hours <= 168
-    error_message = "TTL hours must be between 0 and 168 (7 days)."
-  }
-}
-
-variable "enable_ttl_cleanup" {
-  description = "Enable automatic infrastructure cleanup based on TTL"
-  type        = bool
-  default     = true
-}
-
 variable "custom_domain" {
   description = "Custom domain for the API (optional)"
   type        = string
@@ -75,12 +58,6 @@ variable "custom_domain" {
 
 variable "hosted_zone_id" {
   description = "Route53 hosted zone ID for custom domain"
-  type        = string
-  default     = ""
-}
-
-variable "notification_email" {
-  description = "Email for TTL expiration notifications"
   type        = string
   default     = ""
 }

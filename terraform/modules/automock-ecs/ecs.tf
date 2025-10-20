@@ -6,7 +6,7 @@ resource "aws_cloudwatch_log_group" "mockserver" {
   name              = "/ecs/automock/${var.project_name}/mockserver"
   retention_in_days = 7
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-mockserver-logs"
   })
 }
@@ -15,7 +15,7 @@ resource "aws_cloudwatch_log_group" "config_loader" {
   name              = "/ecs/automock/${var.project_name}/config-loader"
   retention_in_days = 7
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-config-loader-logs"
   })
 }
@@ -29,7 +29,7 @@ resource "aws_ecs_cluster" "main" {
     value = "enabled"
   }
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-cluster"
   })
 }
@@ -206,6 +206,19 @@ resource "aws_ecs_task_definition" "mockserver" {
           --data-binary @"$exp_file"
       }
 
+      add_health_check() {
+        curl -s -X PUT "${MOCKSERVER_URL}/mockserver/expectation" \
+          -H "Content-Type: application/json" \
+          -d '[
+            {
+              "httpRequest": { "method": "GET", "path": "/health" },
+              "httpResponse": { "statusCode": 200, "body": "OK" },
+              "priority": 0,
+              "times": { "unlimited": true }
+            }
+          ]' >/dev/null || true
+      }
+
       transform_file() { # in: /tmp/current.json -> out: /tmp/exp.json
         local out
         out="$(mktemp -t expectations.XXXXXX).json"
@@ -230,16 +243,7 @@ resource "aws_ecs_task_definition" "mockserver" {
       fi
 
       # ── Seed /health (optional) ───────────────────────────────────────────────────
-      curl -s -X PUT "$${MOCKSERVER_URL}/mockserver/expectation" \
-        -H "Content-Type: application/json" \
-        -d '[
-          {
-            "httpRequest": { "method": "GET", "path": "/health" },
-            "httpResponse": { "statusCode": 200, "body": "OK" },
-            "priority": 0,
-            "times": { "unlimited": true }
-          }
-        ]' >/dev/null || true
+      add_health_check
 
       LAST_ETAG=""
       UPDATE_COUNT=0
@@ -329,6 +333,7 @@ resource "aws_ecs_task_definition" "mockserver" {
         echo "🧹 Resetting MockServer before loading new expectations..."
         curl -s -X PUT "$${MOCKSERVER_URL}/mockserver/reset" >/dev/null || true
 
+        add_health_check
         HTTP_CODE="$(load_file "$EXP_FILE")"
         if [[ "$HTTP_CODE" =~ ^20[01]$ ]]; then
           UPDATE_COUNT=$((UPDATE_COUNT + 1))
@@ -366,7 +371,7 @@ resource "aws_ecs_task_definition" "mockserver" {
   }
 ])
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-task"
   })
 }
@@ -405,7 +410,7 @@ resource "aws_ecs_service" "mockserver" {
 
   enable_execute_command = true
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-service"
   })
 
@@ -477,7 +482,7 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
     ServiceName = aws_ecs_service.mockserver.name
   }
 
-  tags = merge(local.common_tags, local.ttl_tags)
+  tags = local.common_tags
 }
 
 # Memory-Based Step Scaling Policy
@@ -530,7 +535,7 @@ resource "aws_cloudwatch_metric_alarm" "memory_high" {
     ServiceName = aws_ecs_service.mockserver.name
   }
 
-  tags = merge(local.common_tags, local.ttl_tags)
+  tags = local.common_tags
 }
 
 # Request Count Step Scaling Policy
@@ -579,7 +584,7 @@ resource "aws_cloudwatch_metric_alarm" "requests_high" {
     LoadBalancer = aws_lb.main.arn_suffix
   }
 
-  tags = merge(local.common_tags, local.ttl_tags)
+  tags = local.common_tags
 }
 
 # Scale Down Policy
@@ -621,5 +626,5 @@ resource "aws_cloudwatch_metric_alarm" "cpu_low" {
     ServiceName = aws_ecs_service.mockserver.name
   }
 
-  tags = merge(local.common_tags, local.ttl_tags)
+  tags = local.common_tags
 }

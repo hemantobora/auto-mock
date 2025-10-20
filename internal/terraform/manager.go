@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hemantobora/auto-mock/internal"
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 // Manager handles Terraform operations for AutoMock infrastructure
@@ -29,16 +30,13 @@ type Manager struct {
 
 // DeploymentOptions configures the infrastructure deployment
 type DeploymentOptions struct {
-	InstanceSize      string
-	TTLHours          int
-	CustomDomain      string
-	HostedZoneID      string
-	NotificationEmail string
-	EnableTTLCleanup  bool
-	MinTasks          int
-	MaxTasks          int
-	MemoryUnits       int
-	CPUUnits          int
+	InstanceSize string
+	CustomDomain string
+	HostedZoneID string
+	MinTasks     int
+	MaxTasks     int
+	MemoryUnits  int
+	CPUUnits     int
 
 	// New fields
 	IAMRoleMode    string // "provided", "create", "skip"
@@ -48,9 +46,7 @@ type DeploymentOptions struct {
 // DefaultDeploymentOptions returns sensible defaults for development
 func DefaultDeploymentOptions() *DeploymentOptions {
 	return &DeploymentOptions{
-		InstanceSize:     "small",
-		TTLHours:         4,
-		EnableTTLCleanup: true,
+		InstanceSize: "small",
 	}
 }
 
@@ -119,6 +115,51 @@ func (m *Manager) createBackendConfig() error {
 
 	fmt.Printf("✓ Configured Terraform backend: %s/terraform/state/\n",
 		m.ExistingBucketName)
+	return nil
+}
+
+func (m *Manager) performPreFlightChecks() error {
+	// Perform any necessary pre-flight checks here
+	fmt.Println("🔍 Performing tools capability to create infrastructure and deploy...")
+	done := make(chan bool)
+	go m.showProgress("Doing pre-flight checks...", done)
+	pf, err := m.Provider.PreFlightCheck(context.Background(), []models.Feature{
+		models.FeatNetworking, models.FeatLoadBal, models.FeatCerts, models.FeatDNS, models.FeatTags,
+		models.FeatIAMWrite, models.FeatPassRole, models.FeatStorage, models.FeatLogging,
+		models.FeatECSControl, models.FeatAppAutoScaling,
+	})
+	done <- true
+	if err != nil {
+		return fmt.Errorf("pre-flight check failed: %w", err)
+	}
+	fmt.Printf("🔎 Preflight principal: %s\n", pf.Identity)
+	allowed := map[models.Feature]bool{}
+	for _, c := range pf.Capabilities {
+		allowed[c.Feature] = c.Allow
+	}
+
+	// Decide per-service mode:
+	// Networking
+	if !allowed[models.FeatNetworking] {
+	}
+	// IAM write → BYO roles
+	if !allowed[models.FeatIAMWrite] {
+	}
+	// If PassRole is false, warn hard (user must supply roles in allowed path)
+	if !allowed[models.FeatPassRole] {
+		fmt.Println("⚠️  PassRole restricted – supply roles under allowed path or ask admin.")
+	}
+	// DNS/ACM/ALB/S3 advisories
+	for _, a := range pf.Advice {
+		fmt.Println("   ⚠", a)
+	}
+	if pf.SuggestedPolicy != "" {
+		fmt.Println("\n--- Suggested policy (example) ---")
+		fmt.Println(pf.SuggestedPolicy)
+		fmt.Println("----------------------------------")
+	}
+
+	fmt.Println("✓ Pre-flight checks completed.")
 	return nil
 }
 
@@ -333,19 +374,14 @@ aws_region = "%s"
 instance_size = "%s"
 cpu_units = %d
 memory_units = %d
-ttl_hours = %d
-enable_ttl_cleanup = %t
 existing_bucket_name = "%s"
-`, m.ProjectName, m.Region, options.InstanceSize, options.CPUUnits, options.MemoryUnits, options.TTLHours, options.EnableTTLCleanup, m.ExistingBucketName)
+`, m.ProjectName, m.Region, options.InstanceSize, options.CPUUnits, options.MemoryUnits, m.ExistingBucketName)
 
 	if options.CustomDomain != "" {
 		vars += fmt.Sprintf(`custom_domain = "%s"`+"\n", options.CustomDomain)
 	}
 	if options.HostedZoneID != "" {
 		vars += fmt.Sprintf(`hosted_zone_id = "%s"`+"\n", options.HostedZoneID)
-	}
-	if options.NotificationEmail != "" {
-		vars += fmt.Sprintf(`notification_email = "%s"`+"\n", options.NotificationEmail)
 	}
 	if options.CleanupRoleARN != "" {
 		vars += fmt.Sprintf(`cleanup_role_arn = "%s"`+"\n", options.CleanupRoleARN)

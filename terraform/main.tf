@@ -72,7 +72,7 @@ module "state_backend" {
   tags   = local.common_tags
 }
 
-# ECS Infrastructure Module (VPC, ALB, ECS, Auto-Scaling, TTL)
+# ECS Infrastructure Module (VPC, ALB, ECS, Auto-Scaling)
 module "ecs_infrastructure" {
   source = "./modules/automock-ecs"
 
@@ -82,10 +82,6 @@ module "ecs_infrastructure" {
   min_tasks     = var.min_tasks
   max_tasks     = var.max_tasks
 
-  # TTL Configuration
-  ttl_hours          = var.ttl_hours
-  enable_ttl_cleanup = var.enable_ttl_cleanup
-  notification_email = var.notification_email
   cleanup_role_arn   = var.cleanup_role_arn
 
   # Custom Domain Configuration (optional)

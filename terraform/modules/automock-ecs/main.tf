@@ -34,12 +34,6 @@ locals {
     CreatedAt   = timestamp()
     Region      = var.region
   }
-  
-  ttl_tags = var.ttl_hours > 0 && var.enable_ttl_cleanup ? {
-    TTL        = var.ttl_hours
-    TTLExpiry  = timeadd(timestamp(), "${var.ttl_hours}h")
-    AutoDelete = "true"
-  } : {}
 }
 
 # Random suffix for unique naming
@@ -81,7 +75,7 @@ resource "aws_vpc" "main" {
   enable_dns_hostnames = true
   enable_dns_support   = true
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-vpc"
   })
 }
@@ -89,7 +83,7 @@ resource "aws_vpc" "main" {
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-igw"
   })
 }
@@ -103,7 +97,7 @@ resource "aws_subnet" "public" {
   availability_zone       = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = true
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-public-${count.index + 1}"
     Type = "Public"
   })
@@ -117,7 +111,7 @@ resource "aws_subnet" "private" {
   cidr_block        = "10.0.${count.index + 10}.0/24"
   availability_zone = data.aws_availability_zones.available.names[count.index]
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-private-${count.index + 1}"
     Type = "Private"
   })
@@ -129,7 +123,7 @@ resource "aws_eip" "nat" {
   domain = "vpc"
   depends_on = [aws_internet_gateway.main]
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-nat-eip"
   })
 }
@@ -139,7 +133,7 @@ resource "aws_nat_gateway" "main" {
   subnet_id     = aws_subnet.public[0].id
   depends_on    = [aws_internet_gateway.main]
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-nat"
   })
 }
@@ -153,7 +147,7 @@ resource "aws_route_table" "public" {
     gateway_id = aws_internet_gateway.main.id
   }
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-public-rt"
   })
 }
@@ -169,7 +163,7 @@ resource "aws_route_table" "private" {
     nat_gateway_id = aws_nat_gateway.main.id
   }
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-private-rt-${count.index + 1}"
   })
 }
@@ -217,7 +211,7 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-alb-sg"
   })
 
@@ -253,7 +247,7 @@ resource "aws_security_group" "ecs_tasks" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-ecs-sg"
   })
 
@@ -272,7 +266,7 @@ resource "aws_lb" "main" {
 
   enable_deletion_protection = false
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-alb"
   })
 }
@@ -297,7 +291,7 @@ resource "aws_lb_target_group" "mockserver_api" {
     protocol            = "HTTP"
   }
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-api-tg"
   })
 

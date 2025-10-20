@@ -8,7 +8,7 @@ resource "aws_acm_certificate" "main" {
   domain_name       = var.custom_domain
   validation_method = "DNS"
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-certificate"
   })
 
@@ -30,7 +30,6 @@ resource "aws_route53_record" "cert_validation" {
   allow_overwrite = true
   name            = each.value.name
   records         = [each.value.record]
-  ttl             = 60
   type            = each.value.type
   zone_id         = data.aws_route53_zone.domain[0].zone_id
 }
@@ -105,7 +104,7 @@ resource "aws_lb_listener" "http" {
     }
   }
 
-  tags = merge(local.common_tags, local.ttl_tags)
+  tags = local.common_tags
 }
 
 # HTTPS Listener for API (port 443) - Only if custom domain
@@ -123,5 +122,5 @@ resource "aws_lb_listener" "https_api" {
     target_group_arn = aws_lb_target_group.mockserver_api.arn
   }
 
-  tags = merge(local.common_tags, local.ttl_tags)
+  tags = local.common_tags
 }

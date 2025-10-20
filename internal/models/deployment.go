@@ -9,8 +9,6 @@ type DeploymentMetadata struct {
 	DeploymentStatus string                 `json:"deployment_status"` // none, deploying, deployed, failed, destroyed
 	DeployedAt       time.Time              `json:"deployed_at,omitempty"`
 	DestroyedAt      time.Time              `json:"destroyed_at,omitempty"`
-	TTLHours         int                    `json:"ttl_hours"`
-	TTLExpiry        time.Time              `json:"ttl_expiry,omitempty"`
 	Infrastructure   InfrastructureInfo     `json:"infrastructure"`
 	Options          DeploymentOptions      `json:"options"`
 	Outputs          map[string]interface{} `json:"outputs,omitempty"`

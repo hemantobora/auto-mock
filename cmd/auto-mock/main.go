@@ -1,12 +1,10 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/hemantobora/auto-mock/internal/cloud"
@@ -86,11 +84,6 @@ func main() {
 						Value: "small",
 					},
 					&cli.IntFlag{
-						Name:  "ttl-hours",
-						Usage: "Auto-teardown timeout in hours (0 = disabled)",
-						Value: 0,
-					},
-					&cli.IntFlag{
 						Name:  "min-tasks",
 						Usage: "Minimum number of tasks (Fargate instances)",
 						Value: 0,
@@ -107,10 +100,6 @@ func main() {
 					&cli.StringFlag{
 						Name:  "hosted-zone-id",
 						Usage: "Route53 hosted zone ID for custom domain",
-					},
-					&cli.StringFlag{
-						Name:  "notification-email",
-						Usage: "Email for TTL expiration notifications",
 					},
 					&cli.BoolFlag{
 						Name:  "skip-confirmation",
@@ -158,25 +147,6 @@ func main() {
 				},
 			},
 			{
-				Name:  "extend-ttl",
-				Usage: "Extend TTL for running infrastructure",
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:     "project",
-						Usage:    "Project name",
-						Required: true,
-					},
-					&cli.IntFlag{
-						Name:     "hours",
-						Usage:    "Additional hours to add to TTL",
-						Required: true,
-					},
-				},
-				Action: func(c *cli.Context) error {
-					return extendTTLCommand(c)
-				},
-			},
-			{
 				Name:   "help",
 				Usage:  "Show detailed help and supported features",
 				Action: showDetailedHelp,
@@ -202,12 +172,9 @@ func deployCommand(c *cli.Context) error {
 
 	// Build deployment options from flags
 	options := &terraform.DeploymentOptions{
-		InstanceSize:      c.String("instance-size"),
-		TTLHours:          c.Int("ttl-hours"),
-		CustomDomain:      c.String("custom-domain"),
-		HostedZoneID:      c.String("hosted-zone-id"),
-		NotificationEmail: c.String("notification-email"),
-		EnableTTLCleanup:  c.Int("ttl-hours") > 0,
+		InstanceSize: c.String("instance-size"),
+		CustomDomain: c.String("custom-domain"),
+		HostedZoneID: c.String("hosted-zone-id"),
 	}
 
 	manager := cloud.NewCloudManager(profile)
@@ -338,79 +305,6 @@ func statusCommand(c *cli.Context) error {
 	return nil
 }
 
-// extendTTLCommand extends the TTL for running infrastructure
-func extendTTLCommand(c *cli.Context) error {
-	profile := c.String("profile")
-	projectName := c.String("project")
-	additionalHours := c.Int("hours")
-
-	fmt.Printf("\nExtending TTL for project: %s\n", projectName)
-	fmt.Printf("Adding %d hours to current TTL\n", additionalHours)
-	fmt.Println(strings.Repeat("=", 80))
-
-	err := extendTTL(profile, projectName, additionalHours)
-	if err != nil {
-		return fmt.Errorf("failed to extend TTL: %w", err)
-	}
-
-	fmt.Println("\nTTL extended successfully")
-	fmt.Printf("New expiration: %d hours from now\n", additionalHours)
-
-	return nil
-}
-
-// extendTTL extends the TTL for an existing deployment
-func extendTTL(profile, projectName string, additionalHours int) error {
-	ctx := context.Background()
-	manager := cloud.NewCloudManager(profile)
-	// Step 1: Validate cloud provider credentials
-	if err := manager.AutoDetectProvider(profile); err != nil {
-		return err
-	}
-
-	exists, err := manager.Provider.ProjectExists(context.Background(), projectName)
-	if !exists || err != nil {
-		return fmt.Errorf("project %s does not exist", projectName)
-	}
-
-	// Get current metadata
-	metadata, err := manager.Provider.GetDeploymentMetadata(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get deployment metadata: %w\nIs infrastructure deployed?", err)
-	}
-
-	if metadata.DeploymentStatus != "deployed" {
-		return fmt.Errorf("infrastructure is not deployed (status: %s)", metadata.DeploymentStatus)
-	}
-
-	if metadata.TTLExpiry.IsZero() {
-		return fmt.Errorf("no TTL configured for this deployment")
-	}
-
-	// Show current TTL info
-	fmt.Printf("  Current TTL expiry: %s\n", metadata.TTLExpiry.Format("2006-01-02 15:04:05 MST"))
-	remaining := time.Until(metadata.TTLExpiry)
-	if remaining > 0 {
-		fmt.Printf("  Time remaining: %s\n", remaining.Round(time.Minute))
-	} else {
-		fmt.Println("  Warning: TTL already expired!")
-	}
-
-	// Extend TTL
-	fmt.Printf("  Adding %d hours...\n", additionalHours)
-	if err := manager.Provider.ExtendTTL(ctx, additionalHours); err != nil {
-		return fmt.Errorf("failed to extend TTL: %w", err)
-	}
-
-	// Get updated metadata
-	updatedMetadata, _ := manager.Provider.GetDeploymentMetadata(ctx)
-	fmt.Printf("  New TTL expiry: %s\n", updatedMetadata.TTLExpiry.Format("2006-01-02 15:04:05 MST"))
-	newRemaining := time.Until(updatedMetadata.TTLExpiry)
-	fmt.Printf("  New time remaining: %s\n", newRemaining.Round(time.Minute))
-
-	return nil
-}
-
 // showDetailedHelp provides comprehensive help
 func showDetailedHelp(c *cli.Context) error {
 	help := `
@@ -425,32 +319,29 @@ MAIN COMMANDS:
   automock deploy --project myapi  # Deploy infrastructure for existing project  
   automock status --project myapi  # Check infrastructure status
   automock destroy --project myapi # Tear down infrastructure
-  automock extend-ttl --project myapi --hours 4  # Extend TTL
 
 WORKFLOW (Interactive Mode):
   1. Run 'automock init'
   2. Select or create project
   3. Generate expectations (AI, collection import, or interactive builder)
-  4. Choose deployment option:
+  4. Choose generated expectations option:
      - Save to Storage only
      - Deploy complete infrastructure (ECS + ALB)
      - Start local MockServer
-  5. Infrastructure deploys automatically with TTL-based auto-teardown
+  5. Infrastructure deploys automatically
 
 SUPPORTED LLM PROVIDERS:
   • anthropic    - Claude (requires ANTHROPIC_API_KEY)
   • openai       - GPT-4 (requires OPENAI_API_KEY)
-  • template     - Template-based (free, always available)
 
 SUPPORTED COLLECTION FORMATS:
   • postman      - Postman Collection v2.1 (.json)
-  • bruno        - Bruno Collection (.json or .bru)
+  • bruno        - Bruno Collection (.json)
   • insomnia     - Insomnia Workspace (.json)
 
 INFRASTRUCTURE:
-  • Complete     - ECS Fargate + ALB + Auto-scaling + TTL cleanup
+  • Complete     - ECS Fargate + ALB + Auto-scaling
   • Auto-scaling - 10-200 tasks based on CPU/Memory/Requests
-  • TTL Cleanup  - Automatic teardown after expiration (default: 8 hours)
   • Cost         - ~$1.24/hour with 10 tasks, auto-teardown prevents runaway costs
 
 ENVIRONMENT VARIABLES:
@@ -469,21 +360,13 @@ EXAMPLES:
   automock init --collection-file api.json --collection-type postman
 
   # Deploy standalone (expectations already exist)
-  automock deploy --project user-service --ttl-hours 4
+  automock deploy --project user-service
 
   # Check what's running
   automock status --project user-service
 
-  # Extend running infrastructure
-  automock extend-ttl --project user-service --hours 4
-
   # Clean up
   automock destroy --project user-service
-
-APPROXIMATE COST ESTIMATES (with TTL):
-  • 8 hours  = ~$10
-  • 40 hours/month (5 days × 8 hours) = ~$50/month
-  • Without TTL (24/7) = ~$125/month
 
 For more information: See INFRASTRUCTURE.md and CLI_INTEGRATION.md
 `

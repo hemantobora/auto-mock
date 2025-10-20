@@ -46,20 +46,6 @@ func DisplayDeploymentResults(outputs *InfrastructureOutputs, projectName string
 	fmt.Printf("  Config Bucket:    %s\n", outputs.ConfigBucket)
 	fmt.Println()
 
-	// TTL Information
-	if ttl, ok := outputs.InfrastructureSummary["ttl"].(map[string]interface{}); ok {
-		if enabled, ok := ttl["enabled"].(bool); ok && enabled {
-			fmt.Println("AUTO-TEARDOWN:")
-			fmt.Printf("  Enabled:          Yes\n")
-			fmt.Printf("  TTL:              %v hours\n", ttl["hours"])
-			fmt.Printf("  Expires at:       %v\n", ttl["expiry"])
-			fmt.Println()
-			fmt.Println("  Note: Infrastructure will be automatically deleted when TTL expires.")
-			fmt.Println("        Use 'automock extend-ttl' to extend if needed.")
-			fmt.Println()
-		}
-	}
-
 	// Quick Start Commands
 	fmt.Println("QUICK START:")
 	fmt.Println("  Health Check:")
@@ -112,7 +98,6 @@ func DisplayDestroyConfirmation(projectName string) {
 	fmt.Println("  - VPC and Networking Resources")
 	fmt.Println("  - Storage Configuration Bucket (and all data)")
 	fmt.Println("  - CloudWatch Logs")
-	fmt.Println("  - TTL Cleanup Lambda Function")
 	fmt.Println()
 	fmt.Println("THIS ACTION CANNOT BE UNDONE!")
 	fmt.Println()
@@ -173,26 +158,20 @@ func DisplayAwsCostEstimate(options DeploymentOptions) {
 
 	totalMonthly := baseMonthly + albMonthly + natMonthly + dataMonthly + storageLogs
 
-	fmt.Printf("  Base (24/7, %d x %s @ %.2fvCPU/%.1fGB):  $%.2f/month\n",
+	fmt.Printf("  Base (24/7, %d x %s @ %.2fvCPU/%.1fGB):  				$%.2f/month\n",
 		options.MinTasks, options.InstanceSize, vCPU, memGB, baseMonthly)
-	fmt.Printf("  ALB (1x):                                $%.2f/month\n", albMonthly)
-	fmt.Printf("  NAT Gateway (1x):                        $%.2f/month\n", natMonthly)
-	fmt.Printf("  Data Transfer (assumed):                 $%.2f/month\n", dataMonthly)
-	fmt.Printf("  Storage & Logs (assumed):                $%.2f/month\n", storageLogs)
-	fmt.Printf("  ----------------------------------------------------\n")
-	fmt.Printf("  Total:                                   $%.2f/month\n", totalMonthly)
+	fmt.Printf("  ALB (1x):                                				$%.2f/month\n", albMonthly)
+	fmt.Printf("  NAT Gateway (1x):                        				$%.2f/month\n", natMonthly)
+	fmt.Printf("  Data Transfer (assumed ~20 GB egress @ $0.09/GB):                 	$%.2f/month\n", dataMonthly)
+	fmt.Printf("  Storage & Logs (assumed < 1 GB):                			$%.2f/month\n", storageLogs)
+	fmt.Printf("  -----------------------------------------------------------------------------\n")
+	fmt.Printf("  Total:                                   				$%.2f/month\n", totalMonthly)
 	fmt.Println()
-
-	if options.TTLHours > 0 {
-		actual := totalMonthly * (float64(options.TTLHours) / hoursPerMonth)
-		fmt.Printf("  Actual cost (TTL=%dh):                   $%.2f\n", options.TTLHours, actual)
-		fmt.Println()
-	}
 
 	if options.MaxTasks > options.MinTasks {
 		peakHourly := float64(options.MaxTasks) * perTaskHour
 		fmt.Printf("  Note: Auto-scaling may increase cost up to %d tasks\n", options.MaxTasks)
-		fmt.Printf("        Peak compute hourly:               $%.3f/hour\n", peakHourly)
+		fmt.Printf("        Peak compute hourly:               				$%.3f/hour\n", peakHourly)
 		fmt.Println()
 	}
 
@@ -239,17 +218,6 @@ func DisplayStatusInfo(outputs *InfrastructureOutputs) {
 
 	fmt.Printf("API Endpoint: %s\n", outputs.MockServerURL)
 	fmt.Printf("Dashboard:    %s\n", outputs.DashboardURL)
-	fmt.Println()
-
-	// TTL info
-	if ttl, ok := outputs.InfrastructureSummary["ttl"].(map[string]interface{}); ok {
-		if enabled, ok := ttl["enabled"].(bool); ok && enabled {
-			fmt.Printf("TTL:          %v hours remaining (expires: %v)\n",
-				ttl["hours"], ttl["expiry"])
-		} else {
-			fmt.Println("TTL:          Disabled (no auto-teardown)")
-		}
-	}
 
 	fmt.Println()
 	fmt.Println(strings.Repeat("=", 80))

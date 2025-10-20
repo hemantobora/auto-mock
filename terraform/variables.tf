@@ -61,23 +61,6 @@ variable "max_tasks" {
   }
 }
 
-variable "ttl_hours" {
-  description = "Infrastructure TTL in hours (0 = no TTL)"
-  type        = number
-  default     = 4
-
-  validation {
-    condition     = var.ttl_hours >= 0 && var.ttl_hours <= 168
-    error_message = "TTL hours must be between 0 and 168 (7 days)."
-  }
-}
-
-variable "enable_ttl_cleanup" {
-  description = "Enable automatic infrastructure cleanup based on TTL"
-  type        = bool
-  default     = true
-}
-
 variable "custom_domain" {
   description = "Custom domain for the API (optional)"
   type        = string
@@ -90,22 +73,10 @@ variable "hosted_zone_id" {
   default     = ""
 }
 
-variable "notification_email" {
-  description = "Email for TTL expiration notifications"
-  type        = string
-  default     = ""
-}
-
 variable "create_state_backend" {
   description = "Create S3 and DynamoDB for Terraform state backend"
   type        = bool
   default     = false
-}
-
-variable "cleanup_role_arn" {
-  description = "IAM role ARN for cleanup Lambda (if user-provided)"
-  type        = string
-  default     = ""
 }
 
 variable "create_cleanup_roles" {
@@ -113,3 +84,34 @@ variable "create_cleanup_roles" {
   type        = bool
   default     = false
 }
+
+# variables.tf
+variable "cpu_units" {
+  type        = number
+  description = "CPU units for the ECS task (1024 = 1 vCPU)"
+  default     = 256
+}
+
+variable "memory_units" {
+  type        = number
+  description = "Memory in MiB for the ECS task"
+  default     = 512
+}
+
+
+variable "mode"               { type = string, default = "byo" } # "create" or "byo"
+variable "use_existing_vpc"   { type = bool,   default = true }
+variable "vpc_id"             { type = string, default = null }
+variable "subnet_ids"         { type = list(string), default = [] }
+variable "security_group_ids" { type = list(string), default = [] }
+
+variable "execution_role_arn" { type = string, default = null } # BYO (Option 1)
+variable "task_role_arn"      { type = string, default = null }
+variable "cleanup_role_arn"   { type = string, default = null } # already used
+
+# Optional toggles if you want per-service control (defaults true)
+variable "create_alb"         { type = bool, default = true }
+variable "create_acm"         { type = bool, default = true }
+variable "create_route53"     { type = bool, default = true }
+variable "create_s3"          { type = bool, default = true }
+variable "create_iam"         { type = bool, default = false } # "create" mode sets true

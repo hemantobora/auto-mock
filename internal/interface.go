@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-	"time"
 
 	"github.com/hemantobora/auto-mock/internal/models"
 )
@@ -49,8 +48,8 @@ type Provider interface {
 	GetDeploymentMetadata(ctx context.Context) (*models.DeploymentMetadata, error)
 	DeleteDeploymentMetadata(ctx context.Context) error
 	UpdateDeploymentStatus(ctx context.Context, status string) error
-	GetTTLRemaining(ctx context.Context) (time.Duration, error)
-	ExtendTTL(ctx context.Context, additionalHours int) error
+
+	PreFlightCheck(ctx context.Context, needed []models.Feature) (*models.PreflightResult, error)
 }
 
 // NamingStrategy defines how project names are converted to storage names

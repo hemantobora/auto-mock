@@ -36,10 +36,6 @@ output "vpc_id" {
   value       = module.ecs_infrastructure.vpc_id
 }
 
-output "ttl_expiry" {
-  description = "Infrastructure TTL expiry timestamp"
-  value       = var.ttl_hours > 0 ? timeadd(timestamp(), "${var.ttl_hours}h") : null
-}
 
 output "integration_summary" {
   description = "Integration summary for CLI"
@@ -49,8 +45,6 @@ output "integration_summary" {
     mockserver_url = module.ecs_infrastructure.mockserver_url
     dashboard_url  = module.ecs_infrastructure.dashboard_url
     region         = var.aws_region
-    ttl_hours      = var.ttl_hours
-    ttl_expiry     = var.ttl_hours > 0 ? timeadd(timestamp(), "${var.ttl_hours}h") : null
   }
 }
 
@@ -103,7 +97,6 @@ output "cost_estimate" {
       nat_gateway_monthly  = "$64.00 (2 NAT gateways)"
       data_transfer_monthly = "$9.00 (estimated)"
       total_monthly        = "$953.00"
-      actual_with_ttl      = var.ttl_hours > 0 ? format("$%.2f", (953.00 / 730.0) * var.ttl_hours) : "N/A (no TTL)"
     }
   }
 }

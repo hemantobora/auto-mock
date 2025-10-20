@@ -16,7 +16,7 @@ resource "aws_iam_role" "ecs_task_execution" {
     }]
   })
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-execution-role"
   })
 }
@@ -73,7 +73,7 @@ resource "aws_iam_role" "ecs_task" {
     }]
   })
 
-  tags = merge(local.common_tags, local.ttl_tags, {
+  tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-task-role"
   })
 }

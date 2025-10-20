@@ -31,24 +31,17 @@ func (m *Manager) saveDeploymentMetadata(outputs *InfrastructureOutputs, options
 		ProjectName:      m.ProjectName,
 		DeploymentStatus: "deployed",
 		DeployedAt:       time.Now(),
-		TTLHours:         options.TTLHours,
 		Infrastructure: models.InfrastructureInfo{
 			MockServerURL: outputs.MockServerURL,
 			DashboardURL:  outputs.DashboardURL,
 			Region:        m.Region,
 		},
 		Options: models.DeploymentOptions{
-			InstanceSize:      options.InstanceSize,
-			MinTasks:          options.MinTasks, // From terraform default
-			MaxTasks:          options.MaxTasks,
-			CustomDomain:      options.CustomDomain,
-			NotificationEmail: options.NotificationEmail,
+			InstanceSize: options.InstanceSize,
+			MinTasks:     options.MinTasks, // From terraform default
+			MaxTasks:     options.MaxTasks,
+			CustomDomain: options.CustomDomain,
 		},
-	}
-
-	// Set TTL expiry if enabled
-	if options.TTLHours > 0 {
-		metadata.TTLExpiry = time.Now().Add(time.Duration(options.TTLHours) * time.Hour)
 	}
 
 	// Extract infrastructure details from outputs

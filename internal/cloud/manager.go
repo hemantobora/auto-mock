@@ -440,9 +440,8 @@ func (m *CloudManager) handleGeneratedMock(mockConfiguration string, profile str
 			}
 			// Then deploy infrastructure
 			options := &terraform.DeploymentOptions{
-				MinTasks:         10,
-				MaxTasks:         200,
-				EnableTTLCleanup: false,
+				MinTasks: 10,
+				MaxTasks: 200,
 			}
 			deploy := repl.NewDeployment(m.getCurrentProject(), profile, m.getCloudProvider(), options)
 			return deploy.DeployInfrastructureWithTerraform(false)
