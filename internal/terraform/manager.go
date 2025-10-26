@@ -28,24 +28,9 @@ type Manager struct {
 	ExistingBucketName string
 }
 
-// DeploymentOptions configures the infrastructure deployment
-type DeploymentOptions struct {
-	InstanceSize string
-	CustomDomain string
-	HostedZoneID string
-	MinTasks     int
-	MaxTasks     int
-	MemoryUnits  int
-	CPUUnits     int
-
-	// New fields
-	IAMRoleMode    string // "provided", "create", "skip"
-	CleanupRoleARN string // User-provided role ARN
-}
-
 // DefaultDeploymentOptions returns sensible defaults for development
-func DefaultDeploymentOptions() *DeploymentOptions {
-	return &DeploymentOptions{
+func DefaultDeploymentOptions() *models.DeploymentOptions {
+	return &models.DeploymentOptions{
 		InstanceSize: "small",
 	}
 }
@@ -92,6 +77,11 @@ func NewManager(cleanProject, profile string, provider internal.Provider) (*Mana
 	}, nil
 }
 
+func (m *Manager) createTerraformVars(options *models.DeploymentOptions) error {
+	varsFile := filepath.Join(m.WorkingDir, "terraform.tfvars")
+	return os.WriteFile(varsFile, []byte(options.CreateTerraformVars()), 0644)
+}
+
 func (m *Manager) createBackendConfig() error {
 	if m.ExistingBucketName == "" {
 		return fmt.Errorf("no S3 bucket configured")
@@ -118,53 +108,8 @@ func (m *Manager) createBackendConfig() error {
 	return nil
 }
 
-func (m *Manager) performPreFlightChecks() error {
-	// Perform any necessary pre-flight checks here
-	fmt.Println("🔍 Performing tools capability to create infrastructure and deploy...")
-	done := make(chan bool)
-	go m.showProgress("Doing pre-flight checks...", done)
-	pf, err := m.Provider.PreFlightCheck(context.Background(), []models.Feature{
-		models.FeatNetworking, models.FeatLoadBal, models.FeatCerts, models.FeatDNS, models.FeatTags,
-		models.FeatIAMWrite, models.FeatPassRole, models.FeatStorage, models.FeatLogging,
-		models.FeatECSControl, models.FeatAppAutoScaling,
-	})
-	done <- true
-	if err != nil {
-		return fmt.Errorf("pre-flight check failed: %w", err)
-	}
-	fmt.Printf("🔎 Preflight principal: %s\n", pf.Identity)
-	allowed := map[models.Feature]bool{}
-	for _, c := range pf.Capabilities {
-		allowed[c.Feature] = c.Allow
-	}
-
-	// Decide per-service mode:
-	// Networking
-	if !allowed[models.FeatNetworking] {
-	}
-	// IAM write → BYO roles
-	if !allowed[models.FeatIAMWrite] {
-	}
-	// If PassRole is false, warn hard (user must supply roles in allowed path)
-	if !allowed[models.FeatPassRole] {
-		fmt.Println("⚠️  PassRole restricted – supply roles under allowed path or ask admin.")
-	}
-	// DNS/ACM/ALB/S3 advisories
-	for _, a := range pf.Advice {
-		fmt.Println("   ⚠", a)
-	}
-	if pf.SuggestedPolicy != "" {
-		fmt.Println("\n--- Suggested policy (example) ---")
-		fmt.Println(pf.SuggestedPolicy)
-		fmt.Println("----------------------------------")
-	}
-
-	fmt.Println("✓ Pre-flight checks completed.")
-	return nil
-}
-
 // Deploy creates the complete infrastructure using Terraform
-func (m *Manager) Deploy(options *DeploymentOptions) (*InfrastructureOutputs, error) {
+func (m *Manager) Deploy(options *models.DeploymentOptions) (*InfrastructureOutputs, error) {
 	fmt.Printf("🚀 Deploying infrastructure for project: %s\n", m.ProjectName)
 
 	// Validate bucket name was found
@@ -237,8 +182,7 @@ func (m *Manager) Destroy() error {
 		return fmt.Errorf("failed to initialize terraform: %w", err)
 	}
 
-	options := DefaultDeploymentOptions()
-	if err := m.createTerraformVars(options); err != nil {
+	if err := m.createTerraformVars(m.Provider.CreateDefaultDeploymentConfiguration()); err != nil {
 		return fmt.Errorf("failed to create terraform vars: %w", err)
 	}
 
@@ -348,7 +292,7 @@ func (m *Manager) initTerraform() error {
 	fmt.Println("🔧 Initializing Terraform...")
 
 	done := make(chan bool)
-	go m.showProgress("Initializing", done)
+	go m.ShowProgress("Initializing", done)
 
 	cmd := exec.Command("terraform", "init")
 	cmd.Dir = m.WorkingDir
@@ -364,45 +308,12 @@ func (m *Manager) initTerraform() error {
 	return nil
 }
 
-// createTerraformVars creates the terraform.tfvars file
-func (m *Manager) createTerraformVars(options *DeploymentOptions) error {
-	vars := fmt.Sprintf(`# AutoMock Terraform Variables
-# Generated automatically - do not edit manually
-
-project_name = "%s"
-aws_region = "%s"
-instance_size = "%s"
-cpu_units = %d
-memory_units = %d
-existing_bucket_name = "%s"
-`, m.ProjectName, m.Region, options.InstanceSize, options.CPUUnits, options.MemoryUnits, m.ExistingBucketName)
-
-	if options.CustomDomain != "" {
-		vars += fmt.Sprintf(`custom_domain = "%s"`+"\n", options.CustomDomain)
-	}
-	if options.HostedZoneID != "" {
-		vars += fmt.Sprintf(`hosted_zone_id = "%s"`+"\n", options.HostedZoneID)
-	}
-	if options.CleanupRoleARN != "" {
-		vars += fmt.Sprintf(`cleanup_role_arn = "%s"`+"\n", options.CleanupRoleARN)
-	}
-	if options.MinTasks != 0 {
-		vars += fmt.Sprintf(`min_tasks = %d`+"\n", options.MinTasks)
-	}
-	if options.MaxTasks != 0 {
-		vars += fmt.Sprintf(`max_tasks = %d`+"\n", options.MaxTasks)
-	}
-
-	varsFile := filepath.Join(m.WorkingDir, "terraform.tfvars")
-	return os.WriteFile(varsFile, []byte(vars), 0644)
-}
-
 // planTerraform runs terraform plan
 func (m *Manager) planTerraform() error {
 	fmt.Println("📋 Planning infrastructure changes...")
 
 	done := make(chan bool)
-	go m.showProgress("Planning", done)
+	go m.ShowProgress("Planning", done)
 
 	cmd := exec.Command("terraform", "plan", "-out=tfplan")
 	cmd.Dir = m.WorkingDir
@@ -574,8 +485,8 @@ func CheckTerraformInstalled() error {
 	return nil
 }
 
-// showProgress displays a spinner/progress indicator during long operations
-func (m *Manager) showProgress(action string, done chan bool) {
+// ShowProgress displays a spinner/progress indicator during long operations
+func (m *Manager) ShowProgress(action string, done chan bool) {
 	spinners := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠇", "⠏", "⠉"}
 	i := 0
 	ticker := time.NewTicker(100 * time.Millisecond)

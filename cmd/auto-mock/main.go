@@ -8,6 +8,7 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/hemantobora/auto-mock/internal/cloud"
+	"github.com/hemantobora/auto-mock/internal/models"
 	"github.com/hemantobora/auto-mock/internal/repl"
 	"github.com/hemantobora/auto-mock/internal/terraform"
 	"github.com/urfave/cli/v2"
@@ -78,6 +79,7 @@ func main() {
 						Usage:    "Project name to deploy",
 						Required: true,
 					},
+					// === Compute Configuration ===
 					&cli.StringFlag{
 						Name:  "instance-size",
 						Usage: "Instance size (small, medium, large, xlarge)",
@@ -93,14 +95,38 @@ func main() {
 						Usage: "Maximum number of tasks (Fargate instances)",
 						Value: 0,
 					},
+					// === Networking (BYO Resources) ===
 					&cli.StringFlag{
-						Name:  "custom-domain",
-						Usage: "Custom domain for the API (optional)",
+						Name:  "vpc-id",
+						Usage: "Existing VPC ID to use (if lacking VPC creation permissions)",
 					},
 					&cli.StringFlag{
-						Name:  "hosted-zone-id",
-						Usage: "Route53 hosted zone ID for custom domain",
+						Name:  "public-subnet-ids",
+						Usage: "Comma-separated list of existing public subnet IDs (e.g., subnet-aaa,subnet-bbb)",
 					},
+					&cli.StringFlag{
+						Name:  "private-subnet-ids",
+						Usage: "Comma-separated list of existing private subnet IDs (e.g., subnet-aaa,subnet-bbb)",
+					},
+					&cli.StringFlag{
+						Name:  "security-group-ids",
+						Usage: "Comma-separated list of existing security group IDs (e.g., sg-xxx,sg-yyy)",
+					},
+					// === IAM Roles (BYO Resources) ===
+					&cli.StringFlag{
+						Name:  "execution-role-arn",
+						Usage: "Existing ECS task execution role ARN (if lacking IAM creation permissions)",
+					},
+					&cli.StringFlag{
+						Name:  "task-role-arn",
+						Usage: "Existing ECS task role ARN (if lacking IAM creation permissions)",
+					},
+					// === Certificates (BYO Resources) ===
+					&cli.StringFlag{
+						Name:  "certificate-arn",
+						Usage: "Existing ACM certificate ARN (if lacking certificate issuance permissions)",
+					},
+					// === Other Options ===
 					&cli.BoolFlag{
 						Name:  "skip-confirmation",
 						Usage: "Skip deployment confirmation prompt",
@@ -171,10 +197,42 @@ func deployCommand(c *cli.Context) error {
 	fmt.Println(strings.Repeat("=", 80))
 
 	// Build deployment options from flags
-	options := &terraform.DeploymentOptions{
+	options := &models.DeploymentOptions{
+		// Compute configuration
 		InstanceSize: c.String("instance-size"),
-		CustomDomain: c.String("custom-domain"),
-		HostedZoneID: c.String("hosted-zone-id"),
+		MinTasks:     c.Int("min-tasks"),
+		MaxTasks:     c.Int("max-tasks"),
+	}
+
+	// Parse networking BYO resources
+	if vpcID := c.String("vpc-id"); vpcID != "" {
+		options.UseExistingVPC = true
+		options.VpcID = vpcID
+
+		// Parse subnet IDs (comma-separated)
+		if subnetIDs := c.String("public-subnet-ids"); subnetIDs != "" {
+			options.PublicSubnetIDs = parseCommaSeparated(subnetIDs)
+		}
+
+		// Parse private subnet IDs (comma-separated)
+		if subnetIDs := c.String("private-subnet-ids"); subnetIDs != "" {
+			options.PrivateSubnetIDs = parseCommaSeparated(subnetIDs)
+		}
+
+		// Parse security group IDs (comma-separated)
+		if sgIDs := c.String("security-group-ids"); sgIDs != "" {
+			options.SecurityGroupIDs = parseCommaSeparated(sgIDs)
+		}
+	}
+
+	// Parse IAM role BYO resources
+	executionRoleARN := c.String("execution-role-arn")
+	taskRoleARN := c.String("task-role-arn")
+
+	if executionRoleARN != "" || taskRoleARN != "" {
+		options.UseExistingIAMRoles = true
+		options.ExecutionRoleARN = executionRoleARN
+		options.TaskRoleARN = taskRoleARN
 	}
 
 	manager := cloud.NewCloudManager(profile)
@@ -184,6 +242,25 @@ func deployCommand(c *cli.Context) error {
 	}
 	deployer := repl.NewDeployment(projectName, profile, manager.Provider, options)
 	return deployer.DeployInfrastructureWithTerraform(c.Bool("skip-confirmation"))
+}
+
+// parseCommaSeparated splits a comma-separated string into a slice, trimming whitespace
+func parseCommaSeparated(input string) []string {
+	if input == "" {
+		return nil
+	}
+
+	parts := strings.Split(input, ",")
+	result := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+
+	return result
 }
 
 // destroyCommand handles infrastructure teardown
@@ -361,6 +438,17 @@ EXAMPLES:
 
   # Deploy standalone (expectations already exist)
   automock deploy --project user-service
+
+  # Deploy with existing networking resources (restricted VPC permissions)
+  automock deploy --project user-service \
+    --vpc-id vpc-0abcd1234 \
+    --subnet-ids subnet-111,subnet-222,subnet-333 \
+    --security-group-ids sg-abc123
+
+  # Deploy with existing IAM roles (restricted IAM permissions)
+  automock deploy --project user-service \
+    --execution-role-arn arn:aws:iam::123456789:role/ECSTaskExecutionRole \
+    --task-role-arn arn:aws:iam::123456789:role/MyAppTaskRole
 
   # Check what's running
   automock status --project user-service

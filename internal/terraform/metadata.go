@@ -11,7 +11,7 @@ import (
 )
 
 // saveDeploymentMetadata saves deployment information to S3
-func (m *Manager) saveDeploymentMetadata(outputs *InfrastructureOutputs, options *DeploymentOptions) error {
+func (m *Manager) saveDeploymentMetadata(outputs *InfrastructureOutputs, options *models.DeploymentOptions) error {
 	ctx := context.Background()
 
 	// Use the actual config bucket from deployment outputs, not a generated name
@@ -40,7 +40,6 @@ func (m *Manager) saveDeploymentMetadata(outputs *InfrastructureOutputs, options
 			InstanceSize: options.InstanceSize,
 			MinTasks:     options.MinTasks, // From terraform default
 			MaxTasks:     options.MaxTasks,
-			CustomDomain: options.CustomDomain,
 		},
 	}
 
@@ -60,27 +59,6 @@ func (m *Manager) saveDeploymentMetadata(outputs *InfrastructureOutputs, options
 
 	if albDNS, ok := outputs.InfrastructureSummary["alb_dns_name"].(string); ok {
 		metadata.Infrastructure.ALBDNS = albDNS
-	}
-
-	// Extract cluster
-	if cluster, ok := outputs.InfrastructureSummary["cluster"].(map[string]interface{}); ok {
-		if name, ok := cluster["name"].(string); ok {
-			metadata.Infrastructure.ClusterName = name
-		}
-	}
-
-	// Extract service
-	if service, ok := outputs.InfrastructureSummary["service"].(map[string]interface{}); ok {
-		if name, ok := service["name"].(string); ok {
-			metadata.Infrastructure.ServiceName = name
-		}
-	}
-
-	// Extract VPC
-	if networking, ok := outputs.InfrastructureSummary["networking"].(map[string]interface{}); ok {
-		if vpcId, ok := networking["vpc_id"].(string); ok {
-			metadata.Infrastructure.VPCId = vpcId
-		}
 	}
 
 	// Store all outputs for reference

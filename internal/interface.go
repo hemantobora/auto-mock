@@ -49,7 +49,9 @@ type Provider interface {
 	DeleteDeploymentMetadata(ctx context.Context) error
 	UpdateDeploymentStatus(ctx context.Context, status string) error
 
-	PreFlightCheck(ctx context.Context, needed []models.Feature) (*models.PreflightResult, error)
+	CreateDeploymentConfiguration() *models.DeploymentOptions
+	DisplayCostEstimate(options *models.DeploymentOptions)
+	CreateDefaultDeploymentConfiguration() *models.DeploymentOptions
 }
 
 // NamingStrategy defines how project names are converted to storage names

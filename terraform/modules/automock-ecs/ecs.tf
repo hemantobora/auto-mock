@@ -54,8 +54,8 @@ resource "aws_ecs_task_definition" "mockserver" {
   requires_compatibilities = ["FARGATE"]
   cpu                      = local.cpu_units
   memory                   = local.memory_units
-  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
-  task_role_arn            = aws_iam_role.ecs_task.arn
+  execution_role_arn       = local.task_execution_role_arn
+  task_role_arn            = local.task_role_arn
 
   container_definitions = jsonencode([
   # MockServer - NO HEALTH CHECK
@@ -207,7 +207,9 @@ resource "aws_ecs_task_definition" "mockserver" {
       }
 
       add_health_check() {
-        curl -s -X PUT "${MOCKSERVER_URL}/mockserver/expectation" \
+        local http_code
+        http_code="$(curl -s -o /tmp/add_health.out -w "%%{http_code}" \
+          -X PUT "$${MOCKSERVER_URL}/mockserver/expectation" \
           -H "Content-Type: application/json" \
           -d '[
             {
@@ -216,8 +218,10 @@ resource "aws_ecs_task_definition" "mockserver" {
               "priority": 0,
               "times": { "unlimited": true }
             }
-          ]' >/dev/null || true
+          ]')"
+        echo "❓ /health expectation (HTTP $${http_code})" 
       }
+
 
       transform_file() { # in: /tmp/current.json -> out: /tmp/exp.json
         local out
@@ -333,13 +337,15 @@ resource "aws_ecs_task_definition" "mockserver" {
         echo "🧹 Resetting MockServer before loading new expectations..."
         curl -s -X PUT "$${MOCKSERVER_URL}/mockserver/reset" >/dev/null || true
 
-        add_health_check
         HTTP_CODE="$(load_file "$EXP_FILE")"
         if [[ "$HTTP_CODE" =~ ^20[01]$ ]]; then
           UPDATE_COUNT=$((UPDATE_COUNT + 1))
           LAST_ETAG="$${CURRENT_ETAG}"
           echo "✅ [$$(now)] Updated $${EXP_COUNT} expectations (HTTP $${HTTP_CODE})"
           echo "   Total updates: $${UPDATE_COUNT}, Errors: $${ERROR_COUNT}"
+
+          # ⬇️ ensure /health survives any “replace” semantics
+          add_health_check
         else
           ERROR_COUNT=$((ERROR_COUNT + 1))
           echo "❌ [$$(now)] Failed to update MockServer (HTTP $${HTTP_CODE})"
@@ -354,8 +360,6 @@ resource "aws_ecs_task_definition" "mockserver" {
       { name = "AWS_DEFAULT_REGION", value = var.region },
       { name = "S3_BUCKET",          value = local.s3_config.bucket_name },
       { name = "PROJECT_NAME",       value = var.project_name },
-      # Optional overrides:
-      # { name = "CONFIG_PATH",        value = "configs/${var.project_name}/current.json" },
       { name = "MOCKSERVER_URL",     value = "http://localhost:1080" },
       { name = "POLL_INTERVAL",      value = "30" }
     ]
@@ -385,8 +389,8 @@ resource "aws_ecs_service" "mockserver" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = aws_subnet.private[*].id
-    security_groups  = [aws_security_group.ecs_tasks.id]
+    subnets          = local.private_subnet_ids_resolved          # CHANGED
+    security_groups  = local.ecs_security_group_ids_resolved      # CHANGED
     assign_public_ip = false
   }
 
@@ -415,8 +419,7 @@ resource "aws_ecs_service" "mockserver" {
   })
 
   depends_on = [
-    aws_lb_listener.https_api,
-    aws_iam_role_policy.s3_read_config
+    aws_lb_listener.https_api
   ]
 }
 
@@ -544,7 +547,7 @@ resource "aws_appautoscaling_policy" "request_step_scaling" {
   policy_type        = "StepScaling"
   resource_id        = aws_appautoscaling_target.ecs_service.resource_id
   scalable_dimension = aws_appautoscaling_target.ecs_service.scalable_dimension
-  service_namespace  = aws_appautoscaling_target.ecs_service.service_namespace
+  service_namespace  = "ecs"
 
   step_scaling_policy_configuration {
     adjustment_type         = "PercentChangeInCapacity"
@@ -593,7 +596,7 @@ resource "aws_appautoscaling_policy" "scale_down" {
   policy_type        = "StepScaling"
   resource_id        = aws_appautoscaling_target.ecs_service.resource_id
   scalable_dimension = aws_appautoscaling_target.ecs_service.scalable_dimension
-  service_namespace  = aws_appautoscaling_target.ecs_service.service_namespace
+  service_namespace  = "ecs"
 
   step_scaling_policy_configuration {
     adjustment_type         = "PercentChangeInCapacity"

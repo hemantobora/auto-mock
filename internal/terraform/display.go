@@ -93,11 +93,11 @@ func DisplayDestroyConfirmation(projectName string) {
 	fmt.Printf("You are about to PERMANENTLY DELETE all infrastructure for project: %s\n", projectName)
 	fmt.Println()
 	fmt.Println("This will delete:")
-	fmt.Println("  - ECS Cluster and Service")
+	fmt.Println("  - Application Service")
 	fmt.Println("  - Application Load Balancer")
-	fmt.Println("  - VPC and Networking Resources")
-	fmt.Println("  - Storage Configuration Bucket (and all data)")
-	fmt.Println("  - CloudWatch Logs")
+	fmt.Println("  - Networking Resources (if created)")
+	fmt.Println("  - Storage Configuration (and all data)")
+	fmt.Println("  - Application Logs")
 	fmt.Println()
 	fmt.Println("THIS ACTION CANNOT BE UNDONE!")
 	fmt.Println()
@@ -113,8 +113,6 @@ func DisplayDestroyResults(projectName string, success bool) {
 		fmt.Println()
 		fmt.Printf("All infrastructure for project '%s' has been deleted.\n", projectName)
 		fmt.Println()
-		fmt.Println("Estimated monthly cost savings: ~$93")
-		fmt.Println()
 	} else {
 		fmt.Println(strings.Repeat("!", 80))
 		fmt.Println("  INFRASTRUCTURE DESTRUCTION FAILED")
@@ -124,59 +122,6 @@ func DisplayDestroyResults(projectName string, success bool) {
 		fmt.Println("Please check your AWS console and manually delete remaining resources.")
 		fmt.Println()
 	}
-}
-
-// DisplayCostEstimateWithSize prints an approximate monthly cost for us-east-1,
-// using your size map -> (cpu units, memory MiB). Assumes 1 ALB, 1 NAT, etc.
-func DisplayAwsCostEstimate(options DeploymentOptions) {
-	fmt.Println()
-	fmt.Println("APPROX. COST ESTIMATE (us-east-1):")
-
-	// --- Assumed unit prices (rounded, us-east-1) ---
-	const (
-		hoursPerMonth = 730.0
-		// Fargate Linux/x86 pricing (per hour):
-		fargatePerVCPUHour = 0.04048
-		fargatePerGBHour   = 0.004445
-
-		// Simple add-ons (you can tune these defaults as needed):
-		albMonthly  = 20.00 // 1 ALB: hourly + a modest LCU buffer
-		natMonthly  = 32.85 // 1 NAT gateway hourly (no per-GB here)
-		dataMonthly = 1.80  // ~20 GB egress @ $0.09/GB
-		storageLogs = 2.70  // CloudWatch logs + S3 small foot-print
-	)
-
-	// Convert ECS CPU units/MiB -> vCPU/GB
-	vCPU := float64(options.CPUUnits) / 1024.0
-	memGB := float64(options.MemoryUnits) / 1024.0
-
-	// Per-task hourly (Fargate compute)
-	perTaskHour := vCPU*fargatePerVCPUHour + memGB*fargatePerGBHour
-
-	// Base compute (24/7 @ minTasks)
-	baseMonthly := float64(options.MinTasks) * perTaskHour * hoursPerMonth
-
-	totalMonthly := baseMonthly + albMonthly + natMonthly + dataMonthly + storageLogs
-
-	fmt.Printf("  Base (24/7, %d x %s @ %.2fvCPU/%.1fGB):  				$%.2f/month\n",
-		options.MinTasks, options.InstanceSize, vCPU, memGB, baseMonthly)
-	fmt.Printf("  ALB (1x):                                				$%.2f/month\n", albMonthly)
-	fmt.Printf("  NAT Gateway (1x):                        				$%.2f/month\n", natMonthly)
-	fmt.Printf("  Data Transfer (assumed ~20 GB egress @ $0.09/GB):                 	$%.2f/month\n", dataMonthly)
-	fmt.Printf("  Storage & Logs (assumed < 1 GB):                			$%.2f/month\n", storageLogs)
-	fmt.Printf("  -----------------------------------------------------------------------------\n")
-	fmt.Printf("  Total:                                   				$%.2f/month\n", totalMonthly)
-	fmt.Println()
-
-	if options.MaxTasks > options.MinTasks {
-		peakHourly := float64(options.MaxTasks) * perTaskHour
-		fmt.Printf("  Note: Auto-scaling may increase cost up to %d tasks\n", options.MaxTasks)
-		fmt.Printf("        Peak compute hourly:               				$%.3f/hour\n", peakHourly)
-		fmt.Println()
-	}
-
-	fmt.Printf("  (Assumes us-east-1 Fargate: $%.5f/vCPU-hr + $%.5f/GB-hr; ALB/NAT/Data/Logs are rough)\n",
-		fargatePerVCPUHour, fargatePerGBHour)
 }
 
 // DisplayTerraformVersion shows Terraform version info

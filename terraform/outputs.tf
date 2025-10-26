@@ -86,17 +86,3 @@ output "infrastructure_summary" {
     }
   }
 }
-
-output "cost_estimate" {
-  description = "Estimated monthly cost breakdown"
-  value = {
-    note = "Estimates based on us-east-1 pricing"
-    components = {
-      ecs_fargate_monthly  = "$864.00 (10 tasks, 24/7)"
-      alb_monthly          = "$16.00"
-      nat_gateway_monthly  = "$64.00 (2 NAT gateways)"
-      data_transfer_monthly = "$9.00 (estimated)"
-      total_monthly        = "$953.00"
-    }
-  }
-}

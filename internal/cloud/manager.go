@@ -85,7 +85,7 @@ func (m *CloudManager) AutoDetectProvider(profile string) error {
 	if err != nil {
 		return err
 	}
-	m.Provider = *provider
+	m.Provider = provider
 	return nil
 }
 
@@ -282,8 +282,18 @@ func (m *CloudManager) generateMockExpectations(cliContext *CLIContext) (string,
 func (m *CloudManager) destroyInfrastructureAndDeleteProject() error {
 	fmt.Println("\n🗑️  Deleting project...")
 
-	// TODO: Tear down infrastructure when implemented
-	fmt.Println("   • Infrastructure teardown (placeholder)")
+	// Create Terraform manager
+	destroyer, err := terraform.NewManager(m.getCurrentProject(), m.profile, m.getCloudProvider())
+	if err != nil {
+		return fmt.Errorf("failed to create terraform manager: %w", err)
+	}
+
+	// Destroy infrastructure
+	fmt.Println("\nDestroying infrastructure...")
+	err = destroyer.Destroy()
+	if err != nil {
+		return err
+	}
 
 	if err := m.Provider.DeleteConfig(context.Background(), m.getCurrentProject()); err != nil {
 		return fmt.Errorf("failed to delete project data: %w", err)
@@ -421,7 +431,6 @@ func (m *CloudManager) handleGeneratedMock(mockConfiguration string, profile str
 			Options: []string{
 				"save - Save the expectation file",
 				"view - View full JSON configuration",
-				"deploy - Deploy complete infrastructure (ECS + ALB)",
 				"local - Start MockServer locally",
 				"exit - Exit without saving",
 			},
@@ -434,17 +443,6 @@ func (m *CloudManager) handleGeneratedMock(mockConfiguration string, profile str
 		switch models.ActionType(action) {
 		case models.ActionSave:
 			return m.saveToFile(mockConfiguration)
-		case models.ActionDeploy:
-			if err := m.saveToFile(mockConfiguration); err != nil {
-				return fmt.Errorf("failed to save expectations: %w", err)
-			}
-			// Then deploy infrastructure
-			options := &terraform.DeploymentOptions{
-				MinTasks: 10,
-				MaxTasks: 200,
-			}
-			deploy := repl.NewDeployment(m.getCurrentProject(), profile, m.getCloudProvider(), options)
-			return deploy.DeployInfrastructureWithTerraform(false)
 		case models.ActionLocal:
 			return startLocalMockServer(mockConfiguration, m.getCurrentProject())
 		case models.ActionView:
