@@ -76,7 +76,7 @@ func (p *Provider) CreateDeploymentConfiguration() *models.DeploymentOptions {
 	options.ProjectName = p.GetProjectName()
 	options.Region = p.GetRegion()
 	options.BucketName = p.BucketName
-
+	options.Provider = p.GetProviderType()
 	// ── 3) Final confirmation/review ─────────────────────────────────────────
 	promptDeploymentOptionsREPL(options)
 	return options
@@ -89,5 +89,6 @@ func (p *Provider) CreateDefaultDeploymentConfiguration() *models.DeploymentOpti
 		Region:       p.GetRegion(),
 		BucketName:   p.BucketName,
 		ProjectName:  p.GetProjectName(),
+		Provider:     p.GetProviderType(),
 	}
 }

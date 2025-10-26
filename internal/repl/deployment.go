@@ -47,6 +47,7 @@ func (d *Deployment) DeployInfrastructureWithTerraform(skip_confirmation bool) e
 
 	// Optional: show cost estimate (AWS)
 	d.Provider.DisplayCostEstimate(options)
+	fmt.Println()
 
 	// ── 4) Confirm ────────────────────────────────────────────────────────────
 	if !skip_confirmation {
@@ -72,7 +73,6 @@ func (d *Deployment) DeployInfrastructureWithTerraform(skip_confirmation bool) e
 		return fmt.Errorf("deployment failed: %w", err)
 	}
 
-	// ── 7) Show results ───────────────────────────────────────────────────────
-	terraform.DisplayDeploymentResults(outputs, d.ProjectName)
+	d.Provider.SaveDeploymentMetadata(outputs)
 	return nil
 }

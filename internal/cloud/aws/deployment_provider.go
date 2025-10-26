@@ -13,8 +13,16 @@ import (
 )
 
 // SaveDeploymentMetadata saves deployment metadata to S3
-func (p *Provider) SaveDeploymentMetadata(ctx context.Context, metadata *models.DeploymentMetadata) error {
+func (p *Provider) SaveDeploymentMetadata(output *models.InfrastructureOutputs) error {
 	key := "deployment-metadata.json"
+
+	// Build metadata
+	metadata := &models.DeploymentMetadata{
+		ProjectName:      p.projectID,
+		DeploymentStatus: "deployed",
+		DeployedAt:       time.Now(),
+		Details:          *output,
+	}
 
 	// Marshal to JSON
 	data, err := json.MarshalIndent(metadata, "", "  ")
@@ -23,7 +31,7 @@ func (p *Provider) SaveDeploymentMetadata(ctx context.Context, metadata *models.
 	}
 
 	// Upload to S3 using putObject helper
-	if err := p.putObject(ctx, key, data, "application/json"); err != nil {
+	if err := p.putObject(context.Background(), key, data, "application/json"); err != nil {
 		return fmt.Errorf("failed to upload metadata: %w", err)
 	}
 
@@ -31,11 +39,11 @@ func (p *Provider) SaveDeploymentMetadata(ctx context.Context, metadata *models.
 }
 
 // GetDeploymentMetadata retrieves deployment metadata from S3
-func (p *Provider) GetDeploymentMetadata(ctx context.Context) (*models.DeploymentMetadata, error) {
+func (p *Provider) GetDeploymentMetadata() (*models.DeploymentMetadata, error) {
 	key := "deployment-metadata.json"
 
 	// Download from S3
-	result, err := p.S3Client.GetObject(ctx, &s3.GetObjectInput{
+	result, err := p.S3Client.GetObject(context.Background(), &s3.GetObjectInput{
 		Bucket: aws.String(p.BucketName),
 		Key:    aws.String(key),
 	})
@@ -58,36 +66,11 @@ func (p *Provider) GetDeploymentMetadata(ctx context.Context) (*models.Deploymen
 	return &metadata, nil
 }
 
-// UpdateDeploymentStatus updates only the deployment status
-func (p *Provider) UpdateDeploymentStatus(ctx context.Context, status string) error {
-	// Get existing metadata
-	metadata, err := p.GetDeploymentMetadata(ctx)
-	if err != nil {
-		// If doesn't exist, create new
-		metadata = &models.DeploymentMetadata{
-			ProjectName:      p.BucketName,
-			DeploymentStatus: status,
-		}
-	} else {
-		metadata.DeploymentStatus = status
-	}
-
-	// Update timestamps
-	switch status {
-	case "deployed":
-		metadata.DeployedAt = time.Now()
-	case "destroyed":
-		metadata.DestroyedAt = time.Now()
-	}
-
-	return p.SaveDeploymentMetadata(ctx, metadata)
-}
-
 // DeleteDeploymentMetadata removes deployment metadata from S3
-func (p *Provider) DeleteDeploymentMetadata(ctx context.Context) error {
+func (p *Provider) DeleteDeploymentMetadata() error {
 	key := "deployment-metadata.json"
 
-	_, err := p.S3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+	_, err := p.S3Client.DeleteObject(context.Background(), &s3.DeleteObjectInput{
 		Bucket: aws.String(p.BucketName),
 		Key:    aws.String(key),
 	})
@@ -96,8 +79,8 @@ func (p *Provider) DeleteDeploymentMetadata(ctx context.Context) error {
 }
 
 // IsDeployed checks if infrastructure is currently deployed
-func (p *Provider) IsDeployed(ctx context.Context) (bool, error) {
-	metadata, err := p.GetDeploymentMetadata(ctx)
+func (p *Provider) IsDeployed() (bool, error) {
+	metadata, err := p.GetDeploymentMetadata()
 	if err != nil {
 		// If metadata doesn't exist, infrastructure is not deployed
 		return false, nil

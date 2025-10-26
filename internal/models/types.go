@@ -2,7 +2,7 @@ package models
 
 type Capability struct {
 	Networking struct {
-		VPC, Subnets, IGW, NAT, SG bool
+		VPC, SG bool
 	}
 	// NEW: separate IAM capability (was incorrectly inferred from TLS before)
 	IAM struct{ Roles bool }
@@ -27,9 +27,9 @@ type UseExisting struct {
 func (cap Capability) DeriveUseExisting() UseExisting {
 	return UseExisting{
 		VPC:     !cap.Networking.VPC,
-		Subnets: !cap.Networking.Subnets,
-		IGW:     !cap.Networking.IGW,
-		NAT:     !cap.Networking.NAT,
+		Subnets: !cap.Networking.VPC,
+		IGW:     !cap.Networking.VPC,
+		NAT:     !cap.Networking.VPC,
 		SG:      !cap.Networking.SG,
 
 		IAM: !cap.IAM.Roles,

@@ -35,16 +35,6 @@ func DefaultDeploymentOptions() *models.DeploymentOptions {
 	}
 }
 
-// InfrastructureOutputs contains Terraform outputs after deployment
-type InfrastructureOutputs struct {
-	MockServerURL         string                 `json:"mockserver_url"`
-	DashboardURL          string                 `json:"dashboard_url"`
-	ConfigBucket          string                 `json:"config_bucket"`
-	IntegrationSummary    map[string]interface{} `json:"integration_summary"`
-	CLICommands           map[string]string      `json:"cli_integration_commands"`
-	InfrastructureSummary map[string]interface{} `json:"infrastructure_summary"`
-}
-
 // NewManager creates a new Terraform manager
 func NewManager(cleanProject, profile string, provider internal.Provider) (*Manager, error) {
 
@@ -153,11 +143,6 @@ func (m *Manager) Deploy(options *models.DeploymentOptions) (*InfrastructureOutp
 	outputs, err := m.getOutputs()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get terraform outputs: %w", err)
-	}
-
-	// Step 7: Save deployment metadata
-	if err := m.saveDeploymentMetadata(outputs, options); err != nil {
-		fmt.Printf("⚠️  Warning: Failed to save deployment metadata: %v\n", err)
 	}
 
 	fmt.Printf("✅ Infrastructure deployed successfully for project: %s\n", m.ProjectName)

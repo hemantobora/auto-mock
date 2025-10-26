@@ -9,24 +9,20 @@ import (
 
 // DeploymentMetadata tracks infrastructure deployment information
 type DeploymentMetadata struct {
-	ProjectName      string                 `json:"project_name"`
-	DeploymentStatus string                 `json:"deployment_status"` // none, deploying, deployed, failed, destroyed
-	DeployedAt       time.Time              `json:"deployed_at,omitempty"`
-	DestroyedAt      time.Time              `json:"destroyed_at,omitempty"`
-	Infrastructure   InfrastructureInfo     `json:"infrastructure"`
-	Options          DeploymentOptions      `json:"options"`
-	Outputs          map[string]interface{} `json:"outputs,omitempty"`
+	ProjectName      string                `json:"project_name"`
+	DeploymentStatus string                `json:"deployment_status"` // none, deploying, deployed, failed, destroyed
+	DeployedAt       time.Time             `json:"deployed_at,omitempty"`
+	Details          InfrastructureOutputs `json:"details,omitempty"`
 }
 
-// InfrastructureInfo contains details about deployed resources
-type InfrastructureInfo struct {
-	ClusterName   string `json:"cluster_name"`
-	ServiceName   string `json:"service_name"`
-	ALBDNS        string `json:"alb_dns"`
-	MockServerURL string `json:"mockserver_url"`
-	DashboardURL  string `json:"dashboard_url"`
-	VPCId         string `json:"vpc_id"`
-	Region        string `json:"region"`
+// InfrastructureOutputs contains Terraform outputs after deployment
+type InfrastructureOutputs struct {
+	MockServerURL         string                 `json:"mockserver_url"`
+	DashboardURL          string                 `json:"dashboard_url"`
+	ConfigBucket          string                 `json:"config_bucket"`
+	IntegrationSummary    map[string]interface{} `json:"integration_summary"`
+	CLICommands           map[string]string      `json:"cli_integration_commands"`
+	InfrastructureSummary map[string]interface{} `json:"infrastructure_summary"`
 }
 
 // DeploymentOptions configures the infrastructure deployment
@@ -62,6 +58,7 @@ type DeploymentOptions struct {
 	ProjectName string `json:"-"`
 	Region      string `json:"-"`
 	BucketName  string `json:"-"`
+	Provider    string `json:"provider,omitempty"`
 }
 
 // CreateTerraformVars renders terraform.tfvars as HCL based on DeploymentOptions.
@@ -76,11 +73,13 @@ project_name         = "%s"
 aws_region           = "%s"
 instance_size        = "%s"
 existing_bucket_name = "%s"
+cloud_provider       = "%s"
 `,
 		d.ProjectName,
 		d.Region,
 		d.InstanceSize,
 		d.BucketName,
+		d.Provider,
 	)
 
 	// Sizing

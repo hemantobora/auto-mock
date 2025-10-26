@@ -167,3 +167,9 @@ variable "task_role_arn" {
   type        = string
   default     = ""
 }
+
+variable "cloud_provider" {
+  description = "Cloud provider for the infrastructure"
+  type        = string
+  default     = "aws"
+}

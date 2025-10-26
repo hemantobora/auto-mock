@@ -353,43 +353,34 @@ func (p *Provider) promptCapabilityAndInputs(ctx context.Context) (*models.Capab
 func promptCapabilitiesSurvey(identity string) (Capability, error) {
 	var cap Capability
 
-	// top banner (no input)
-	fmt.Printf("\nUsing identity: %s\n", identity)
-	fmt.Println("Select what this identity can CREATE (press space to select, enter to confirm).")
-	fmt.Println("If you leave something unchecked, I'll ask you for IDs to use existing resources.")
+	// 🪪 Identity Banner
+	fmt.Printf("\n👤 Using AWS identity: %s\n", identity)
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("✨ Let's review what this identity can create automatically.")
+	fmt.Println("🔹 The tool assumes this identity is a Power User with permission to create all resources by default.")
+	fmt.Println("🔹 Use SPACE to unselect any resources you want to BYO (Bring Your Own) instead of letting Terraform create them.")
+	fmt.Println("🔹 If creation isn’t allowed for this identity, uncheck it — I’ll then prompt you for the required IDs (VPC, Subnets, SGs, etc).")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
 
 	// Networking
 	netChoices := []string{
-		"VPC",
-		"Subnets",
-		"Internet Gateway (IGW)",
-		"NAT Gateway (+EIP)",
+		"Networks, especially VPC with DNS resolution, Subnets, IGW, NAT Gateway",
 		"Security Groups",
+		"IAM roles for ECS (execution & task)",
 	}
 	var netSel []string
 	if err := survey.AskOne(&survey.MultiSelect{
-		Message: "Networking (CREATE permissions):",
+		Message: "Networking & IAM Resources (CREATE permissions):",
 		Options: netChoices,
 		Default: netChoices, // sane default: assume greenfield
 	}, &netSel); err != nil {
 		return cap, err
 	}
 	has := func(s string) bool { return contains(netSel, s) }
-	cap.Networking.VPC = has("VPC")
-	cap.Networking.Subnets = has("Subnets")
-	cap.Networking.IGW = has("Internet Gateway (IGW)")
-	cap.Networking.NAT = has("NAT Gateway (+EIP)")
+	cap.Networking.VPC = has("Networks, especially VPC with DNS resolution, Subnets, IGW, NAT Gateway")
 	cap.Networking.SG = has("Security Groups")
-
-	// IAM (roles)
-	var iamOK bool
-	if err := survey.AskOne(&survey.Confirm{
-		Message: "Can this identity CREATE IAM roles for ECS (execution & task)?",
-		Default: true,
-	}, &iamOK); err != nil {
-		return cap, err
-	}
-	cap.IAM.Roles = iamOK
+	cap.IAM.Roles = has("IAM roles for ECS (execution & task)")
 
 	return cap, nil
 }
@@ -414,7 +405,7 @@ func promptInputsForMissingSurvey(cap Capability) (Inputs, error) {
 		}
 	}
 
-	if !cap.Networking.Subnets {
+	if !cap.Networking.VPC {
 		var pubCSV, privCSV string
 		if err := survey.AskOne(&survey.Input{
 			Message: "Public Subnet IDs (comma-separated)",
@@ -436,7 +427,7 @@ func promptInputsForMissingSurvey(cap Capability) (Inputs, error) {
 		in.PrivateSubnets = splitCSV(privCSV)
 	}
 
-	if !cap.Networking.IGW {
+	if !cap.Networking.VPC {
 		if err := survey.AskOne(&survey.Input{
 			Message: "Internet Gateway ID (igw-xxxx)]",
 		}, &in.InternetGatewayID, survey.WithValidator(func(ans interface{}) error {
@@ -446,7 +437,7 @@ func promptInputsForMissingSurvey(cap Capability) (Inputs, error) {
 		}
 	}
 
-	if !cap.Networking.NAT {
+	if !cap.Networking.VPC {
 		var natCSV string
 		if err := survey.AskOne(&survey.Input{
 			Message: "NAT Gateway IDs (comma-separated)",

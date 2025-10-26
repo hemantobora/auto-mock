@@ -44,10 +44,10 @@ type Provider interface {
 	DeleteProject() error
 
 	// Deployment metadata management
-	SaveDeploymentMetadata(ctx context.Context, metadata *models.DeploymentMetadata) error
-	GetDeploymentMetadata(ctx context.Context) (*models.DeploymentMetadata, error)
-	DeleteDeploymentMetadata(ctx context.Context) error
-	UpdateDeploymentStatus(ctx context.Context, status string) error
+	SaveDeploymentMetadata(metadata *models.InfrastructureOutputs) error
+	GetDeploymentMetadata() (*models.DeploymentMetadata, error)
+	DeleteDeploymentMetadata() error
+	IsDeployed() (bool, error)
 
 	CreateDeploymentConfiguration() *models.DeploymentOptions
 	DisplayCostEstimate(options *models.DeploymentOptions)

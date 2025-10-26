@@ -5,77 +5,11 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
-// DisplayDeploymentResults shows a formatted summary of the infrastructure deployment
-func DisplayDeploymentResults(outputs *InfrastructureOutputs, projectName string) {
-	fmt.Println()
-	fmt.Println(strings.Repeat("=", 80))
-	fmt.Println("  INFRASTRUCTURE DEPLOYMENT SUCCESSFUL")
-	fmt.Println(strings.Repeat("=", 80))
-	fmt.Println()
-
-	// Project Information
-	fmt.Println("PROJECT DETAILS:")
-	fmt.Printf("  Name:        %s\n", projectName)
-
-	if _, ok := outputs.InfrastructureSummary["project"].(string); ok {
-		fmt.Printf("  Region:      %s\n", outputs.InfrastructureSummary["region"])
-	}
-	fmt.Println()
-
-	// Endpoints
-	fmt.Println("ENDPOINTS:")
-	fmt.Printf("  MockServer API:   %s\n", outputs.MockServerURL)
-	fmt.Printf("  Dashboard:        %s\n", outputs.DashboardURL)
-	fmt.Println()
-
-	// Infrastructure Summary
-	if compute, ok := outputs.InfrastructureSummary["compute"].(map[string]interface{}); ok {
-		fmt.Println("COMPUTE RESOURCES:")
-		fmt.Printf("  ECS Cluster:      %s\n", compute["cluster"])
-		fmt.Printf("  ECS Service:      %s\n", compute["service"])
-		fmt.Printf("  Instance Size:    %s\n", compute["instance_size"])
-		fmt.Printf("  Task Count:       %v (min: %v, max: %v)\n",
-			compute["current_tasks"], compute["min_tasks"], compute["max_tasks"])
-		fmt.Println()
-	}
-
-	// Storage
-	fmt.Println("STORAGE:")
-	fmt.Printf("  Config Bucket:    %s\n", outputs.ConfigBucket)
-	fmt.Println()
-
-	// Quick Start Commands
-	fmt.Println("QUICK START:")
-	fmt.Println("  Health Check:")
-	if cmd, ok := outputs.CLICommands["health_check"]; ok {
-		fmt.Printf("    %s\n", cmd)
-	}
-	fmt.Println()
-	fmt.Println("  View Expectations:")
-	if cmd, ok := outputs.CLICommands["list_expectations"]; ok {
-		fmt.Printf("    %s\n", cmd)
-	}
-	fmt.Println()
-
-	// Management Commands
-	fmt.Println("MANAGEMENT:")
-	if integration, ok := outputs.IntegrationSummary["upload_command"].(string); ok {
-		fmt.Println("  Upload new expectations:")
-		fmt.Printf("    %s\n", integration)
-		fmt.Println()
-	}
-
-	if cmd, ok := outputs.CLICommands["view_logs"]; ok {
-		fmt.Println("  View logs:")
-		fmt.Printf("    %s\n", cmd)
-		fmt.Println()
-	}
-
-	fmt.Println(strings.Repeat("=", 80))
-	fmt.Println()
-}
+type InfrastructureOutputs = models.InfrastructureOutputs
 
 // DisplayDeploymentProgress shows progress during deployment
 func DisplayDeploymentProgress(stage string, message string) {

@@ -63,17 +63,20 @@ data "aws_s3_bucket" "config" {
 
 # State Backend Module (creates S3 + DynamoDB for Terraform state)
 module "state_backend" {
-  source = "./modules/state-backend"
+  count  = (var.cloud_provider == "aws" && var.create_state_backend) ? 1 : 0
 
-  count = var.create_state_backend ? 1 : 0
+  # pin a tag/sha for reproducibility
+  source = "git::https://github.com/hemantobora/automock-terraform.git//modules/aws/state-backend"
 
   region = var.aws_region
   tags   = local.common_tags
 }
 
+
 # ECS Infrastructure Module (VPC, ALB, ECS, Auto-Scaling)
 module "ecs_infrastructure" {
-  source = "./modules/automock-ecs"
+  count  = var.cloud_provider == "aws" ? 1 : 0
+  source = "git::https://github.com/hemantobora/automock-terraform.git//modules/aws/ecs"
 
   project_name  = var.project_name
   region        = var.aws_region
