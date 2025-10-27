@@ -79,26 +79,3 @@ func DisplayValidationErrors(errors []string) {
 	fmt.Println("Please fix the above errors and try again.")
 	fmt.Println()
 }
-
-// DisplayStatusInfo shows current infrastructure status
-func DisplayStatusInfo(outputs *InfrastructureOutputs) {
-	fmt.Println()
-	fmt.Println(strings.Repeat("=", 80))
-	fmt.Println("  INFRASTRUCTURE STATUS")
-	fmt.Println(strings.Repeat("=", 80))
-	fmt.Println()
-
-	// Basic info
-	if summary, ok := outputs.InfrastructureSummary["compute"].(map[string]interface{}); ok {
-		fmt.Printf("Cluster:      %s\n", summary["cluster"])
-		fmt.Printf("Service:      %s\n", summary["service"])
-		fmt.Printf("Tasks:        %v/%v running\n", summary["current_tasks"], summary["max_tasks"])
-	}
-
-	fmt.Printf("API Endpoint: %s\n", outputs.MockServerURL)
-	fmt.Printf("Dashboard:    %s\n", outputs.DashboardURL)
-
-	fmt.Println()
-	fmt.Println(strings.Repeat("=", 80))
-	fmt.Println()
-}

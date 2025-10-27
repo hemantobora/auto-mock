@@ -93,7 +93,7 @@ func SelectProjectAction(projectName string, existingConfig *models.MockConfigur
 			"edit - Edit a particular expectation (modify method, path, response, etc.)",
 			"remove - Remove specific expectations while keeping others",
 			"replace - Replace ALL existing expectations with new ones",
-			"delete - Delete the entire project and tear down infrastructure",
+			"delete - Delete the entire project and tear down infrastructure (if running)",
 			"cancel - Cancel the operation and exit",
 		}
 	} else {

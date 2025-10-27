@@ -122,7 +122,7 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 		fmt.Printf("➕ Adding new expectations to project: %s\n", project)
 		return m.addMockConfiguration(cliContext, existingConfig)
 	case models.ActionView:
-		fmt.Printf("👁️  Viewing expectations for project: %s\n", project)
+		fmt.Printf("👁️ Viewing expectations for project: %s\n", project)
 		if err := expManager.ViewExpectations(existingConfig); err != nil {
 			return fmt.Errorf("view failed: %w", err)
 		}
@@ -288,18 +288,19 @@ func (m *CloudManager) destroyInfrastructureAndDeleteProject() error {
 		return fmt.Errorf("failed to create terraform manager: %w", err)
 	}
 
-	// Destroy infrastructure
-	fmt.Println("\nDestroying infrastructure...")
-	err = destroyer.Destroy()
-	if err != nil {
-		return err
+	fmt.Println("🔄 Checking infrastructure status...")
+	status, _ := m.Provider.IsDeployed()
+	if status {
+		// Destroy infrastructure
+		fmt.Println("\nDestroying infrastructure...")
+		err = destroyer.Destroy()
+		if err != nil {
+			return err
+		}
 	}
-
-	if err := m.Provider.DeleteConfig(context.Background(), m.getCurrentProject()); err != nil {
+	if err := m.Provider.DeleteProject(m.getCurrentProject()); err != nil {
 		return fmt.Errorf("failed to delete project data: %w", err)
 	}
-
-	fmt.Printf("✅ Project '%s' deleted successfully!\n", m.getCurrentProject())
 	return nil
 }
 
@@ -341,13 +342,11 @@ func (m *CloudManager) handleRemoveExpectations(expManager *expectations.Expecta
 		fmt.Println("   • Clearing expectation file")
 
 		// Delete the configuration (empties the project)
-		if err := m.Provider.DeleteConfig(ctx, m.getCurrentProject()); err != nil {
+		if err := m.Provider.DeleteProject(m.getCurrentProject()); err != nil {
 			return fmt.Errorf("failed to clear expectations: %w", err)
 		}
 
 		fmt.Printf("\n✅ All expectations removed successfully!\n")
-		fmt.Printf("📁 Project '%s' is now empty but still exists\n", m.getCurrentProject())
-		fmt.Println("💡 You can add new expectations anytime using 'automock init'")
 		return nil
 	}
 

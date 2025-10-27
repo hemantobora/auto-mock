@@ -20,7 +20,7 @@ func (p *Provider) SaveDeploymentMetadata(output *models.InfrastructureOutputs) 
 	metadata := &models.DeploymentMetadata{
 		ProjectName:      p.projectID,
 		DeploymentStatus: "deployed",
-		DeployedAt:       time.Now(),
+		DeployedAt:       time.Now().UTC(),
 		Details:          *output,
 	}
 
@@ -83,7 +83,7 @@ func (p *Provider) IsDeployed() (bool, error) {
 	metadata, err := p.GetDeploymentMetadata()
 	if err != nil {
 		// If metadata doesn't exist, infrastructure is not deployed
-		return false, nil
+		return false, err
 	}
 
 	return metadata.DeploymentStatus == "deployed", nil

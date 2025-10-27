@@ -13,7 +13,7 @@ type Provider interface {
 	SaveConfig(ctx context.Context, config *models.MockConfiguration) error
 	GetConfig(ctx context.Context, projectID string) (*models.MockConfiguration, error)
 	UpdateConfig(ctx context.Context, config *models.MockConfiguration) error
-	DeleteConfig(ctx context.Context, projectID string) error
+	DeleteProject(projectID string) error
 
 	// Versioning
 	SaveVersion(ctx context.Context, config *models.MockConfiguration, version string) error
@@ -39,9 +39,6 @@ type Provider interface {
 	SetStorageName(name string)
 	SetProjectName(name string)
 	GetRegion() string
-
-	// Cleanup
-	DeleteProject() error
 
 	// Deployment metadata management
 	SaveDeploymentMetadata(metadata *models.InfrastructureOutputs) error

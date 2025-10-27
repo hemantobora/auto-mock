@@ -177,6 +177,8 @@ func (m *Manager) Destroy() error {
 	}
 
 	fmt.Printf("✅ Infrastructure destroyed successfully for project: %s\n", m.ProjectName)
+
+	m.Provider.DeleteDeploymentMetadata()
 	return nil
 }
 

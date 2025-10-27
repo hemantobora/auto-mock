@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/hemantobora/auto-mock/internal/cloud"
@@ -340,44 +343,48 @@ func statusCommand(c *cli.Context) error {
 	if err := manager.AutoDetectProvider(profile); err != nil {
 		return err
 	}
-	// Create Terraform manager
-	status, err := terraform.NewManager(projectName, profile, manager.Provider)
-	if err != nil {
-		return fmt.Errorf("failed to create terraform manager: %w", err)
-	}
 
-	// Get current outputs (this requires terraform to be initialized)
-	// For now, we'll use a simpler approach - check AWS directly
-	outputs, err := status.GetCurrentStatus()
+	exists, _ := manager.Provider.ProjectExists(context.Background(), projectName)
+	if !exists {
+		fmt.Printf("No project found with name: %s\n", projectName)
+		fmt.Println("Run 'automock init' to create a new project.")
+		return nil
+	}
+	metadata, err := manager.Provider.GetDeploymentMetadata()
 	if err != nil {
-		// Infrastructure might not exist
-		fmt.Println("\nNo infrastructure found for this project.")
-		fmt.Println("Run 'automock deploy --project " + projectName + "' to create it.")
+		fmt.Printf("%q\n", err)
+		fmt.Println("No infrastructure found for this project.")
+		fmt.Println("Run 'automock deploy --project " + projectName + "' to create it if expectations exist. Otherwise, run 'automock init' first.")
 		return nil
 	}
 
-	// Display status
-	if detailed {
-		terraform.DisplayStatusInfo(outputs)
+	fmt.Println("\nInfrastructure is deployed with the following details:")
 
-		// Show additional details
-		if summary, ok := outputs.InfrastructureSummary["compute"].(map[string]interface{}); ok {
-			fmt.Println("\nDetailed Metrics:")
-			fmt.Printf("  Instance Size: %v\n", summary["instance_size"])
-			fmt.Printf("  Min Tasks:     %v\n", summary["min_tasks"])
-			fmt.Printf("  Max Tasks:     %v\n", summary["max_tasks"])
-			fmt.Printf("  Current Tasks: %v\n", summary["current_tasks"])
-		}
+	// Compute uptime and add deployment info
+	deployedAt := metadata.DeployedAt.UTC()
+	deployedLocal := deployedAt.Local()
+	uptime := time.Since(deployedAt).Hours()
 
-		// Show CLI commands
-		fmt.Println("\nManagement Commands:")
-		for name, cmd := range outputs.CLICommands {
-			fmt.Printf("  %s:\n    %s\n\n", name, cmd)
-		}
+	fmt.Printf("🕓 Deployed At (Local): %s\n", deployedLocal.Format("2006-01-02 15:04:05 MST"))
+	fmt.Printf("⏱️  Uptime: %.2f hours\n", uptime)
+	fmt.Println()
+
+	// Clear details for simple view
+	if !detailed {
+		metadata.Details = models.InfrastructureOutputs{}
+		fmt.Println("Summary Status:")
 	} else {
-		// Simple status
-		terraform.DisplayStatusInfo(outputs)
+		fmt.Println("Detailed Status:")
 	}
+
+	// Pretty-print JSON
+	jsonBytes, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		fmt.Printf("❌ Failed to marshal metadata: %v\n", err)
+		return err
+	}
+
+	fmt.Println(string(jsonBytes))
 
 	return nil
 }
