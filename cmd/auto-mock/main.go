@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/hemantobora/auto-mock/internal/client"
 	"github.com/hemantobora/auto-mock/internal/cloud"
 	"github.com/hemantobora/auto-mock/internal/models"
 	"github.com/hemantobora/auto-mock/internal/repl"
@@ -82,53 +83,6 @@ func main() {
 						Usage:    "Project name to deploy",
 						Required: true,
 					},
-					// === Compute Configuration ===
-					&cli.StringFlag{
-						Name:  "instance-size",
-						Usage: "Instance size (small, medium, large, xlarge)",
-						Value: "small",
-					},
-					&cli.IntFlag{
-						Name:  "min-tasks",
-						Usage: "Minimum number of tasks (Fargate instances)",
-						Value: 0,
-					},
-					&cli.IntFlag{
-						Name:  "max-tasks",
-						Usage: "Maximum number of tasks (Fargate instances)",
-						Value: 0,
-					},
-					// === Networking (BYO Resources) ===
-					&cli.StringFlag{
-						Name:  "vpc-id",
-						Usage: "Existing VPC ID to use (if lacking VPC creation permissions)",
-					},
-					&cli.StringFlag{
-						Name:  "public-subnet-ids",
-						Usage: "Comma-separated list of existing public subnet IDs (e.g., subnet-aaa,subnet-bbb)",
-					},
-					&cli.StringFlag{
-						Name:  "private-subnet-ids",
-						Usage: "Comma-separated list of existing private subnet IDs (e.g., subnet-aaa,subnet-bbb)",
-					},
-					&cli.StringFlag{
-						Name:  "security-group-ids",
-						Usage: "Comma-separated list of existing security group IDs (e.g., sg-xxx,sg-yyy)",
-					},
-					// === IAM Roles (BYO Resources) ===
-					&cli.StringFlag{
-						Name:  "execution-role-arn",
-						Usage: "Existing ECS task execution role ARN (if lacking IAM creation permissions)",
-					},
-					&cli.StringFlag{
-						Name:  "task-role-arn",
-						Usage: "Existing ECS task role ARN (if lacking IAM creation permissions)",
-					},
-					// === Certificates (BYO Resources) ===
-					&cli.StringFlag{
-						Name:  "certificate-arn",
-						Usage: "Existing ACM certificate ARN (if lacking certificate issuance permissions)",
-					},
 					// === Other Options ===
 					&cli.BoolFlag{
 						Name:  "skip-confirmation",
@@ -176,6 +130,37 @@ func main() {
 				},
 			},
 			{
+				Name:  "locust",
+				Usage: "Generate Locust load testing bundle from API collection",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:  "collection-file",
+						Usage: "Path to API collection file (Postman/Bruno/Insomnia)",
+					},
+					&cli.StringFlag{
+						Name:  "collection-type",
+						Usage: "Collection type (postman, bruno, insomnia) - required with --collection-file",
+					},
+					&cli.StringFlag{
+						Name:  "dir",
+						Usage: "Output directory for the generated Locust files",
+					},
+					&cli.BoolFlag{
+						Name:  "headless",
+						Usage: "Run Locust in headless mode (without UI)",
+						Value: false,
+					},
+					&cli.BoolFlag{
+						Name:  "distributed",
+						Usage: "Run Locust in distributed mode",
+						Value: false,
+					},
+				},
+				Action: func(c *cli.Context) error {
+					return locustCommand(c)
+				},
+			},
+			{
 				Name:   "help",
 				Usage:  "Show detailed help and supported features",
 				Action: showDetailedHelp,
@@ -191,6 +176,24 @@ func main() {
 	}
 }
 
+func locustCommand(c *cli.Context) error {
+	collectionType := c.String("collection-type")
+	collectionFile := c.String("collection-file")
+	outDir := c.String("dir")
+	headless := c.Bool("headless")
+	distributed := c.Bool("distributed")
+
+	options := &client.Options{
+		CollectionType:             collectionType,
+		CollectionPath:             collectionFile,
+		OutDir:                     outDir,
+		Headless:                   &headless,
+		GenerateDistributedHelpers: &distributed,
+	}
+
+	return client.GenerateLoadtestBundle(*options)
+}
+
 // deployCommand handles infrastructure deployment
 func deployCommand(c *cli.Context) error {
 	profile := c.String("profile")
@@ -199,51 +202,12 @@ func deployCommand(c *cli.Context) error {
 	fmt.Println("\nChecking Infrastructure Prerequisites")
 	fmt.Println(strings.Repeat("=", 80))
 
-	// Build deployment options from flags
-	options := &models.DeploymentOptions{
-		// Compute configuration
-		InstanceSize: c.String("instance-size"),
-		MinTasks:     c.Int("min-tasks"),
-		MaxTasks:     c.Int("max-tasks"),
-	}
-
-	// Parse networking BYO resources
-	if vpcID := c.String("vpc-id"); vpcID != "" {
-		options.UseExistingVPC = true
-		options.VpcID = vpcID
-
-		// Parse subnet IDs (comma-separated)
-		if subnetIDs := c.String("public-subnet-ids"); subnetIDs != "" {
-			options.PublicSubnetIDs = parseCommaSeparated(subnetIDs)
-		}
-
-		// Parse private subnet IDs (comma-separated)
-		if subnetIDs := c.String("private-subnet-ids"); subnetIDs != "" {
-			options.PrivateSubnetIDs = parseCommaSeparated(subnetIDs)
-		}
-
-		// Parse security group IDs (comma-separated)
-		if sgIDs := c.String("security-group-ids"); sgIDs != "" {
-			options.SecurityGroupIDs = parseCommaSeparated(sgIDs)
-		}
-	}
-
-	// Parse IAM role BYO resources
-	executionRoleARN := c.String("execution-role-arn")
-	taskRoleARN := c.String("task-role-arn")
-
-	if executionRoleARN != "" || taskRoleARN != "" {
-		options.UseExistingIAMRoles = true
-		options.ExecutionRoleARN = executionRoleARN
-		options.TaskRoleARN = taskRoleARN
-	}
-
 	manager := cloud.NewCloudManager(profile)
 	// Step 1: Validate cloud provider credentials
 	if err := manager.AutoDetectProvider(profile); err != nil {
 		return err
 	}
-	deployer := repl.NewDeployment(projectName, profile, manager.Provider, options)
+	deployer := repl.NewDeployment(projectName, profile, manager.Provider)
 	return deployer.DeployInfrastructureWithTerraform(c.Bool("skip-confirmation"))
 }
 

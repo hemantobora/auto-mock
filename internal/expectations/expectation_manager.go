@@ -540,25 +540,19 @@ func editResponseBody(expectation *models.MockExpectation) {
 	var editChoice string
 	if err := survey.AskOne(&survey.Select{
 		Message: "How would you like to edit the response body?",
-		Options: []string{"text - Edit as plain text", "json - Edit as JSON", "template - Use JSON template", "view - View current body"},
+		Options: []string{"json - Edit as JSON", "template - Use JSON template", "view - View current body"},
 	}, &editChoice); err == nil {
 		editChoice = strings.Split(editChoice, " ")[0]
 		switch editChoice {
 		case "view":
 			fmt.Printf("\nCurrent response body:\n%s\n\n", currentBody)
-		case "text":
-			editBodyAsText(expectation, currentBody)
 		case "json":
 			editBodyAsJSON(expectation, currentBody)
+		case "template":
+			if err := builders.GenerateResponseTemplate(expectation); err != nil {
+				fmt.Printf("❌ Failed to generate response template: %v\n", err)
+			}
 		}
-	}
-}
-
-func editBodyAsText(expectation *models.MockExpectation, currentBody string) {
-	var newBody string
-	if err := survey.AskOne(&survey.Multiline{Message: "Enter response body:", Default: currentBody}, &newBody); err == nil {
-		expectation.HttpResponse.Body = newBody
-		fmt.Println("✅ Updated response body")
 	}
 }
 
@@ -573,7 +567,10 @@ func editBodyAsJSON(expectation *models.MockExpectation, currentBody string) {
 	var newBody string
 	if err := survey.AskOne(&survey.Multiline{Message: "Enter JSON response body:", Default: prettyBody}, &newBody); err == nil {
 		if json.Unmarshal([]byte(newBody), &jsonData) == nil {
-			expectation.HttpResponse.Body = newBody
+			expectation.HttpResponse.Body = map[string]any{
+				"type": "JSON",
+				"json": jsonData,
+			}
 			fmt.Println("✅ Updated JSON response body")
 		} else {
 			fmt.Println("❌ Invalid JSON")

@@ -94,6 +94,7 @@ func SelectProjectAction(projectName string, existingConfig *models.MockConfigur
 			"remove - Remove specific expectations while keeping others",
 			"replace - Replace ALL existing expectations with new ones",
 			"delete - Delete the entire project and tear down infrastructure (if running)",
+			"add - Add new expectations to existing ones",
 			"cancel - Cancel the operation and exit",
 		}
 	} else {

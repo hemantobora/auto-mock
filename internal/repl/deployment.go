@@ -5,7 +5,6 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/hemantobora/auto-mock/internal"
-	"github.com/hemantobora/auto-mock/internal/models"
 	"github.com/hemantobora/auto-mock/internal/terraform"
 )
 
@@ -16,7 +15,7 @@ type Deployment struct {
 }
 
 // NewDeployment creates a new Deployment instance
-func NewDeployment(projectName, profile string, provider internal.Provider, options *models.DeploymentOptions) *Deployment {
+func NewDeployment(projectName, profile string, provider internal.Provider) *Deployment {
 	return &Deployment{
 		ProjectName: projectName,
 		Provider:    provider,

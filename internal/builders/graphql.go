@@ -68,6 +68,7 @@ func BuildGraphQLExpectationWithContext() (MockExpectation, error) {
 		exp.HttpResponse.StatusCode = 200
 	}
 	var mock_configurator MockConfigurator
+	mock_configurator.CollectResponseHeader(0, &exp)
 	mock_configurator.CollectAdvancedFeatures(0, &exp)
 
 	if err := ReviewGraphQLExpectation(&exp); err != nil {
