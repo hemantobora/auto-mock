@@ -445,6 +445,7 @@ func (mc *MockConfigurator) CollectResponseHeader(step int, exp *MockExpectation
 		if err := survey.AskOne(&survey.Input{
 			Message: "Header name (empty to finish):",
 			Help:    "e.g., 'Content-Type'",
+			Default: "Content-Type",
 		}, &headerName); err != nil {
 			return err
 		}
@@ -457,6 +458,7 @@ func (mc *MockConfigurator) CollectResponseHeader(step int, exp *MockExpectation
 		if err := survey.AskOne(&survey.Input{
 			Message: fmt.Sprintf("Value for '%s':", headerName),
 			Help:    "e.g., application/json",
+			Default: "application/json",
 		}, &headerValue); err != nil {
 			return err
 		}

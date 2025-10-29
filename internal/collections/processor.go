@@ -228,7 +228,6 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 				_ = json.Unmarshal([]byte(node.API.Body), &gql) // ok if fails; we’ll fallback
 			}
 			query, _ := gql["query"].(string)
-			opName, _ := gql["operationName"].(string)
 			vars, _ := gql["variables"].(map[string]any)
 
 			if isGET {
@@ -238,10 +237,6 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 				}
 				if query != "" {
 					expectation.HttpRequest.QueryStringParameters["query"] = []string{query}
-				}
-				if opName != "" {
-					expectation.HttpRequest.QueryStringParameters["operationName"] = []string{opName}
-					expectation.HttpRequest.Headers["X-GraphQL-Operation-Type"] = []any{opName}
 				}
 				if vars != nil {
 					b, _ := json.Marshal(vars)
@@ -261,7 +256,6 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 					_ = json.Unmarshal([]byte(node.API.Body), &tmp)
 					if m, ok := tmp.(map[string]any); ok {
 						query, _ = m["query"].(string)
-						opName, _ = m["operationName"].(string)
 						vars, _ = m["variables"].(map[string]any)
 					}
 				}
@@ -269,10 +263,6 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 				envelope := map[string]any{}
 				if query != "" {
 					envelope["query"] = query
-				}
-				if opName != "" {
-					envelope["operationName"] = opName
-					expectation.HttpRequest.Headers["X-GraphQL-Operation-Type"] = []any{opName}
 				}
 				if vars != nil {
 					envelope["variables"] = vars

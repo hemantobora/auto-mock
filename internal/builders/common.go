@@ -214,19 +214,6 @@ func ReviewGraphQLExpectation(exp *MockExpectation) error {
 	fmt.Println("\n🔄 Review and Confirm")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	// Optional custom header you sometimes set upstream
-	var opType string
-	if exp.HttpRequest != nil && exp.HttpRequest.Headers != nil {
-		if vals, ok := exp.HttpRequest.Headers["X-GraphQL-Operation-Type"]; ok && len(vals) > 0 {
-			switch v := vals[0].(type) {
-			case string:
-				opType = v
-			case map[string]string:
-				opType = v["regex"]
-			}
-		}
-	}
-
 	// Safe getters
 	method := ""
 	path := ""
@@ -243,12 +230,7 @@ func ReviewGraphQLExpectation(exp *MockExpectation) error {
 	// Count request headers excluding the optional op-type header
 	reqHeaderCount := 0
 	if exp.HttpRequest != nil && exp.HttpRequest.Headers != nil {
-		for k := range exp.HttpRequest.Headers {
-			if strings.EqualFold(k, "X-GraphQL-Operation-Type") {
-				continue
-			}
-			reqHeaderCount++
-		}
+		reqHeaderCount = len(exp.HttpRequest.Headers)
 	}
 
 	// Work out body match mode & whether variables are present
@@ -258,9 +240,6 @@ func ReviewGraphQLExpectation(exp *MockExpectation) error {
 	fmt.Printf("\n📋 GraphQL Expectation Summary:\n")
 	if exp.Description != "" {
 		fmt.Printf("   Description: %s\n", exp.Description)
-	}
-	if opType != "" {
-		fmt.Printf("   Operation Type: %s\n", opType)
 	}
 	fmt.Printf("   Endpoint: %s %s\n", method, path)
 	fmt.Printf("   Status Code: %d\n", status)

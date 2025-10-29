@@ -1,6 +1,7 @@
 package builders
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -239,20 +240,18 @@ func collectResponseBody(expectation *MockExpectation) error {
 		}
 
 		// Validate JSON
-		if err := ValidateJSON(responseJSON); err != nil {
-			fmt.Printf("⚠️  JSON validation failed: %v\n", err)
+		var temp interface{}
+		if err := json.Unmarshal([]byte(responseJSON), &temp); err != nil {
 			return &models.JSONValidationError{
-				Context: "response body",
+				Context: "JSON validation",
 				Content: responseJSON,
 				Cause:   err,
 			}
 		}
 
-		// Format and store JSON
-		formattedJSON, _ := FormatJSON(responseJSON)
 		expectation.HttpResponse.Body = map[string]any{
 			"type": "JSON",
-			"json": formattedJSON,
+			"json": temp,
 		}
 		fmt.Println("✅ Response body JSON configured")
 

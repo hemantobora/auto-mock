@@ -14,9 +14,7 @@ func BuildGraphQLExpectationWithContext() (MockExpectation, error) {
 	var exp MockExpectation
 	exp.HttpRequest = &HttpRequest{}
 	exp.HttpResponse = &HttpResponse{}
-	exp.HttpResponse.Headers = map[string][]string{
-		"Content-Type": {"application/json"},
-	}
+	exp.HttpResponse.Headers = make(map[string][]string)
 
 	fmt.Println("🧬 Starting GraphQL Expectation Builder (POST/GET JSON only)")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -34,7 +32,7 @@ func BuildGraphQLExpectationWithContext() (MockExpectation, error) {
 	exp.HttpRequest.Method = method
 
 	// Step 3: Collect operation shell (query + operationName)
-	gqlQuery, opName, err := collectGraphQLQueryAndOp()
+	gqlQuery, err := collectGraphQLQueryAndOp()
 	if err != nil {
 		return exp, err
 	}
@@ -47,9 +45,9 @@ func BuildGraphQLExpectationWithContext() (MockExpectation, error) {
 
 	// Step 5: Apply request matching model depending on method
 	if strings.EqualFold(method, "GET") {
-		applyGETRequest(exp.HttpRequest, gqlQuery, opName, variables)
+		applyGETRequest(exp.HttpRequest, gqlQuery, variables)
 	} else {
-		applyPOSTRequest(exp.HttpRequest, gqlQuery, opName, variables)
+		applyPOSTRequest(exp.HttpRequest, gqlQuery, variables)
 	}
 
 	// Step 6: Collect response (JSON only)
@@ -122,7 +120,7 @@ func selectGraphQLMethod() (string, error) {
 	return method, nil
 }
 
-func collectGraphQLQueryAndOp() (query string, operationName string, err error) {
+func collectGraphQLQueryAndOp() (query string, err error) {
 	if err = survey.AskOne(&survey.Multiline{
 		Message: "Paste GraphQL query (operation):",
 		Help:    "Example: query GetUser($id:ID!){ user(id:$id){ id name } }",
@@ -130,14 +128,6 @@ func collectGraphQLQueryAndOp() (query string, operationName string, err error) 
 		return
 	}
 	query = strings.TrimSpace(query)
-	// Optional operationName (explicit)
-	if err = survey.AskOne(&survey.Input{
-		Message: "operationName (optional):",
-		Help:    "If omitted, it's inferred by servers from the first operation definition.",
-	}, &operationName); err != nil {
-		return
-	}
-	operationName = strings.TrimSpace(operationName)
 	return
 }
 
@@ -171,30 +161,14 @@ func collectGraphQLVariables() (vars map[string]any, err error) {
 	return vars, nil
 }
 
-var gqlOpType = regexp.MustCompile(`(?i)^\s*(query|mutation|subscription)\b`)
-
-func detectGraphQLOperationType(query string) string {
-	m := gqlOpType.FindStringSubmatch(query)
-	if len(m) > 1 {
-		return strings.ToUpper(m[1])
-	}
-	return "query"
-}
-
 // ─── Apply request by method ────────────────────────────────────────────────────
-func applyPOSTRequest(req *HttpRequest, query, opName string, variables map[string]any) {
+func applyPOSTRequest(req *HttpRequest, query string, variables map[string]any) {
 	if req.Headers == nil {
 		req.Headers = map[string][]any{}
 	}
 	req.Headers["Content-Type"] = []any{"application/json"}
 
-	opType := detectGraphQLOperationType(query)
-	req.Headers["X-GraphQL-Operation-Type"] = []any{opType} // optional, for your review screen
-
 	envelope := map[string]any{"query": query}
-	if opName != "" {
-		envelope["operationName"] = opName
-	}
 	if variables != nil {
 		envelope["variables"] = variables
 	}
@@ -216,16 +190,12 @@ func applyPOSTRequest(req *HttpRequest, query, opName string, variables map[stri
 	}
 }
 
-func applyGETRequest(req *HttpRequest, query, opName string, variables map[string]any) {
+func applyGETRequest(req *HttpRequest, query string, variables map[string]any) {
 	// GET encodes query & variables in the URL
 	if req.QueryStringParameters == nil {
 		req.QueryStringParameters = map[string][]string{}
 	}
 	req.QueryStringParameters["query"] = []string{query}
-	if opName != "" {
-		req.QueryStringParameters["operationName"] = []string{opName}
-		req.Headers["X-GraphQL-Operation-Type"] = []any{opName}
-	}
 	if variables != nil {
 		// Variables must be a JSON string in the query param.
 		b, _ := json.Marshal(variables)

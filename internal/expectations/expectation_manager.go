@@ -46,9 +46,7 @@ func (em *ExpectationManager) ViewExpectations(config *models.MockConfiguration)
 		apiList := buildAPIList(expectations)
 		options := make([]string, 0, len(apiList)+2)
 
-		for _, api := range apiList {
-			options = append(options, api)
-		}
+		options = append(options, apiList...)
 
 		options = append(options, "📜 View All - Show complete configuration file")
 		options = append(options, "🔙 Back - Return to main menu")
