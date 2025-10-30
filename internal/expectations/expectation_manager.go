@@ -46,9 +46,7 @@ func (em *ExpectationManager) ViewExpectations(config *models.MockConfiguration)
 		apiList := buildAPIList(expectations)
 		options := make([]string, 0, len(apiList)+2)
 
-		for _, api := range apiList {
-			options = append(options, api)
-		}
+		options = append(options, apiList...)
 
 		options = append(options, "📜 View All - Show complete configuration file")
 		options = append(options, "🔙 Back - Return to main menu")
@@ -380,7 +378,7 @@ func (em *ExpectationManager) DeleteProjectPrompt() error {
 	fmt.Println("   • All mock expectations")
 	fmt.Println("   • All version history")
 	fmt.Println("   • Storage bucket and contents")
-	fmt.Println("   • Any running infrastructure (when implemented)")
+	fmt.Println("   • Any running infrastructure")
 	fmt.Println("\n❌ THIS CANNOT BE UNDONE!")
 
 	var confirmDelete bool
@@ -476,9 +474,14 @@ func editPriority(expectation *models.MockExpectation) {
 
 func editTimes(expectation *models.MockExpectation) {
 	var times int
+	// Determine default value: 0 for unlimited or unset, otherwise current remaining times
+	defaultTimes := 0
+	if expectation.Times != nil && !expectation.Times.Unlimited {
+		defaultTimes = expectation.Times.RemainingTimes
+	}
 	if err := survey.AskOne(&survey.Input{
 		Message: "Enter number of times this expectation should be matched (0 = unlimited):",
-		Default: fmt.Sprintf("%d", expectation.Times),
+		Default: fmt.Sprintf("%d", defaultTimes),
 		Help:    "Example: 0, 1, 5",
 	}, &times); err == nil && times >= 0 {
 		if times == 0 {
@@ -540,25 +543,19 @@ func editResponseBody(expectation *models.MockExpectation) {
 	var editChoice string
 	if err := survey.AskOne(&survey.Select{
 		Message: "How would you like to edit the response body?",
-		Options: []string{"text - Edit as plain text", "json - Edit as JSON", "template - Use JSON template", "view - View current body"},
+		Options: []string{"json - Edit as JSON", "template - Use JSON template", "view - View current body"},
 	}, &editChoice); err == nil {
 		editChoice = strings.Split(editChoice, " ")[0]
 		switch editChoice {
 		case "view":
 			fmt.Printf("\nCurrent response body:\n%s\n\n", currentBody)
-		case "text":
-			editBodyAsText(expectation, currentBody)
 		case "json":
 			editBodyAsJSON(expectation, currentBody)
+		case "template":
+			if err := builders.GenerateResponseTemplate(expectation); err != nil {
+				fmt.Printf("❌ Failed to generate response template: %v\n", err)
+			}
 		}
-	}
-}
-
-func editBodyAsText(expectation *models.MockExpectation, currentBody string) {
-	var newBody string
-	if err := survey.AskOne(&survey.Multiline{Message: "Enter response body:", Default: currentBody}, &newBody); err == nil {
-		expectation.HttpResponse.Body = newBody
-		fmt.Println("✅ Updated response body")
 	}
 }
 
@@ -573,7 +570,10 @@ func editBodyAsJSON(expectation *models.MockExpectation, currentBody string) {
 	var newBody string
 	if err := survey.AskOne(&survey.Multiline{Message: "Enter JSON response body:", Default: prettyBody}, &newBody); err == nil {
 		if json.Unmarshal([]byte(newBody), &jsonData) == nil {
-			expectation.HttpResponse.Body = newBody
+			expectation.HttpResponse.Body = map[string]any{
+				"type": "JSON",
+				"json": jsonData,
+			}
 			fmt.Println("✅ Updated JSON response body")
 		} else {
 			fmt.Println("❌ Invalid JSON")

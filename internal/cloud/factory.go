@@ -64,7 +64,7 @@ func WithProfile(profile string) Option {
 
 // AutoDetectProvider attempts to detect available storage providers
 // Returns the first available provider type
-func (f *Factory) AutoDetectProvider(ctx context.Context, profile string) (*internal.Provider, error) {
+func (f *Factory) AutoDetectProvider(ctx context.Context, profile string) (internal.Provider, error) {
 	// Try AWS
 	var available []internal.Provider
 	if _, err := aws.ValidateCredentials(ctx, profile); err == nil {
@@ -78,5 +78,5 @@ func (f *Factory) AutoDetectProvider(ctx context.Context, profile string) (*inte
 	if len(available) == 0 {
 		return nil, fmt.Errorf("❌ No valid cloud provider credentials found. Please configure AWS, GCP, or Azure credentials. (Currently, only AWS is supported, other providers are coming soon!)")
 	}
-	return &available[0], nil
+	return available[0], nil
 }

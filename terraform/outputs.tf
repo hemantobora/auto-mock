@@ -1,66 +1,76 @@
 # terraform/outputs.tf
 # Root Terraform Outputs
 
+# Helper locals so we can support both "plain module" and "[0]" forms
+locals {
+  ecs_mockserver_url = try(module.ecs_infrastructure.mockserver_url, module.ecs_infrastructure[0].mockserver_url, null)
+  ecs_dashboard_url  = try(module.ecs_infrastructure.dashboard_url,  module.ecs_infrastructure[0].dashboard_url,  null)
+  ecs_cluster_name   = try(module.ecs_infrastructure.cluster_name,   module.ecs_infrastructure[0].cluster_name,   null)
+  ecs_service_name   = try(module.ecs_infrastructure.service_name,   module.ecs_infrastructure[0].service_name,   null)
+  ecs_alb_dns_name   = try(module.ecs_infrastructure.alb_dns_name,   module.ecs_infrastructure[0].alb_dns_name,   null)
+  ecs_alb_zone_id    = try(module.ecs_infrastructure.alb_zone_id,    module.ecs_infrastructure[0].alb_zone_id,    null)
+  ecs_vpc_id         = try(module.ecs_infrastructure.vpc_id,         module.ecs_infrastructure[0].vpc_id,         null)
+  ecs_pub_subnets    = try(module.ecs_infrastructure.public_subnet_ids,  module.ecs_infrastructure[0].public_subnet_ids,  null)
+  ecs_priv_subnets   = try(module.ecs_infrastructure.private_subnet_ids, module.ecs_infrastructure[0].private_subnet_ids, null)
+
+  # If you already have a data "aws_s3_bucket" "config", keep using it:
+  cfg_bucket_name = try(data.aws_s3_bucket.config.id,  null)
+  cfg_bucket_arn  = try(data.aws_s3_bucket.config.arn, null)
+}
+
 output "mockserver_url" {
   description = "MockServer API endpoint URL"
-  value       = module.ecs_infrastructure.mockserver_url
+  value       = local.ecs_mockserver_url
 }
 
 output "dashboard_url" {
   description = "MockServer dashboard URL"
-  value       = module.ecs_infrastructure.dashboard_url
+  value       = local.ecs_dashboard_url
 }
 
 output "config_bucket" {
   description = "S3 configuration bucket name"
-  value       = data.aws_s3_bucket.config.id
+  value       = local.cfg_bucket_name
 }
 
 output "cluster_name" {
   description = "ECS cluster name"
-  value       = module.ecs_infrastructure.cluster_name
+  value       = local.ecs_cluster_name
 }
 
 output "service_name" {
   description = "ECS service name"
-  value       = module.ecs_infrastructure.service_name
+  value       = local.ecs_service_name
 }
 
 output "alb_dns_name" {
   description = "Application Load Balancer DNS name"
-  value       = module.ecs_infrastructure.alb_dns_name
+  value       = local.ecs_alb_dns_name
 }
 
 output "vpc_id" {
   description = "VPC ID"
-  value       = module.ecs_infrastructure.vpc_id
-}
-
-output "ttl_expiry" {
-  description = "Infrastructure TTL expiry timestamp"
-  value       = var.ttl_hours > 0 ? timeadd(timestamp(), "${var.ttl_hours}h") : null
+  value       = local.ecs_vpc_id
 }
 
 output "integration_summary" {
   description = "Integration summary for CLI"
   value = {
     project_name   = var.project_name
-    bucket_name    = data.aws_s3_bucket.config.id
-    mockserver_url = module.ecs_infrastructure.mockserver_url
-    dashboard_url  = module.ecs_infrastructure.dashboard_url
+    bucket_name    = local.cfg_bucket_name
+    mockserver_url = local.ecs_mockserver_url
+    dashboard_url  = local.ecs_dashboard_url
     region         = var.aws_region
-    ttl_hours      = var.ttl_hours
-    ttl_expiry     = var.ttl_hours > 0 ? timeadd(timestamp(), "${var.ttl_hours}h") : null
   }
 }
 
 output "cli_integration_commands" {
   description = "CLI commands for interacting with the deployed infrastructure"
   value = {
-    upload_expectations = "aws s3 cp expectations.json s3://${local.s3_config.bucket_name}/configs/${var.project_name}/current.json"
-    view_expectations   = "aws s3 cp s3://${local.s3_config.bucket_name}/configs/${var.project_name}/current.json - | jq ."
-    view_logs         = "aws logs tail /ecs/automock/${var.project_name}/mockserver --follow"
-    scale_service     = "aws ecs update-service --cluster ${module.ecs_infrastructure.cluster_name} --service ${module.ecs_infrastructure.service_name} --desired-count 20"
+    upload_expectations = "aws s3 cp expectations.json s3://${local.cfg_bucket_name}/configs/${var.project_name}/current.json"
+    view_expectations   = "aws s3 cp s3://${local.cfg_bucket_name}/configs/${var.project_name}/current.json - | jq ."
+    view_logs           = "aws logs tail /ecs/automock/${var.project_name}/mockserver --follow"
+    scale_service       = "aws ecs update-service --cluster ${local.ecs_cluster_name} --service ${local.ecs_service_name} --desired-count 20"
   }
 }
 
@@ -68,42 +78,26 @@ output "infrastructure_summary" {
   description = "Complete infrastructure summary"
   value = {
     cluster = {
-      name = module.ecs_infrastructure.cluster_name
-      arn  = module.ecs_infrastructure.cluster_arn
+      name = local.ecs_cluster_name
+      arn  = try(module.ecs_infrastructure.cluster_arn, module.ecs_infrastructure[0].cluster_arn, null)
     }
     service = {
-      name = module.ecs_infrastructure.service_name
-      arn  = module.ecs_infrastructure.service_arn
+      name = local.ecs_service_name
+      arn  = try(module.ecs_infrastructure.service_arn, module.ecs_infrastructure[0].service_arn, null)
     }
     load_balancer = {
-      dns_name = module.ecs_infrastructure.alb_dns_name
-      zone_id  = module.ecs_infrastructure.alb_zone_id
+      dns_name = local.ecs_alb_dns_name
+      zone_id  = local.ecs_alb_zone_id
     }
     networking = {
-      vpc_id             = module.ecs_infrastructure.vpc_id
-      public_subnet_ids  = module.ecs_infrastructure.public_subnet_ids
-      private_subnet_ids = module.ecs_infrastructure.private_subnet_ids
+      vpc_id             = local.ecs_vpc_id
+      public_subnet_ids  = local.ecs_pub_subnets
+      private_subnet_ids = local.ecs_priv_subnets
     }
     storage = {
-      bucket_name       = data.aws_s3_bucket.config.id
-      bucket_arn        = data.aws_s3_bucket.config.arn
-      expectations_path = "expectations.json"
+      bucket_name       = local.cfg_bucket_name
+      bucket_arn        = local.cfg_bucket_arn
       metadata_path     = "deployment-metadata.json"
-    }
-  }
-}
-
-output "cost_estimate" {
-  description = "Estimated monthly cost breakdown"
-  value = {
-    note = "Estimates based on us-east-1 pricing"
-    components = {
-      ecs_fargate_monthly  = "$864.00 (10 tasks, 24/7)"
-      alb_monthly          = "$16.00"
-      nat_gateway_monthly  = "$64.00 (2 NAT gateways)"
-      data_transfer_monthly = "$9.00 (estimated)"
-      total_monthly        = "$953.00"
-      actual_with_ttl      = var.ttl_hours > 0 ? format("$%.2f", (953.00 / 730.0) * var.ttl_hours) : "N/A (no TTL)"
     }
   }
 }

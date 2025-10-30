@@ -28,7 +28,7 @@ func (n *DefaultNaming) GetPrefix() string {
 // Format: auto-mock-{projectID}-{suffix}
 func (n *DefaultNaming) GenerateStorageName(projectID string) string {
 	suffix, _ := n.GenerateSuffix()
-	return fmt.Sprintf("%s-%s-%s", n.prefix, projectID, suffix)
+	return fmt.Sprintf("%s%s-%s", n.prefix, projectID, suffix)
 }
 
 // ExtractProjectID extracts the project ID from a storage name

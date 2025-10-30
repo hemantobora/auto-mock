@@ -35,9 +35,7 @@ type CLIContext struct {
 	CollectionType string `json:"collection_type,omitempty"`
 
 	// Optional CLI overrides (used in both modes)
-	Provider      string `json:"provider,omitempty"` // LLM provider preference
-	IncludeAuth   bool   `json:"include_auth"`       // Include auth endpoints
-	IncludeErrors bool   `json:"include_errors"`     // Include error responses
+	Provider string `json:"provider,omitempty"` // LLM provider preference
 }
 
 // GetMode determines which initialization mode to use based on CLI context
@@ -85,7 +83,7 @@ func (m *CloudManager) AutoDetectProvider(profile string) error {
 	if err != nil {
 		return err
 	}
-	m.Provider = *provider
+	m.Provider = provider
 	return nil
 }
 
@@ -110,57 +108,59 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 		return fmt.Errorf("failed to create expectation manager: %w", err)
 	}
 
-	switch actionType {
-	case models.ActionCreate:
-		m.createNewProject("")
-		fallthrough
-	case models.ActionGenerate:
-		// Proceed to generation flow
-		fmt.Printf("➕ Generating new expectations for project: %s\n", project)
-		return m.generateMockConfiguration(cliContext)
-	case models.ActionAdd:
-		fmt.Printf("➕ Adding new expectations to project: %s\n", project)
-		return m.addMockConfiguration(cliContext, existingConfig)
-	case models.ActionView:
-		fmt.Printf("👁️  Viewing expectations for project: %s\n", project)
-		if err := expManager.ViewExpectations(existingConfig); err != nil {
-			return fmt.Errorf("view failed: %w", err)
+	for {
+		switch actionType {
+		case models.ActionCreate:
+			m.createNewProject("")
+			fallthrough
+		case models.ActionGenerate:
+			// Proceed to generation flow
+			fmt.Printf("➕ Generating new expectations for project: %s\n", project)
+			return m.generateMockConfiguration(cliContext)
+		case models.ActionAdd:
+			fmt.Printf("➕ Adding new expectations to project: %s\n", project)
+			return m.addMockConfiguration(cliContext, existingConfig)
+		case models.ActionView:
+			fmt.Printf("👁️ Viewing expectations for project: %s\n", project)
+			if err := expManager.ViewExpectations(existingConfig); err != nil {
+				return fmt.Errorf("view failed: %w", err)
+			}
+			actionType = repl.SelectProjectAction(m.getCurrentProject(), existingConfig)
+		case models.ActionDownload:
+			fmt.Printf("💾 Downloading expectations for project: %s\n", project)
+			if err := expManager.DownloadExpectations(existingConfig); err != nil {
+				return fmt.Errorf("download failed: %w", err)
+			}
+			return nil
+		case models.ActionEdit:
+			if err := m.handleEditExpectations(expManager, existingConfig); err != nil {
+				return fmt.Errorf("edit failed: %w", err)
+			}
+			return nil
+		case models.ActionRemove:
+			// Manager handles actual removal (data operations)
+			if err := m.handleRemoveExpectations(expManager, existingConfig); err != nil {
+				return fmt.Errorf("remove failed: %w", err)
+			}
+			return nil
+		case models.ActionDelete:
+			fmt.Printf("🗑️ Deleting project: %s\n", project)
+			if err := expManager.DeleteProjectPrompt(); err != nil {
+				return err
+			}
+			if err := m.destroyInfrastructureAndDeleteProject(); err != nil {
+				return fmt.Errorf("failed to destroy infrastructure: %w", err)
+			}
+			return nil
+		case models.ActionReplace:
+			fmt.Printf("🔄 Replacing expectations for project: %s\n", project)
+			if err := expManager.ReplaceExpectationsPrompt(); err != nil {
+				return fmt.Errorf("replace failed: %w", err)
+			}
+			return m.generateMockConfiguration(cliContext)
+		default:
+			return fmt.Errorf("unsupported action type")
 		}
-		return nil
-	case models.ActionDownload:
-		fmt.Printf("💾 Downloading expectations for project: %s\n", project)
-		if err := expManager.DownloadExpectations(existingConfig); err != nil {
-			return fmt.Errorf("download failed: %w", err)
-		}
-		return nil
-	case models.ActionEdit:
-		if err := m.handleEditExpectations(expManager, existingConfig); err != nil {
-			return fmt.Errorf("edit failed: %w", err)
-		}
-		return nil
-	case models.ActionRemove:
-		// Manager handles actual removal (data operations)
-		if err := m.handleRemoveExpectations(expManager, existingConfig); err != nil {
-			return fmt.Errorf("remove failed: %w", err)
-		}
-		return nil
-	case models.ActionDelete:
-		fmt.Printf("🗑️ Deleting project: %s\n", project)
-		if err := expManager.DeleteProjectPrompt(); err != nil {
-			return err
-		}
-		if err := m.destroyInfrastructureAndDeleteProject(); err != nil {
-			return fmt.Errorf("failed to destroy infrastructure: %w", err)
-		}
-		return nil
-	case models.ActionReplace:
-		fmt.Printf("🔄 Replacing expectations for project: %s\n", project)
-		if err := expManager.ReplaceExpectationsPrompt(); err != nil {
-			return fmt.Errorf("replace failed: %w", err)
-		}
-		return m.generateMockConfiguration(cliContext)
-	default:
-		return fmt.Errorf("unsupported action type")
 	}
 }
 
@@ -182,7 +182,7 @@ func (m *CloudManager) generateMockConfiguration(cliContext *CLIContext) error {
 	if err != nil {
 		return fmt.Errorf("failed to generate mock expectations: %w", err)
 	}
-	return m.handleGeneratedMock(mockConfiguration, m.profile)
+	return m.handleGeneratedMock(mockConfiguration)
 }
 
 // createNewProject handles new project creation flow. Expectations would be handled later.
@@ -273,7 +273,8 @@ func (m *CloudManager) generateMockExpectations(cliContext *CLIContext) (string,
 
 	case ModeInteractive:
 		// REPL-driven: Interactive AI-guided configuration (primary experience)
-		return repl.StartMockGenerationREPL(m.getCurrentProject())
+		// Pass through any CLI provider override (e.g., --provider anthropic)
+		return repl.StartMockGenerationREPL(m.getCurrentProject(), cliContext.Provider)
 	default:
 		return "", fmt.Errorf("unsupported initialization mode")
 	}
@@ -282,14 +283,25 @@ func (m *CloudManager) generateMockExpectations(cliContext *CLIContext) (string,
 func (m *CloudManager) destroyInfrastructureAndDeleteProject() error {
 	fmt.Println("\n🗑️  Deleting project...")
 
-	// TODO: Tear down infrastructure when implemented
-	fmt.Println("   • Infrastructure teardown (placeholder)")
-
-	if err := m.Provider.DeleteConfig(context.Background(), m.getCurrentProject()); err != nil {
-		return fmt.Errorf("failed to delete project data: %w", err)
+	// Create Terraform manager
+	destroyer, err := terraform.NewManager(m.getCurrentProject(), m.profile, m.getCloudProvider())
+	if err != nil {
+		return fmt.Errorf("failed to create terraform manager: %w", err)
 	}
 
-	fmt.Printf("✅ Project '%s' deleted successfully!\n", m.getCurrentProject())
+	fmt.Println("🔄 Checking infrastructure status...")
+	status, _ := m.Provider.IsDeployed()
+	if status {
+		// Destroy infrastructure
+		fmt.Println("\nDestroying infrastructure...")
+		err = destroyer.Destroy()
+		if err != nil {
+			return err
+		}
+	}
+	if err := m.Provider.DeleteProject(m.getCurrentProject()); err != nil {
+		return fmt.Errorf("failed to delete project data: %w", err)
+	}
 	return nil
 }
 
@@ -331,13 +343,11 @@ func (m *CloudManager) handleRemoveExpectations(expManager *expectations.Expecta
 		fmt.Println("   • Clearing expectation file")
 
 		// Delete the configuration (empties the project)
-		if err := m.Provider.DeleteConfig(ctx, m.getCurrentProject()); err != nil {
+		if err := m.Provider.DeleteProject(m.getCurrentProject()); err != nil {
 			return fmt.Errorf("failed to clear expectations: %w", err)
 		}
 
 		fmt.Printf("\n✅ All expectations removed successfully!\n")
-		fmt.Printf("📁 Project '%s' is now empty but still exists\n", m.getCurrentProject())
-		fmt.Println("💡 You can add new expectations anytime using 'automock init'")
 		return nil
 	}
 
@@ -413,7 +423,7 @@ func (m *CloudManager) handleEditExpectations(expManager *expectations.Expectati
 }
 
 // Handle final result
-func (m *CloudManager) handleGeneratedMock(mockConfiguration string, profile string) error {
+func (m *CloudManager) handleGeneratedMock(mockConfiguration string) error {
 	for {
 		var action string
 		if err := survey.AskOne(&survey.Select{
@@ -421,7 +431,6 @@ func (m *CloudManager) handleGeneratedMock(mockConfiguration string, profile str
 			Options: []string{
 				"save - Save the expectation file",
 				"view - View full JSON configuration",
-				"deploy - Deploy complete infrastructure (ECS + ALB)",
 				"local - Start MockServer locally",
 				"exit - Exit without saving",
 			},
@@ -434,18 +443,6 @@ func (m *CloudManager) handleGeneratedMock(mockConfiguration string, profile str
 		switch models.ActionType(action) {
 		case models.ActionSave:
 			return m.saveToFile(mockConfiguration)
-		case models.ActionDeploy:
-			if err := m.saveToFile(mockConfiguration); err != nil {
-				return fmt.Errorf("failed to save expectations: %w", err)
-			}
-			// Then deploy infrastructure
-			options := &terraform.DeploymentOptions{
-				MinTasks:         10,
-				MaxTasks:         200,
-				EnableTTLCleanup: false,
-			}
-			deploy := repl.NewDeployment(m.getCurrentProject(), profile, m.getCloudProvider(), options)
-			return deploy.DeployInfrastructureWithTerraform(false)
 		case models.ActionLocal:
 			return startLocalMockServer(mockConfiguration, m.getCurrentProject())
 		case models.ActionView:

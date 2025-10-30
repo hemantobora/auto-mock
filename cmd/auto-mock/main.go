@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -9,16 +10,21 @@ import (
 	"time"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/hemantobora/auto-mock/internal/client"
 	"github.com/hemantobora/auto-mock/internal/cloud"
 	"github.com/hemantobora/auto-mock/internal/repl"
 	"github.com/hemantobora/auto-mock/internal/terraform"
 	"github.com/urfave/cli/v2"
 )
 
+// version is set via -ldflags "-X main.version=<version>" during build
+var version = "dev"
+
 func main() {
 	app := &cli.App{
-		Name:  "automock",
-		Usage: "Generate and deploy mock API infrastructure",
+		Name:    "automock",
+		Usage:   "Generate and deploy mock API infrastructure",
+		Version: version,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:  "profile",
@@ -38,15 +44,6 @@ func main() {
 						Name:  "provider",
 						Usage: "LLM provider (anthropic, openai, template) - bypasses provider selection",
 					},
-					&cli.BoolFlag{
-						Name:  "include-auth",
-						Usage: "Include authentication endpoints in mock config",
-					},
-					&cli.BoolFlag{
-						Name:  "include-errors",
-						Usage: "Include error responses in mock config",
-						Value: true,
-					},
 					&cli.StringFlag{
 						Name:  "collection-file",
 						Usage: "Path to API collection file (Postman/Bruno/Insomnia)",
@@ -62,8 +59,6 @@ func main() {
 					cliContext := &cloud.CLIContext{
 						ProjectName:    c.String("project"),
 						Provider:       c.String("provider"),
-						IncludeAuth:    c.Bool("include-auth"),
-						IncludeErrors:  c.Bool("include-errors"),
 						CollectionFile: c.String("collection-file"),
 						CollectionType: c.String("collection-type"),
 					}
@@ -80,38 +75,7 @@ func main() {
 						Usage:    "Project name to deploy",
 						Required: true,
 					},
-					&cli.StringFlag{
-						Name:  "instance-size",
-						Usage: "Instance size (small, medium, large, xlarge)",
-						Value: "small",
-					},
-					&cli.IntFlag{
-						Name:  "ttl-hours",
-						Usage: "Auto-teardown timeout in hours (0 = disabled)",
-						Value: 0,
-					},
-					&cli.IntFlag{
-						Name:  "min-tasks",
-						Usage: "Minimum number of tasks (Fargate instances)",
-						Value: 0,
-					},
-					&cli.IntFlag{
-						Name:  "max-tasks",
-						Usage: "Maximum number of tasks (Fargate instances)",
-						Value: 0,
-					},
-					&cli.StringFlag{
-						Name:  "custom-domain",
-						Usage: "Custom domain for the API (optional)",
-					},
-					&cli.StringFlag{
-						Name:  "hosted-zone-id",
-						Usage: "Route53 hosted zone ID for custom domain",
-					},
-					&cli.StringFlag{
-						Name:  "notification-email",
-						Usage: "Email for TTL expiration notifications",
-					},
+					// === Other Options ===
 					&cli.BoolFlag{
 						Name:  "skip-confirmation",
 						Usage: "Skip deployment confirmation prompt",
@@ -158,22 +122,34 @@ func main() {
 				},
 			},
 			{
-				Name:  "extend-ttl",
-				Usage: "Extend TTL for running infrastructure",
+				Name:  "locust",
+				Usage: "Generate Locust load testing bundle from API collection",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
-						Name:     "project",
-						Usage:    "Project name",
-						Required: true,
+						Name:  "collection-file",
+						Usage: "Path to API collection file (Postman/Bruno/Insomnia)",
 					},
-					&cli.IntFlag{
-						Name:     "hours",
-						Usage:    "Additional hours to add to TTL",
-						Required: true,
+					&cli.StringFlag{
+						Name:  "collection-type",
+						Usage: "Collection type (postman, bruno, insomnia) - required with --collection-file",
+					},
+					&cli.StringFlag{
+						Name:  "dir",
+						Usage: "Output directory for the generated Locust files",
+					},
+					&cli.BoolFlag{
+						Name:  "headless",
+						Usage: "Run Locust in headless mode (without UI)",
+						Value: false,
+					},
+					&cli.BoolFlag{
+						Name:  "distributed",
+						Usage: "Run Locust in distributed mode",
+						Value: false,
 					},
 				},
 				Action: func(c *cli.Context) error {
-					return extendTTLCommand(c)
+					return locustCommand(c)
 				},
 			},
 			{
@@ -192,6 +168,24 @@ func main() {
 	}
 }
 
+func locustCommand(c *cli.Context) error {
+	collectionType := c.String("collection-type")
+	collectionFile := c.String("collection-file")
+	outDir := c.String("dir")
+	headless := c.Bool("headless")
+	distributed := c.Bool("distributed")
+
+	options := &client.Options{
+		CollectionType:             collectionType,
+		CollectionPath:             collectionFile,
+		OutDir:                     outDir,
+		Headless:                   &headless,
+		GenerateDistributedHelpers: &distributed,
+	}
+
+	return client.GenerateLoadtestBundle(*options)
+}
+
 // deployCommand handles infrastructure deployment
 func deployCommand(c *cli.Context) error {
 	profile := c.String("profile")
@@ -200,22 +194,12 @@ func deployCommand(c *cli.Context) error {
 	fmt.Println("\nChecking Infrastructure Prerequisites")
 	fmt.Println(strings.Repeat("=", 80))
 
-	// Build deployment options from flags
-	options := &terraform.DeploymentOptions{
-		InstanceSize:      c.String("instance-size"),
-		TTLHours:          c.Int("ttl-hours"),
-		CustomDomain:      c.String("custom-domain"),
-		HostedZoneID:      c.String("hosted-zone-id"),
-		NotificationEmail: c.String("notification-email"),
-		EnableTTLCleanup:  c.Int("ttl-hours") > 0,
-	}
-
 	manager := cloud.NewCloudManager(profile)
 	// Step 1: Validate cloud provider credentials
 	if err := manager.AutoDetectProvider(profile); err != nil {
 		return err
 	}
-	deployer := repl.NewDeployment(projectName, profile, manager.Provider, options)
+	deployer := repl.NewDeployment(projectName, profile, manager.Provider)
 	return deployer.DeployInfrastructureWithTerraform(c.Bool("skip-confirmation"))
 }
 
@@ -288,205 +272,143 @@ func statusCommand(c *cli.Context) error {
 	projectName := c.String("project")
 	detailed := c.Bool("detailed")
 
-	fmt.Printf("\nChecking infrastructure status for: %s\n", projectName)
-	fmt.Println(strings.Repeat("=", 80))
+	fmt.Printf("\n🛰️  Checking infrastructure status for: %s\n", projectName)
+	fmt.Println(strings.Repeat("━", 80))
 
 	manager := cloud.NewCloudManager(profile)
+
 	// Step 1: Validate cloud provider credentials
 	if err := manager.AutoDetectProvider(profile); err != nil {
 		return err
 	}
-	// Create Terraform manager
-	status, err := terraform.NewManager(projectName, profile, manager.Provider)
-	if err != nil {
-		return fmt.Errorf("failed to create terraform manager: %w", err)
-	}
 
-	// Get current outputs (this requires terraform to be initialized)
-	// For now, we'll use a simpler approach - check AWS directly
-	outputs, err := status.GetCurrentStatus()
-	if err != nil {
-		// Infrastructure might not exist
-		fmt.Println("\nNo infrastructure found for this project.")
-		fmt.Println("Run 'automock deploy --project " + projectName + "' to create it.")
+	exists, _ := manager.Provider.ProjectExists(context.Background(), projectName)
+	if !exists {
+		fmt.Printf("❌ No project found with name: %s\n", projectName)
+		fmt.Println("💡 Run 'automock init' to create a new project.")
 		return nil
 	}
 
-	// Display status
-	if detailed {
-		terraform.DisplayStatusInfo(outputs)
-
-		// Show additional details
-		if summary, ok := outputs.InfrastructureSummary["compute"].(map[string]interface{}); ok {
-			fmt.Println("\nDetailed Metrics:")
-			fmt.Printf("  Instance Size: %v\n", summary["instance_size"])
-			fmt.Printf("  Min Tasks:     %v\n", summary["min_tasks"])
-			fmt.Printf("  Max Tasks:     %v\n", summary["max_tasks"])
-			fmt.Printf("  Current Tasks: %v\n", summary["current_tasks"])
-		}
-
-		// Show CLI commands
-		fmt.Println("\nManagement Commands:")
-		for name, cmd := range outputs.CLICommands {
-			fmt.Printf("  %s:\n    %s\n\n", name, cmd)
-		}
-	} else {
-		// Simple status
-		terraform.DisplayStatusInfo(outputs)
-	}
-
-	return nil
-}
-
-// extendTTLCommand extends the TTL for running infrastructure
-func extendTTLCommand(c *cli.Context) error {
-	profile := c.String("profile")
-	projectName := c.String("project")
-	additionalHours := c.Int("hours")
-
-	fmt.Printf("\nExtending TTL for project: %s\n", projectName)
-	fmt.Printf("Adding %d hours to current TTL\n", additionalHours)
-	fmt.Println(strings.Repeat("=", 80))
-
-	err := extendTTL(profile, projectName, additionalHours)
+	metadata, err := manager.Provider.GetDeploymentMetadata()
 	if err != nil {
-		return fmt.Errorf("failed to extend TTL: %w", err)
+		fmt.Printf("⚠️  %v\n", err)
+		fmt.Println("❌ No infrastructure found for this project.")
+		fmt.Printf("💡 Run 'automock deploy --project %s' to create it if expectations exist.\n", projectName)
+		fmt.Println("💡 Otherwise, run 'automock init' first.")
+		return nil
 	}
 
-	fmt.Println("\nTTL extended successfully")
-	fmt.Printf("New expiration: %d hours from now\n", additionalHours)
+	fmt.Println("\n✅ Infrastructure is deployed with the following details:")
 
-	return nil
-}
+	deployedAt := metadata.DeployedAt.UTC()
+	deployedLocal := deployedAt.Local()
+	uptime := time.Since(deployedAt).Hours()
 
-// extendTTL extends the TTL for an existing deployment
-func extendTTL(profile, projectName string, additionalHours int) error {
-	ctx := context.Background()
-	manager := cloud.NewCloudManager(profile)
-	// Step 1: Validate cloud provider credentials
-	if err := manager.AutoDetectProvider(profile); err != nil {
+	fmt.Printf("🕓 Deployed At (Local): %s\n", deployedLocal.Format("2006-01-02 15:04:05 MST"))
+	fmt.Printf("⏱️  Uptime: %.2f hours\n", uptime)
+	fmt.Println()
+
+	if !detailed {
+		fmt.Println("📊 Summary Status:")
+		metadata.Details = nil // hide the nested infra outputs
+	} else {
+		fmt.Println("🧾 Detailed Status:")
+	}
+
+	jsonBytes, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		fmt.Printf("❌ Failed to marshal metadata: %v\n", err)
 		return err
 	}
 
-	exists, err := manager.Provider.ProjectExists(context.Background(), projectName)
-	if !exists || err != nil {
-		return fmt.Errorf("project %s does not exist", projectName)
-	}
-
-	// Get current metadata
-	metadata, err := manager.Provider.GetDeploymentMetadata(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get deployment metadata: %w\nIs infrastructure deployed?", err)
-	}
-
-	if metadata.DeploymentStatus != "deployed" {
-		return fmt.Errorf("infrastructure is not deployed (status: %s)", metadata.DeploymentStatus)
-	}
-
-	if metadata.TTLExpiry.IsZero() {
-		return fmt.Errorf("no TTL configured for this deployment")
-	}
-
-	// Show current TTL info
-	fmt.Printf("  Current TTL expiry: %s\n", metadata.TTLExpiry.Format("2006-01-02 15:04:05 MST"))
-	remaining := time.Until(metadata.TTLExpiry)
-	if remaining > 0 {
-		fmt.Printf("  Time remaining: %s\n", remaining.Round(time.Minute))
-	} else {
-		fmt.Println("  Warning: TTL already expired!")
-	}
-
-	// Extend TTL
-	fmt.Printf("  Adding %d hours...\n", additionalHours)
-	if err := manager.Provider.ExtendTTL(ctx, additionalHours); err != nil {
-		return fmt.Errorf("failed to extend TTL: %w", err)
-	}
-
-	// Get updated metadata
-	updatedMetadata, _ := manager.Provider.GetDeploymentMetadata(ctx)
-	fmt.Printf("  New TTL expiry: %s\n", updatedMetadata.TTLExpiry.Format("2006-01-02 15:04:05 MST"))
-	newRemaining := time.Until(updatedMetadata.TTLExpiry)
-	fmt.Printf("  New time remaining: %s\n", newRemaining.Round(time.Minute))
-
+	fmt.Println(string(jsonBytes))
 	return nil
 }
 
-// showDetailedHelp provides comprehensive help
 func showDetailedHelp(c *cli.Context) error {
-	help := `
-AutoMock - AI-Powered Mock API Infrastructure
+	const (
+		h1    = "\033[36m" // cyan
+		h2    = "\033[33m" // yellow
+		reset = "\033[0m"
+	)
 
-BASIC USAGE:
-  automock init                    # Interactive mode (recommended)
-  automock help                    # Show this help
+	version := c.App.Version
+	if version == "" {
+		version = "beta"
+	}
 
-MAIN COMMANDS:
-  automock init --project myapi    # Create/update project and generate expectations
-  automock deploy --project myapi  # Deploy infrastructure for existing project  
-  automock status --project myapi  # Check infrastructure status
-  automock destroy --project myapi # Tear down infrastructure
-  automock extend-ttl --project myapi --hours 4  # Extend TTL
+	help := fmt.Sprintf(`
+%sAutoMock — Mock API generator & infra helper%s
+Version: %s
 
-WORKFLOW (Interactive Mode):
-  1. Run 'automock init'
-  2. Select or create project
-  3. Generate expectations (AI, collection import, or interactive builder)
-  4. Choose deployment option:
-     - Save to Storage only
-     - Deploy complete infrastructure (ECS + ALB)
-     - Start local MockServer
-  5. Infrastructure deploys automatically with TTL-based auto-teardown
+%sGLOBAL FLAG%s
+  --profile <name>                 Credential profile name (e.g., dev, prod)
 
-SUPPORTED LLM PROVIDERS:
-  • anthropic    - Claude (requires ANTHROPIC_API_KEY)
-  • openai       - GPT-4 (requires OPENAI_API_KEY)
-  • template     - Template-based (free, always available)
+%sCOMMANDS%s
+  init                             Initialize a project and initiate expectation generation
+  deploy                           Deploy infrastructure for an existing project expectations
+  destroy                          Destroy infrastructure for a project
+  status                           Show infrastructure status for a project
+  locust                           Generate a Locust load-testing bundle from an API collection
+  help                             Show this help
 
-SUPPORTED COLLECTION FORMATS:
-  • postman      - Postman Collection v2.1 (.json)
-  • bruno        - Bruno Collection (.json or .bru)
-  • insomnia     - Insomnia Workspace (.json)
+%sinit — flags%s
+  --project <name>                 Project name (bypasses interactive project selection)
+  --provider <anthropic|openai>
+                                   LLM provider; bypasses provider selection
+  --collection-file <path>         Path to API collection (Postman/Bruno/Insomnia)
+  --collection-type <postman|bruno|insomnia>
+                                   Required when using --collection-file
 
-INFRASTRUCTURE:
-  • Complete     - ECS Fargate + ALB + Auto-scaling + TTL cleanup
-  • Auto-scaling - 10-200 tasks based on CPU/Memory/Requests
-  • TTL Cleanup  - Automatic teardown after expiration (default: 8 hours)
-  • Cost         - ~$1.24/hour with 10 tasks, auto-teardown prevents runaway costs
-
-ENVIRONMENT VARIABLES:
-  AWS_PROFILE              # AWS profile to use
-  ANTHROPIC_API_KEY        # For Claude AI generation
-  OPENAI_API_KEY           # For GPT-4 AI generation
-
-EXAMPLES:
-  # Interactive mode (recommended for first-time users)
+Examples:
   automock init
+  automock init --project user-service
+  automock init --provider anthropic
+  automock init --collection-file api.postman.json --collection-type postman
 
-  # Quick project with AI generation
-  automock init --project user-service --provider anthropic
+%sdeploy — flags%s
+  --project <name>                 (required)
+  --skip-confirmation              Skip deployment confirmation prompt
 
-  # Import Postman collection and deploy
-  automock init --collection-file api.json --collection-type postman
+Examples:
+  automock deploy --project user-service
+  automock deploy --project user-service --skip-confirmation
 
-  # Deploy standalone (expectations already exist)
-  automock deploy --project user-service --ttl-hours 4
+%sdestroy — flags%s
+  --project <name>                 (required)
+  --force                          Skip confirmation prompts
 
-  # Check what's running
-  automock status --project user-service
-
-  # Extend running infrastructure
-  automock extend-ttl --project user-service --hours 4
-
-  # Clean up
+Examples:
   automock destroy --project user-service
+  automock destroy --project user-service --force
 
-APPROXIMATE COST ESTIMATES (with TTL):
-  • 8 hours  = ~$10
-  • 40 hours/month (5 days × 8 hours) = ~$50/month
-  • Without TTL (24/7) = ~$125/month
+%sstatus — flags%s
+  --project <name>                 (required)
+  --detailed                       Show detailed information including metrics
 
-For more information: See INFRASTRUCTURE.md and CLI_INTEGRATION.md
-`
+Examples:
+  automock status --project user-service
+  automock status --project user-service --detailed
+
+%slocust — flags%s
+  --collection-file <path>         Path to API collection (Postman/Bruno/Insomnia)
+  --collection-type <postman|bruno|insomnia>
+                                   Required when using --collection-file
+  --dir <path>                     Output directory for generated Locust files
+  --headless                       Run Locust in headless mode (no UI)
+  --distributed                    Generate/run in distributed mode
+
+Examples:
+  automock locust --collection-file api.postman.json --collection-type postman --dir ./load
+  automock locust --collection-file api.postman.json --collection-type postman --headless
+
+ENVIRONMENT
+  AWS_PROFILE                      AWS profile to use (alternative to --profile)
+  ANTHROPIC_API_KEY                Used when --provider anthropic
+  ANTHROPIC_MODEL                  Used to select Anthropic model (default: claude-sonnet-4-5)
+  OPENAI_API_KEY                   Used when --provider openai
+  OPENAI_MODEL                     Used to select OpenAI model (default: gpt-5-mini)
+`, h1, reset, version, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset)
 
 	fmt.Print(help)
 	return nil

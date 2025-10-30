@@ -3,6 +3,7 @@ package builders
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
@@ -92,92 +93,6 @@ type StatusCode struct {
 	Description string `json:"description"`
 }
 
-// RegexPatterns returns comprehensive regex patterns with examples
-func RegexPatterns() map[string]RegexPattern {
-	return map[string]RegexPattern{
-		"Basic Patterns": {
-			Pattern:     ".* (any), \\d+ (numbers), \\w+ (words), \\s+ (whitespace)",
-			Description: "Fundamental regex building blocks",
-			Examples:    []string{".*", "\\d+", "\\w+", "\\s+"},
-		},
-		"Numbers": {
-			Pattern:     `\\d+`,
-			Description: "One or more digits",
-			Examples:    []string{"123", "7", "999"},
-		},
-		"Decimal Numbers": {
-			Pattern:     `\\d+\\.\\d+`,
-			Description: "Decimal numbers (e.g., prices, coordinates)",
-			Examples:    []string{"12.99", "3.14159", "0.75"},
-		},
-		"UUID": {
-			Pattern:     `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`,
-			Description: "Standard UUID format (case-insensitive)",
-			Examples:    []string{"550e8400-e29b-41d4-a716-446655440000"},
-		},
-		"Email": {
-			Pattern:     `[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}`,
-			Description: "Email address format",
-			Examples:    []string{"user@example.com", "test.email+tag@domain.org"},
-		},
-		"Words": {
-			Pattern:     `\\w+`,
-			Description: "One or more word characters (letters, digits, underscore)",
-			Examples:    []string{"hello", "test123", "user_name"},
-		},
-		"Alphanumeric": {
-			Pattern:     `[a-zA-Z0-9]+`,
-			Description: "Letters and numbers only (no symbols)",
-			Examples:    []string{"abc123", "Test789", "ID42"},
-		},
-		"Custom ID": {
-			Pattern:     `[a-zA-Z0-9_-]+`,
-			Description: "Letters, numbers, underscore, hyphen",
-			Examples:    []string{"user-123", "item_abc", "order-789"},
-		},
-		"Date Formats": {
-			Pattern:     `\\d{4}-\\d{2}-\\d{2}`,
-			Description: "ISO date format (YYYY-MM-DD)",
-			Examples:    []string{"2025-09-21", "2024-12-31", "2023-01-15"},
-		},
-		"Time Formats": {
-			Pattern:     `\\d{2}:\\d{2}(:\\d{2})?`,
-			Description: "Time format (HH:MM or HH:MM:SS)",
-			Examples:    []string{"15:30", "09:45:30", "23:59"},
-		},
-		"Phone Numbers": {
-			Pattern:     `\\+?[0-9()-\\s]+`,
-			Description: "Flexible phone number format",
-			Examples:    []string{"+1-555-123-4567", "(555) 123-4567", "+44 20 7946 0958"},
-		},
-		"URLs": {
-			Pattern:     `https?://[\\w.-]+(/[\\w.-]*)*/?`,
-			Description: "HTTP/HTTPS URLs",
-			Examples:    []string{"https://api.example.com", "http://localhost:3000/api"},
-		},
-		"IP Addresses": {
-			Pattern:     `\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}`,
-			Description: "IPv4 address format",
-			Examples:    []string{"192.168.1.1", "10.0.0.1", "172.16.0.1"},
-		},
-		"Wildcards": {
-			Pattern:     "NEW|OLD|ACTIVE (alternatives), .*test.* (contains), ^prefix.* (starts with)",
-			Description: "Common wildcard patterns",
-			Examples:    []string{"NEW|OLD", ".*test.*", "^api_"},
-		},
-		"Case Insensitive": {
-			Pattern:     `[nN][eE][wW]`,
-			Description: "Case-insensitive matching for specific words",
-			Examples:    []string{"[nN][eE][wW]", "[aA][pP][iI]", "[tT][eE][sS][tT]"},
-		},
-		"Anchors & Boundaries": {
-			Pattern:     "^start, end$, \\\\b (word boundary)",
-			Description: "Anchors for precise matching",
-			Examples:    []string{"^api", "v1$", "\\\\buser\\\\b"},
-		},
-	}
-}
-
 // RegexPattern represents a regex pattern with documentation
 type RegexPattern struct {
 	Pattern     string   `json:"pattern"`
@@ -185,55 +100,6 @@ type RegexPattern struct {
 	Examples    []string `json:"examples"`
 	Category    string   `json:"category,omitempty"`
 	Difficulty  string   `json:"difficulty,omitempty"`
-}
-
-// GetCommonRegexPatterns returns a map of commonly used regex patterns for quick access
-// This function provides easy access to the most frequently used regex patterns
-func GetCommonRegexPatterns() map[string]string {
-	return map[string]string{
-		"numbers":      "\\d+",                                                         // 123, 456, 789
-		"words":        "\\w+",                                                         // user, test123, user_name
-		"alphanumeric": "[a-zA-Z0-9]+",                                                 // abc123, Test789, ID42
-		"custom_id":    "[a-zA-Z0-9_-]+",                                               // user-123, item_abc, order-789
-		"date":         "\\d{4}-\\d{2}-\\d{2}",                                         // 2025-09-21, 2024-12-31
-		"time":         "\\d{2}:\\d{2}(:\\d{2})?",                                      // 15:30, 09:45:30
-		"uuid":         "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", // UUID format
-		"email":        "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}",              // user@example.com
-		"url":          "https?://[\\w.-]+(/[\\w.-]*)*/?",                              // https://api.example.com
-		"ip":           "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}",                    // 192.168.1.1
-		"phone":        "\\+?[0-9()-\\s]+",                                             // +1-555-123-4567
-		"decimal":      "\\d+\\.\\d+",                                                  // 12.99, 3.14159
-		"any":          ".*",                                                           // Any characters
-		"whitespace":   "\\s+",                                                         // One or more spaces
-	}
-}
-
-// GetRegexDescription returns a human-readable description and examples for common patterns
-func GetRegexDescription(pattern string) (description string, examples []string) {
-	descriptions := map[string]struct {
-		desc     string
-		examples []string
-	}{
-		"\\d+":                    {"One or more digits", []string{"123", "456", "789"}},
-		"\\w+":                    {"One or more word characters", []string{"user", "test123", "user_name"}},
-		"[a-zA-Z0-9]+":            {"Letters and numbers only", []string{"abc123", "Test789", "ID42"}},
-		"[a-zA-Z0-9_-]+":          {"Letters, numbers, underscore, hyphen", []string{"user-123", "item_abc", "order-789"}},
-		"\\d{4}-\\d{2}-\\d{2}":    {"ISO date format (YYYY-MM-DD)", []string{"2025-09-21", "2024-12-31", "2023-01-15"}},
-		"\\d{2}:\\d{2}(:\\d{2})?": {"Time format (HH:MM or HH:MM:SS)", []string{"15:30", "09:45:30", "23:59"}},
-		"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}": {"UUID format", []string{"550e8400-e29b-41d4-a716-446655440000"}},
-		"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}":              {"Email address format", []string{"user@example.com", "test.email+tag@domain.org"}},
-		"https?://[\\w.-]+(/[\\w.-]*)*/?":                              {"HTTP/HTTPS URLs", []string{"https://api.example.com", "http://localhost:3000/api"}},
-		"\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}":                    {"IPv4 address format", []string{"192.168.1.1", "10.0.0.1", "172.16.0.1"}},
-		"\\+?[0-9()-\\s]+": {"Flexible phone number format", []string{"+1-555-123-4567", "(555) 123-4567", "+44 20 7946 0958"}},
-		"\\d+\\.\\d+":      {"Decimal numbers", []string{"12.99", "3.14159", "0.75"}},
-		".*":               {"Any characters (wildcard)", []string{"any", "characters", "here"}},
-		"\\s+":             {"One or more whitespace characters", []string{" ", "  ", "\t"}},
-	}
-
-	if info, exists := descriptions[pattern]; exists {
-		return info.desc, info.examples
-	}
-	return "Custom regex pattern", []string{"pattern specific examples"}
 }
 
 // ensure maps exist before writes
@@ -345,196 +211,9 @@ func deepCopyInterface(v interface{}) interface{} {
 	return out
 }
 
-// Enhanced regex pattern collection with comprehensive validation and hints
-func collectRegexPattern(expectation *MockExpectation) error {
-	fmt.Println("\n📝 Enhanced Regex Pattern Configuration")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	// Show quick common patterns first
-	fmt.Println("⚡ Quick Common Patterns:")
-	fmt.Println("   \\d+           - Numbers (123, 456)")
-	fmt.Println("   \\w+           - Words (user, test123)")
-	fmt.Println("   [a-zA-Z0-9]+  - Alphanumeric (abc123)")
-	fmt.Println("   .*            - Any characters")
-	fmt.Println("   /api/users/\\d+ - Users with numeric ID")
-
-	// Ask if user wants to see full library
-	var showFullLibrary bool
-	if err := survey.AskOne(&survey.Confirm{
-		Message: "Show complete regex pattern library?",
-		Default: false,
-		Help:    "View comprehensive patterns with examples and descriptions",
-	}, &showFullLibrary); err != nil {
-		return err
-	}
-
-	if showFullLibrary {
-		// Show comprehensive patterns with categories
-		fmt.Println("\n💡 Comprehensive Regex Pattern Library:")
-		patterns := RegexPatterns()
-		for name, pattern := range patterns {
-			fmt.Printf("\n   📂 %s:\n", name)
-			fmt.Printf("      Pattern: %s\n", pattern.Pattern)
-			fmt.Printf("      Description: %s\n", pattern.Description)
-			fmt.Printf("      Examples: %s\n", strings.Join(pattern.Examples, ", "))
-		}
-	}
-
-	fmt.Println("\n🔧 Regex Quick Reference:")
-	fmt.Println("   . = any character          \\d = digit           \\w = word char")
-	fmt.Println("   * = zero or more           + = one or more      ? = zero or one")
-	fmt.Println("   ^ = start of string        $ = end of string   \\b = word boundary")
-	fmt.Println("   [abc] = any of a,b,c      [^abc] = not a,b,c   | = OR")
-	fmt.Println("   () = grouping              {} = exact count     [] = character class")
-
-	var useTemplate bool
-	if err := survey.AskOne(&survey.Confirm{
-		Message: "Would you like to select from common patterns?",
-		Default: true,
-		Help:    "Choose from pre-built patterns or create custom regex",
-	}, &useTemplate); err != nil {
-		return err
-	}
-
-	var regexPattern string
-
-	if useTemplate {
-		// Quick selection menu with most common patterns
-		var selectedPattern string
-		if err := survey.AskOne(&survey.Select{
-			Message: "Select a pattern:",
-			Options: []string{
-				"\\d+ - Numbers (user IDs, order numbers)",
-				"\\w+ - Words (usernames, names)",
-				"[a-zA-Z0-9]+ - Alphanumeric (codes, tokens)",
-				"[a-zA-Z0-9_-]+ - IDs with dashes/underscores",
-				"\\d{4}-\\d{2}-\\d{2} - Dates (YYYY-MM-DD)",
-				"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12} - UUIDs",
-				".* - Any characters (wildcard)",
-				"browse-all - Browse complete pattern library",
-				"custom - Create custom pattern",
-			},
-			Default: "\\d+ - Numbers (user IDs, order numbers)",
-		}, &selectedPattern); err != nil {
-			return err
-		}
-
-		// Handle browse-all option
-		if strings.HasPrefix(selectedPattern, "browse-all") {
-			// Show full library and let user select
-			patterns := RegexPatterns()
-			var patternOptions []string
-			for name := range patterns {
-				patternOptions = append(patternOptions, name)
-			}
-			patternOptions = append(patternOptions, "custom - Create custom pattern")
-
-			if err := survey.AskOne(&survey.Select{
-				Message: "Select from complete library:",
-				Options: patternOptions,
-			}, &selectedPattern); err != nil {
-				return err
-			}
-		}
-
-		if selectedPattern == "custom - Create custom pattern" {
-			useTemplate = false
-		} else if strings.HasPrefix(selectedPattern, "\\d+") {
-			// Quick pattern: Numbers
-			regexPattern = "\\d+"
-			fmt.Printf("\n✅ Selected: Numbers pattern (\\d+)\n")
-			fmt.Printf("   Matches: 123, 456, 789, 1001\n")
-		} else if strings.HasPrefix(selectedPattern, "\\w+") {
-			// Quick pattern: Words
-			regexPattern = "\\w+"
-			fmt.Printf("\n✅ Selected: Words pattern (\\w+)\n")
-			fmt.Printf("   Matches: user, test123, user_name\n")
-		} else if strings.HasPrefix(selectedPattern, "[a-zA-Z0-9]+") {
-			// Quick pattern: Alphanumeric
-			regexPattern = "[a-zA-Z0-9]+"
-			fmt.Printf("\n✅ Selected: Alphanumeric pattern ([a-zA-Z0-9]+)\n")
-			fmt.Printf("   Matches: abc123, Test789, ID42\n")
-		} else if strings.HasPrefix(selectedPattern, "[a-zA-Z0-9_-]+") {
-			// Quick pattern: IDs with dashes/underscores
-			regexPattern = "[a-zA-Z0-9_-]+"
-			fmt.Printf("\n✅ Selected: ID pattern ([a-zA-Z0-9_-]+)\n")
-			fmt.Printf("   Matches: user-123, item_abc, order-789\n")
-		} else if strings.HasPrefix(selectedPattern, "\\d{4}-\\d{2}-\\d{2}") {
-			// Quick pattern: Dates
-			regexPattern = "\\d{4}-\\d{2}-\\d{2}"
-			fmt.Printf("\n✅ Selected: Date pattern (\\d{4}-\\d{2}-\\d{2})\n")
-			fmt.Printf("   Matches: 2025-09-21, 2024-12-31, 2023-01-15\n")
-		} else if strings.Contains(selectedPattern, "[0-9a-f]{8}-") {
-			// Quick pattern: UUIDs
-			regexPattern = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-			fmt.Printf("\n✅ Selected: UUID pattern\n")
-			fmt.Printf("   Matches: 550e8400-e29b-41d4-a716-446655440000\n")
-		} else if strings.HasPrefix(selectedPattern, ".*") {
-			// Quick pattern: Wildcard
-			regexPattern = ".*"
-			fmt.Printf("\n✅ Selected: Wildcard pattern (.*)\n")
-			fmt.Printf("   Matches: Any characters\n")
-		} else {
-			// From complete library
-			patterns := RegexPatterns()
-			if pattern, exists := patterns[selectedPattern]; exists {
-				regexPattern = pattern.Examples[0] // Use first example as default
-				fmt.Printf("\n💡 Selected pattern: %s\n", pattern.Pattern)
-				fmt.Printf("   Description: %s\n", pattern.Description)
-				fmt.Printf("   Default example: %s\n", regexPattern)
-
-				var customize bool
-				if err := survey.AskOne(&survey.Confirm{
-					Message: "Customize this pattern?",
-					Default: false,
-				}, &customize); err != nil {
-					return err
-				}
-
-				if customize {
-					useTemplate = false
-				}
-			} else {
-				useTemplate = false
-			}
-		}
-	}
-
-	if !useTemplate {
-		if err := survey.AskOne(&survey.Input{
-			Message: "Enter custom regex pattern for path:",
-			Default: regexPattern,
-			Help:    "Use patterns above or create custom regex. Test at regex101.com",
-		}, &regexPattern); err != nil {
-			return err
-		}
-	}
-
-	fmt.Println("\n📚 Professional Regex Resources:")
-	fmt.Println("   Interactive Testing: https://regex101.com/")
-	fmt.Println("   Learning Tutorial: https://regexone.com/")
-	fmt.Println("   Reference Guide: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_Expressions")
-	fmt.Println("   MockServer Patterns: https://mock-server.com/mock_server/request_matchers.html#regex-matcher")
-
-	return nil
-}
-
 func ReviewGraphQLExpectation(exp *MockExpectation) error {
 	fmt.Println("\n🔄 Review and Confirm")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	// Optional custom header you sometimes set upstream
-	var opType string
-	if exp.HttpRequest != nil && exp.HttpRequest.Headers != nil {
-		if vals, ok := exp.HttpRequest.Headers["X-GraphQL-Operation-Type"]; ok && len(vals) > 0 {
-			switch v := vals[0].(type) {
-			case string:
-				opType = v
-			case map[string]string:
-				opType = v["regex"]
-			}
-		}
-	}
 
 	// Safe getters
 	method := ""
@@ -552,12 +231,7 @@ func ReviewGraphQLExpectation(exp *MockExpectation) error {
 	// Count request headers excluding the optional op-type header
 	reqHeaderCount := 0
 	if exp.HttpRequest != nil && exp.HttpRequest.Headers != nil {
-		for k := range exp.HttpRequest.Headers {
-			if strings.EqualFold(k, "X-GraphQL-Operation-Type") {
-				continue
-			}
-			reqHeaderCount++
-		}
+		reqHeaderCount = len(exp.HttpRequest.Headers)
 	}
 
 	// Work out body match mode & whether variables are present
@@ -567,9 +241,6 @@ func ReviewGraphQLExpectation(exp *MockExpectation) error {
 	fmt.Printf("\n📋 GraphQL Expectation Summary:\n")
 	if exp.Description != "" {
 		fmt.Printf("   Description: %s\n", exp.Description)
-	}
-	if opType != "" {
-		fmt.Printf("   Operation Type: %s\n", opType)
 	}
 	fmt.Printf("   Endpoint: %s %s\n", method, path)
 	fmt.Printf("   Status Code: %d\n", status)
@@ -677,4 +348,154 @@ func ExtendExpectationsForProgressive(expectations []MockExpectation) []MockExpe
 
 	fmt.Printf("   Added %d progressive expectations; total: %d\n", added, len(expectations))
 	return expectations
+}
+
+// GenerateResponseTemplate generates enhanced response templates
+func GenerateResponseTemplate(expectation *MockExpectation) error {
+	fmt.Println("\n🏷️  Enhanced Response Template Generation")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	// Show template options
+	var templateType string
+	if err := survey.AskOne(&survey.Select{
+		Message: "Select template type:",
+		Options: []string{
+			"smart - Auto-generate based on method & status",
+			"rest-api - RESTful API response",
+			"microservice - Microservice response",
+			"error-response - Comprehensive error response",
+			"minimal - Minimal response",
+			"custom - Custom template",
+		},
+		Default: "smart - Auto-generate based on method & status",
+	}, &templateType); err != nil {
+		return err
+	}
+
+	templateType = strings.Split(templateType, " ")[0]
+
+	// Generate template based on selection
+	var template string
+	switch templateType {
+	case "smart":
+		switch {
+		case expectation.HttpResponse.StatusCode >= 200 && expectation.HttpResponse.StatusCode < 300:
+			template = generateEnhancedSuccessTemplate(expectation.HttpRequest.Method)
+		case expectation.HttpResponse.StatusCode >= 400 && expectation.HttpResponse.StatusCode < 500:
+			template = generateEnhancedClientErrorTemplate(expectation.HttpResponse.StatusCode)
+		case expectation.HttpResponse.StatusCode >= 500:
+			template = generateEnhancedServerErrorTemplate()
+		default:
+			template = `{"message": "Response", "timestamp": "$!now_epoch"}`
+		}
+	case "rest-api":
+		template = generateRESTAPITemplate()
+	case "microservice":
+		template = generateMicroserviceTemplate()
+	case "error-response":
+		template = generateComprehensiveErrorTemplate(expectation.HttpResponse.StatusCode)
+	case "minimal":
+		template = generateMinimalTemplate()
+	case "custom":
+		// Will ask for manual input below
+		template = ""
+	}
+
+	if template != "" {
+		fmt.Printf("💡 Generated %s template:\n%s\n\n", templateType, template)
+
+		var useTemplate bool
+		if err := survey.AskOne(&survey.Confirm{
+			Message: "Use this generated template?",
+			Default: true,
+		}, &useTemplate); err != nil {
+			return err
+		}
+
+		if useTemplate {
+			expectation.HttpResponse.Body = template
+			return nil
+		}
+	}
+
+	// Manual entry for custom or if user declined generated template
+	var manualJSON string
+	if err := survey.AskOne(&survey.Multiline{
+		Message: "Enter response JSON manually:",
+		Help:    "Use $!template.variables for dynamic content",
+	}, &manualJSON); err != nil {
+		return err
+	}
+	expectation.HttpResponse.Body = manualJSON
+	return nil
+}
+
+var gqlOpRegex = regexp.MustCompile(`(?m)^\s*(query|mutation|subscription)\s+([_A-Za-z][_0-9A-Za-z]*)`)
+
+// ExtractGraphQLOperationName returns operation type (query/mutation/subscription)
+// and name if present; both are lowercased.
+func ExtractGraphQLOperationName(query string) (opType, opName string) {
+	query = strings.TrimSpace(query)
+	m := gqlOpRegex.FindStringSubmatch(query)
+	if len(m) >= 3 {
+		return strings.ToLower(m[1]), m[2]
+	}
+	// fallback if no explicit name (e.g. anonymous operation)
+	// detect type keyword only
+	for _, kw := range []string{"query", "mutation", "subscription"} {
+		if strings.HasPrefix(strings.ToLower(query), kw) {
+			return kw, ""
+		}
+	}
+	return "", ""
+}
+
+func generateEnhancedSuccessTemplate(method string) string {
+	switch method {
+	case "POST":
+		return `{"id": "$!uuid","message": "Resource created successfully","timestamp": "$!now_epoch","location": "/api/resource/$!uuid","requestId": "$!request.headers['x-request-id'][0]"}`
+	case "PUT", "PATCH":
+		return `{"id": "$!request.pathParameters['id'][0]","message": "Resource updated successfully","timestamp": "$!now_epoch","version": "$!rand_int_100","requestId": "$!request.headers['x-request-id'][0]"}`
+	case "DELETE":
+		return `{"message": "Resource deleted successfully","deletedId": "$!request.pathParameters['id'][0]","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]"}`
+	default: // GET
+		return `{"id": "$!uuid","name": "Sample Resource","status": "active","createdAt": "$!now_epoch","updatedAt": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]","metadata": {"version": "1.0","source": "mock-server"}}`
+	}
+}
+
+func generateEnhancedClientErrorTemplate(statusCode int) string {
+	switch statusCode {
+	case 400:
+		return `{"error": {"code": "BAD_REQUEST","message": "Invalid request data provided","details": "Request validation failed","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]","path": "$!request.path"},"validationErrors": [{"field": "example_field","message": "Field is required","code": "REQUIRED"}]}`
+	case 401:
+		return `{"error": {"code": "UNAUTHORIZED","message": "Authentication required","details": "Please provide valid authentication credentials","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]"},"authMethods": ["Bearer Token", "API Key"]}`
+	case 403:
+		return `{"error": {"code": "FORBIDDEN","message": "Access denied","details": "Insufficient permissions for this resource","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]","requiredPermissions": ["read:resource"]}}`
+	case 404:
+		return `{"error": {"code": "NOT_FOUND","message": "Resource not found","details": "The requested resource does not exist","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]","path": "$!request.path","resourceId": "$!request.pathParameters['id'][0]"}}`
+	case 429:
+		return `{"error": {"code": "RATE_LIMITED","message": "Too many requests","details": "Rate limit exceeded","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]","retryAfter": 60,"limit": 100,"remaining": 0}}`
+	default:
+		return `{"error": {"code": "CLIENT_ERROR","message": "Client error occurred","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]"}}`
+	}
+}
+
+func generateEnhancedServerErrorTemplate() string {
+	return `{"error": {"code": "INTERNAL_SERVER_ERROR","message": "An internal server error occurred","details": "Please try again later or contact support","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]","traceId": "$!uuid","supportContact": "support@example.com"}}`
+}
+
+func generateRESTAPITemplate() string {
+	return `{"data": {"id": "$!uuid","type": "resource","attributes": {"name": "Sample Resource","status": "active","createdAt": "$!now_epoch","updatedAt": "$!now_epoch"},"relationships": {"owner": {"data": {"id": "$!rand_bytes_64", "type": "user"}}}},"meta": {"requestId": "$!request.headers['x-request-id'][0]","version": "1.0","timestamp": "$!now_epoch"}}`
+}
+
+func generateMicroserviceTemplate() string {
+	return `{"serviceInfo": {"name": "mock-service","version": "1.0.0","environment": "mock","region": "us-east-1"},"data": {"id": "$!uuid","status": "success","timestamp": "$!now_epoch","processingTimeMs": "$!rand_int_100"},"metadata": {"requestId": "$!request.headers['x-request-id'][0]","correlationId": "$!uuid","traceId": "$!uuid","spanId": "$!rand_bytes_64"}}`
+}
+
+func generateComprehensiveErrorTemplate(statusCode int) string {
+	return `{"error": {"code": "ERROR_CODE","message": "Human-readable error message","details": "Detailed error description","timestamp": "$!now_epoch","requestId": "$!request.headers['x-request-id'][0]","traceId": "$!uuid","path": "$!request.path","method": "$!request.method","statusCode": ` + fmt.Sprintf("%d", statusCode) + `},"context": {"userAgent": "$!request.headers['user-agent'][0]}","clientIp": "$!request.headers['x-forwarded-for'][0]","timestamp": "$!now_epoch"},"support": {"documentation": "https://docs.example.com/errors","contact": "support@example.com","statusPage": "https://status.example.com"}}`
+}
+
+func generateMinimalTemplate() string {
+	return `{"success": true, "timestamp": "$!now_epoch"}`
 }

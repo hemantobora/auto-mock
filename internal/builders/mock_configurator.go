@@ -419,6 +419,62 @@ func (mc *MockConfigurator) CollectPathMatchingStrategy(step int, exp *MockExpec
 }
 
 // Step 4: Request Header Matching
+func (mc *MockConfigurator) CollectResponseHeader(step int, exp *MockExpectation) error {
+	fmt.Printf("\n📝 Step %d: Response Headers\n", step)
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	var needsHeaders bool
+	if err := survey.AskOne(&survey.Confirm{
+		Message: "Does this response require specific headers?",
+		Default: false,
+		Help:    "e.g., Content-Type, Content-Length",
+	}, &needsHeaders); err != nil {
+		return err
+	}
+	if !needsHeaders {
+		fmt.Println("ℹ️  No response header configured")
+		return nil
+	}
+
+	if exp.HttpResponse.Headers == nil {
+		exp.HttpResponse.Headers = make(map[string][]string)
+	}
+
+	for {
+		var headerName string
+		if err := survey.AskOne(&survey.Input{
+			Message: "Header name (empty to finish):",
+			Help:    "e.g., 'Content-Type'",
+			Default: "Content-Type",
+		}, &headerName); err != nil {
+			return err
+		}
+		headerName = strings.TrimSpace(headerName)
+		if headerName == "" {
+			break
+		}
+
+		var headerValue string
+		if err := survey.AskOne(&survey.Input{
+			Message: fmt.Sprintf("Value for '%s':", headerName),
+			Help:    "e.g., application/json",
+			Default: "application/json",
+		}, &headerValue); err != nil {
+			return err
+		}
+		headerValue = strings.TrimSpace(headerValue)
+		if headerValue == "" {
+			continue
+		}
+
+		exp.HttpResponse.Headers[headerName] = append(exp.HttpResponse.Headers[headerName], headerValue)
+		fmt.Printf("✅ Added header: %s: %q\n", headerName, headerValue)
+	}
+
+	fmt.Printf("✅ Response Headers: %d configured\n", len(exp.HttpResponse.Headers))
+	return nil
+}
+
 func (mc *MockConfigurator) CollectRequestHeaderMatching(step int, exp *MockExpectation) error {
 	fmt.Printf("\n📝 Step %d: Request Header Matching\n", step)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

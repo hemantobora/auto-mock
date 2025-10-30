@@ -80,7 +80,7 @@ func (cp *CollectionProcessor) ProcessCollection(filePath string) (string, error
 	}
 
 	// Step 2: Parse collection file
-	apis, err := cp.parseCollectionFile(filePath)
+	apis, err := cp.ParseCollectionFile(filePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse collection: %w", err)
 	}
@@ -152,7 +152,7 @@ func (cp *CollectionProcessor) showDisclaimer() error {
 }
 
 // Step 2: Parse collection file based on type
-func (cp *CollectionProcessor) parseCollectionFile(filePath string) ([]APIRequest, error) {
+func (cp *CollectionProcessor) ParseCollectionFile(filePath string) ([]APIRequest, error) {
 	fmt.Printf("\n📄 Parsing %s collection file: %s\n", cp.collectionType, filePath)
 
 	data, err := os.ReadFile(filePath)
@@ -228,7 +228,6 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 				_ = json.Unmarshal([]byte(node.API.Body), &gql) // ok if fails; we’ll fallback
 			}
 			query, _ := gql["query"].(string)
-			opName, _ := gql["operationName"].(string)
 			vars, _ := gql["variables"].(map[string]any)
 
 			if isGET {
@@ -238,10 +237,6 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 				}
 				if query != "" {
 					expectation.HttpRequest.QueryStringParameters["query"] = []string{query}
-				}
-				if opName != "" {
-					expectation.HttpRequest.QueryStringParameters["operationName"] = []string{opName}
-					expectation.HttpRequest.Headers["X-GraphQL-Operation-Type"] = []any{opName}
 				}
 				if vars != nil {
 					b, _ := json.Marshal(vars)
@@ -261,7 +256,6 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 					_ = json.Unmarshal([]byte(node.API.Body), &tmp)
 					if m, ok := tmp.(map[string]any); ok {
 						query, _ = m["query"].(string)
-						opName, _ = m["operationName"].(string)
 						vars, _ = m["variables"].(map[string]any)
 					}
 				}
@@ -269,10 +263,6 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 				envelope := map[string]any{}
 				if query != "" {
 					envelope["query"] = query
-				}
-				if opName != "" {
-					envelope["operationName"] = opName
-					expectation.HttpRequest.Headers["X-GraphQL-Operation-Type"] = []any{opName}
 				}
 				if vars != nil {
 					envelope["variables"] = vars
@@ -418,7 +408,7 @@ func (cp *CollectionProcessor) executeAPIs(nodes []ExecutionNode) error {
 		fmt.Println("   " + strings.Repeat("─", 50))
 
 		// Step 1: Identify variables needed
-		neededVars := cp.extractVariablesFromAPI(&node.API)
+		neededVars := cp.ExtractVariablesFromAPI(&node.API, true)
 		if len(neededVars) > 0 {
 			fmt.Printf("   📋 Variables needed: %v\n", neededVars)
 		} else {
@@ -1974,91 +1964,8 @@ func (cp *CollectionProcessor) executePostScript(postScript string, response *AP
 	return extractedVars
 }
 
-// extractJSONField extracts a field from JSON data using simple dot notation
-func (cp *CollectionProcessor) extractJSONField(data interface{}, path string) string {
-	if path == "" {
-		return ""
-	}
-
-	// Handle both dot notation and bracket notation (e.g., "data.items[0].id" or "data['items'][0]['id']")
-	// For simplicity, we'll convert bracket notation to dot notation
-	path = strings.ReplaceAll(path, "['", ".")
-	path = strings.ReplaceAll(path, "']", "")
-	path = strings.ReplaceAll(path, `["`, ".")
-	path = strings.ReplaceAll(path, `"]`, "")
-
-	parts := strings.Split(path, ".")
-	current := data
-
-	for _, part := range parts {
-		if part == "" {
-			continue
-		}
-
-		// Handle array indexing like [0], [1], etc.
-		if strings.HasPrefix(part, "[") && strings.HasSuffix(part, "]") {
-			indexStr := strings.Trim(part, "[]")
-			var index int
-			if _, err := fmt.Sscanf(indexStr, "%d", &index); err == nil && index >= 0 {
-				if arr, ok := current.([]interface{}); ok {
-					if index < len(arr) {
-						current = arr[index]
-						continue
-					}
-				}
-			}
-			return ""
-		}
-
-		if obj, ok := current.(map[string]interface{}); ok {
-			if val, exists := obj[part]; exists {
-				current = val
-			} else {
-				// Try case-insensitive match as fallback
-				found := false
-				for k, v := range obj {
-					if strings.EqualFold(k, part) {
-						current = v
-						found = true
-						break
-					}
-				}
-				if !found {
-					return ""
-				}
-			}
-		} else if arr, ok := current.([]interface{}); ok {
-			// If current is array and part is a number, try to index
-			var index int
-			if _, err := fmt.Sscanf(part, "%d", &index); err == nil && index >= 0 && index < len(arr) {
-				current = arr[index]
-			} else {
-				return ""
-			}
-		} else {
-			return ""
-		}
-	}
-
-	// Convert result to string
-	switch v := current.(type) {
-	case string:
-		return v
-	case float64, int, int64, bool:
-		return fmt.Sprintf("%v", v)
-	case nil:
-		return ""
-	default:
-		// For complex types, try to JSON marshal
-		if jsonBytes, err := json.Marshal(v); err == nil {
-			return string(jsonBytes)
-		}
-		return fmt.Sprintf("%v", v)
-	}
-}
-
 // extractVariablesFromAPI extracts all {{...}} and ${...} placeholders from a single API
-func (cp *CollectionProcessor) extractVariablesFromAPI(api *APIRequest) []string {
+func (cp *CollectionProcessor) ExtractVariablesFromAPI(api *APIRequest, includeAuth bool) []string {
 	varSet := make(map[string]bool)
 
 	// Extract from URL
@@ -2067,9 +1974,11 @@ func (cp *CollectionProcessor) extractVariablesFromAPI(api *APIRequest) []string
 	}
 
 	// Extract from headers
-	for _, v := range api.Headers {
-		for _, match := range cp.findPlaceholders(v) {
-			varSet[match] = true
+	for k, v := range api.Headers {
+		if includeAuth || (strings.EqualFold(k, "Authorization") && strings.EqualFold(k, "authorization")) { // Skip Authorization header
+			for _, match := range cp.findPlaceholders(v) {
+				varSet[match] = true
+			}
 		}
 	}
 
@@ -2162,124 +2071,6 @@ func (cp *CollectionProcessor) findVariableDeclarations(script string) []string 
 	}
 
 	return variables
-}
-
-// generateUUID creates a simple UUID for variable resolution
-func (cp *CollectionProcessor) generateUUID() string {
-	// Simple UUID v4 generation
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		time.Now().UnixNano()&0xffffffff,
-		(time.Now().UnixNano()>>32)&0xffff,
-		((time.Now().UnixNano()>>48)&0x0fff)|0x4000, // Version 4
-		(time.Now().UnixNano()&0x3fff)|0x8000,       // Variant bits
-		time.Now().UnixNano()&0xffffffffffff,
-	)
-}
-
-// generateErrorResponse generates appropriate error response for status code
-func (cp *CollectionProcessor) generateErrorResponse(statusCode int) string {
-	switch statusCode {
-	case 400:
-		return `{
-  "error": {
-    "code": "BAD_REQUEST",
-    "message": "Invalid request data provided",
-    "details": "Request validation failed",
-    "timestamp": "${timestamp}"
-  }
-}`
-	case 401:
-		return `{
-  "error": {
-    "code": "UNAUTHORIZED", 
-    "message": "Authentication required",
-    "details": "Please provide valid authentication credentials",
-    "timestamp": "${timestamp}"
-  }
-}`
-	case 403:
-		return `{
-  "error": {
-    "code": "FORBIDDEN",
-    "message": "Access denied",
-    "details": "Insufficient permissions for this resource",
-    "timestamp": "${timestamp}"
-  }
-}`
-	case 404:
-		return `{
-  "error": {
-    "code": "NOT_FOUND",
-    "message": "Resource not found", 
-    "details": "The requested resource does not exist",
-    "timestamp": "${timestamp}"
-  }
-}`
-	case 409:
-		return `{
-  "error": {
-    "code": "CONFLICT",
-    "message": "Resource conflict",
-    "details": "The request conflicts with current state",
-    "timestamp": "${timestamp}"
-  }
-}`
-	case 422:
-		return `{
-  "error": {
-    "code": "UNPROCESSABLE_ENTITY",
-    "message": "Validation failed",
-    "details": "Request data failed validation",
-    "timestamp": "${timestamp}"
-  }
-}`
-	case 429:
-		return `{
-  "error": {
-    "code": "RATE_LIMITED",
-    "message": "Too many requests",
-    "details": "Rate limit exceeded",
-    "retryAfter": 60,
-    "timestamp": "${timestamp}"
-  }
-}`
-	case 500:
-		return `{
-  "error": {
-    "code": "INTERNAL_SERVER_ERROR",
-    "message": "An internal server error occurred",
-    "details": "Please try again later",
-    "timestamp": "${timestamp}"
-  }
-}`
-	case 502:
-		return `{
-  "error": {
-    "code": "BAD_GATEWAY",
-    "message": "Bad gateway",
-    "details": "Upstream server error",
-    "timestamp": "${timestamp}"
-  }
-}`
-	case 503:
-		return `{
-  "error": {
-    "code": "SERVICE_UNAVAILABLE",
-    "message": "Service temporarily unavailable", 
-    "details": "Please try again later",
-    "timestamp": "${timestamp}"
-  }
-}`
-	default:
-		return fmt.Sprintf(`{
-  "error": {
-    "code": "ERROR_%d",
-    "message": "Request failed",
-    "status": %d,
-    "timestamp": "${timestamp}"
-  }
-}`, statusCode, statusCode)
-	}
 }
 
 // extractBrunoAuth extracts authentication information from Bruno format

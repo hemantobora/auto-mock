@@ -1,23 +1,38 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Build script for AutoMock
+# Build script for AutoMock CLI
+# Usage:
+#   ./build.sh                # builds with version from git or 0.1.0
+#   VERSION=1.0.0 ./build.sh  # override version
 
-echo "🔨 Building AutoMock..."
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
 
-# Clean previous builds
-rm -f automock
-rm -f cmd/lambda/bootstrap
+# Determine version
+if [[ -z "${VERSION:-}" ]]; then
+  if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+    VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "0.1.0")
+  else
+    VERSION="0.1.0"
+  fi
+fi
 
-# Build main CLI
-echo "📦 Building CLI..."
-go build -o automock cmd/auto-mock/main.go
+echo "Building AutoMock version: $VERSION"
+GOFLAGS=${GOFLAGS:-}
+GOOS=${GOOS:-}
+GOARCH=${GOARCH:-}
 
-# Build Lambda function
-echo "🚀 Building Lambda function..."
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o cmd/lambda/bootstrap ./cmd/lambda
+# Output binary name
+OUT=${OUT:-automock}
 
-echo "✅ Build complete!"
-echo ""
-echo "To run AutoMock:"
-echo "  export ANTHROPIC_API_KEY='your-key-here'"
-echo "  ./automock init --project my-api"
+# Build command
+cmd=(go build -ldflags "-X main.version=$VERSION" -o "$OUT" ./cmd/auto-mock)
+
+# Allow cross-compilation via GOOS/GOARCH
+if [[ -n "${GOOS}" ]]; then export GOOS; fi
+if [[ -n "${GOARCH}" ]]; then export GOARCH; fi
+
+"${cmd[@]}"
+
+echo "✅ Built ./$OUT"

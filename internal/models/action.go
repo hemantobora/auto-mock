@@ -7,7 +7,6 @@ const (
 	ActionAdd      ActionType = "add"
 	ActionEdit     ActionType = "edit"
 	ActionRemove   ActionType = "remove"
-	ActionDeploy   ActionType = "deploy"
 	ActionDestroy  ActionType = "destroy"
 	ActionCreate   ActionType = "create"
 	ActionReplace  ActionType = "replace"

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hemantobora/auto-mock/internal"
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 // Manager handles Terraform operations for AutoMock infrastructure
@@ -27,41 +28,11 @@ type Manager struct {
 	ExistingBucketName string
 }
 
-// DeploymentOptions configures the infrastructure deployment
-type DeploymentOptions struct {
-	InstanceSize      string
-	TTLHours          int
-	CustomDomain      string
-	HostedZoneID      string
-	NotificationEmail string
-	EnableTTLCleanup  bool
-	MinTasks          int
-	MaxTasks          int
-	MemoryUnits       int
-	CPUUnits          int
-
-	// New fields
-	IAMRoleMode    string // "provided", "create", "skip"
-	CleanupRoleARN string // User-provided role ARN
-}
-
 // DefaultDeploymentOptions returns sensible defaults for development
-func DefaultDeploymentOptions() *DeploymentOptions {
-	return &DeploymentOptions{
-		InstanceSize:     "small",
-		TTLHours:         4,
-		EnableTTLCleanup: true,
+func DefaultDeploymentOptions() *models.DeploymentOptions {
+	return &models.DeploymentOptions{
+		InstanceSize: "small",
 	}
-}
-
-// InfrastructureOutputs contains Terraform outputs after deployment
-type InfrastructureOutputs struct {
-	MockServerURL         string                 `json:"mockserver_url"`
-	DashboardURL          string                 `json:"dashboard_url"`
-	ConfigBucket          string                 `json:"config_bucket"`
-	IntegrationSummary    map[string]interface{} `json:"integration_summary"`
-	CLICommands           map[string]string      `json:"cli_integration_commands"`
-	InfrastructureSummary map[string]interface{} `json:"infrastructure_summary"`
 }
 
 // NewManager creates a new Terraform manager
@@ -96,6 +67,11 @@ func NewManager(cleanProject, profile string, provider internal.Provider) (*Mana
 	}, nil
 }
 
+func (m *Manager) createTerraformVars(options *models.DeploymentOptions) error {
+	varsFile := filepath.Join(m.WorkingDir, "terraform.tfvars")
+	return os.WriteFile(varsFile, []byte(options.CreateTerraformVars()), 0644)
+}
+
 func (m *Manager) createBackendConfig() error {
 	if m.ExistingBucketName == "" {
 		return fmt.Errorf("no S3 bucket configured")
@@ -123,7 +99,7 @@ func (m *Manager) createBackendConfig() error {
 }
 
 // Deploy creates the complete infrastructure using Terraform
-func (m *Manager) Deploy(options *DeploymentOptions) (*InfrastructureOutputs, error) {
+func (m *Manager) Deploy(options *models.DeploymentOptions) (*InfrastructureOutputs, error) {
 	fmt.Printf("🚀 Deploying infrastructure for project: %s\n", m.ProjectName)
 
 	// Validate bucket name was found
@@ -169,11 +145,6 @@ func (m *Manager) Deploy(options *DeploymentOptions) (*InfrastructureOutputs, er
 		return nil, fmt.Errorf("failed to get terraform outputs: %w", err)
 	}
 
-	// Step 7: Save deployment metadata
-	if err := m.saveDeploymentMetadata(outputs, options); err != nil {
-		fmt.Printf("⚠️  Warning: Failed to save deployment metadata: %v\n", err)
-	}
-
 	fmt.Printf("✅ Infrastructure deployed successfully for project: %s\n", m.ProjectName)
 	return outputs, nil
 }
@@ -196,8 +167,7 @@ func (m *Manager) Destroy() error {
 		return fmt.Errorf("failed to initialize terraform: %w", err)
 	}
 
-	options := DefaultDeploymentOptions()
-	if err := m.createTerraformVars(options); err != nil {
+	if err := m.createTerraformVars(m.Provider.CreateDefaultDeploymentConfiguration()); err != nil {
 		return fmt.Errorf("failed to create terraform vars: %w", err)
 	}
 
@@ -207,6 +177,8 @@ func (m *Manager) Destroy() error {
 	}
 
 	fmt.Printf("✅ Infrastructure destroyed successfully for project: %s\n", m.ProjectName)
+
+	m.Provider.DeleteDeploymentMetadata()
 	return nil
 }
 
@@ -307,7 +279,7 @@ func (m *Manager) initTerraform() error {
 	fmt.Println("🔧 Initializing Terraform...")
 
 	done := make(chan bool)
-	go m.showProgress("Initializing", done)
+	go m.ShowProgress("Initializing", done)
 
 	cmd := exec.Command("terraform", "init")
 	cmd.Dir = m.WorkingDir
@@ -323,50 +295,12 @@ func (m *Manager) initTerraform() error {
 	return nil
 }
 
-// createTerraformVars creates the terraform.tfvars file
-func (m *Manager) createTerraformVars(options *DeploymentOptions) error {
-	vars := fmt.Sprintf(`# AutoMock Terraform Variables
-# Generated automatically - do not edit manually
-
-project_name = "%s"
-aws_region = "%s"
-instance_size = "%s"
-cpu_units = %d
-memory_units = %d
-ttl_hours = %d
-enable_ttl_cleanup = %t
-existing_bucket_name = "%s"
-`, m.ProjectName, m.Region, options.InstanceSize, options.CPUUnits, options.MemoryUnits, options.TTLHours, options.EnableTTLCleanup, m.ExistingBucketName)
-
-	if options.CustomDomain != "" {
-		vars += fmt.Sprintf(`custom_domain = "%s"`+"\n", options.CustomDomain)
-	}
-	if options.HostedZoneID != "" {
-		vars += fmt.Sprintf(`hosted_zone_id = "%s"`+"\n", options.HostedZoneID)
-	}
-	if options.NotificationEmail != "" {
-		vars += fmt.Sprintf(`notification_email = "%s"`+"\n", options.NotificationEmail)
-	}
-	if options.CleanupRoleARN != "" {
-		vars += fmt.Sprintf(`cleanup_role_arn = "%s"`+"\n", options.CleanupRoleARN)
-	}
-	if options.MinTasks != 0 {
-		vars += fmt.Sprintf(`min_tasks = %d`+"\n", options.MinTasks)
-	}
-	if options.MaxTasks != 0 {
-		vars += fmt.Sprintf(`max_tasks = %d`+"\n", options.MaxTasks)
-	}
-
-	varsFile := filepath.Join(m.WorkingDir, "terraform.tfvars")
-	return os.WriteFile(varsFile, []byte(vars), 0644)
-}
-
 // planTerraform runs terraform plan
 func (m *Manager) planTerraform() error {
 	fmt.Println("📋 Planning infrastructure changes...")
 
 	done := make(chan bool)
-	go m.showProgress("Planning", done)
+	go m.ShowProgress("Planning", done)
 
 	cmd := exec.Command("terraform", "plan", "-out=tfplan")
 	cmd.Dir = m.WorkingDir
@@ -538,8 +472,8 @@ func CheckTerraformInstalled() error {
 	return nil
 }
 
-// showProgress displays a spinner/progress indicator during long operations
-func (m *Manager) showProgress(action string, done chan bool) {
+// ShowProgress displays a spinner/progress indicator during long operations
+func (m *Manager) ShowProgress(action string, done chan bool) {
 	spinners := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠇", "⠏", "⠉"}
 	i := 0
 	ticker := time.NewTicker(100 * time.Millisecond)

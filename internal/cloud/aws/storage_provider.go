@@ -12,7 +12,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/hemantobora/auto-mock/internal/models"
 )
 
@@ -106,36 +106,41 @@ func (p *Provider) UpdateConfig(ctx context.Context, config *models.MockConfigur
 }
 
 // DeleteConfig removes a configuration and all its versions
-func (p *Provider) DeleteConfig(ctx context.Context, projectID string) error {
+func (p *Provider) DeleteProject(projectID string) error {
 	cleanProjectID := p.naming.ExtractProjectID(projectID)
-	prefix := fmt.Sprintf("configs/%s/", cleanProjectID)
 
-	// List all objects for this project
-	result, err := p.S3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+	pager := s3.NewListObjectVersionsPaginator(p.S3Client, &s3.ListObjectVersionsInput{
 		Bucket: aws.String(p.BucketName),
-		Prefix: aws.String(prefix),
 	})
-	if err != nil {
-		return fmt.Errorf("failed to list objects for deletion: %w", err)
-	}
 
-	// Delete all objects
-	for _, obj := range result.Contents {
-		_, err := p.S3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
-			Bucket: aws.String(p.BucketName),
-			Key:    obj.Key,
-		})
-		if err != nil {
-			fmt.Printf("Warning: failed to delete %s: %v\n", aws.ToString(obj.Key), err)
+	ctx := context.Background()
+
+	for pager.HasMorePages() {
+		page, _ := pager.NextPage(ctx)
+		var objs []s3types.ObjectIdentifier
+		for _, v := range page.Versions {
+			objs = append(objs, s3types.ObjectIdentifier{Key: v.Key, VersionId: v.VersionId})
+		}
+		for _, m := range page.DeleteMarkers {
+			objs = append(objs, s3types.ObjectIdentifier{Key: m.Key, VersionId: m.VersionId})
+		}
+		if len(objs) > 0 {
+			_, _ = p.S3Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+				Bucket: aws.String(p.BucketName),
+				Delete: &s3types.Delete{Objects: objs, Quiet: aws.Bool(true)},
+			})
 		}
 	}
 
-	// Delete metadata index
-	metadataKey := fmt.Sprintf("metadata/%s.json", cleanProjectID)
-	_, _ = p.S3Client.DeleteObject(ctx, &s3.DeleteObjectInput{
+	// 3️⃣ Finally, delete the bucket itself (optional)
+	_, err := p.S3Client.DeleteBucket(ctx, &s3.DeleteBucketInput{
 		Bucket: aws.String(p.BucketName),
-		Key:    aws.String(metadataKey),
 	})
+	if err != nil {
+		return fmt.Errorf("delete bucket: %w", err)
+	}
+
+	fmt.Printf("✅ Project %q deleted successfully\n", cleanProjectID)
 
 	return nil
 }
@@ -285,7 +290,7 @@ func (p *Provider) putObject(ctx context.Context, key string, data []byte, conte
 		Key:                  aws.String(key),
 		Body:                 bytes.NewReader(data),
 		ContentType:          aws.String(contentType),
-		ServerSideEncryption: types.ServerSideEncryption("AES256"),
+		ServerSideEncryption: s3types.ServerSideEncryption("AES256"),
 	})
 	return err
 }

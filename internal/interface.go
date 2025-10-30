@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-	"time"
 
 	"github.com/hemantobora/auto-mock/internal/models"
 )
@@ -14,7 +13,7 @@ type Provider interface {
 	SaveConfig(ctx context.Context, config *models.MockConfiguration) error
 	GetConfig(ctx context.Context, projectID string) (*models.MockConfiguration, error)
 	UpdateConfig(ctx context.Context, config *models.MockConfiguration) error
-	DeleteConfig(ctx context.Context, projectID string) error
+	DeleteProject(projectID string) error
 
 	// Versioning
 	SaveVersion(ctx context.Context, config *models.MockConfiguration, version string) error
@@ -41,16 +40,15 @@ type Provider interface {
 	SetProjectName(name string)
 	GetRegion() string
 
-	// Cleanup
-	DeleteProject() error
-
 	// Deployment metadata management
-	SaveDeploymentMetadata(ctx context.Context, metadata *models.DeploymentMetadata) error
-	GetDeploymentMetadata(ctx context.Context) (*models.DeploymentMetadata, error)
-	DeleteDeploymentMetadata(ctx context.Context) error
-	UpdateDeploymentStatus(ctx context.Context, status string) error
-	GetTTLRemaining(ctx context.Context) (time.Duration, error)
-	ExtendTTL(ctx context.Context, additionalHours int) error
+	SaveDeploymentMetadata(metadata *models.InfrastructureOutputs) error
+	GetDeploymentMetadata() (*models.DeploymentMetadata, error)
+	DeleteDeploymentMetadata() error
+	IsDeployed() (bool, error)
+
+	CreateDeploymentConfiguration() *models.DeploymentOptions
+	DisplayCostEstimate(options *models.DeploymentOptions)
+	CreateDefaultDeploymentConfiguration() *models.DeploymentOptions
 }
 
 // NamingStrategy defines how project names are converted to storage names
