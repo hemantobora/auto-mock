@@ -15,9 +15,12 @@ Welcome to AutoMock! This guide will help you set up and start using AutoMock to
 
 ## Prerequisites
 
+> Cloud provider support: AutoMock currently supports AWS only. GCP and Azure
+> integrations are planned but not available yet.
+
 ### Required
 - **Go 1.22+** (for building from source)
-- **AWS Account** with configured credentials
+- **AWS Account** with configured credentials (currently the only supported cloud)
 - **AWS CLI** installed and configured
 
 ### Optional (for AI generation)
@@ -52,7 +55,7 @@ chmod +x build.sh
 
 This creates an `automock` binary in the current directory.
 
-### 3. Configure AWS Credentials
+### 3. Configure AWS Credentials (AWS-only for now)
 ```bash
 # Option 1: Use AWS CLI
 aws configure
@@ -74,6 +77,12 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 # OR for GPT-4 (OpenAI)
 export OPENAI_API_KEY="sk-..."
 ```
+
+Note: the CLI also accepts a provider override when running `automock init`.
+Use `--provider <anthropic|openai|template>` to preselect the AI provider and
+skip the interactive provider-selection prompt. The tool will still verify that
+an appropriate API key environment variable is set (and will prompt for it if
+missing).
 
 ## Quick Start
 
@@ -161,12 +170,12 @@ Expectations define how MockServer responds to requests:
 ```
 
 ### Infrastructure
-Optional cloud deployment consisting of:
-- **ECS Fargate Cluster** - Runs MockServer containers
-- **Application Load Balancer** - Public access point
-- **Auto-Scaling** - 10-200 tasks based on load
-- **CloudWatch** - Monitoring and logging
-- **S3** - Configuration storage
+Optional cloud deployment (AWS-only) consisting of:
+- **AWS ECS Fargate Cluster** - Runs MockServer containers
+- **AWS Application Load Balancer (ALB)** - Public access point
+- **AWS Auto Scaling** - 10-200 tasks based on load
+- **Amazon CloudWatch** - Monitoring and logging
+- **Amazon S3** - Configuration storage
 
 ## Generation Modes
 
@@ -179,6 +188,12 @@ Generate expectations from natural language descriptions.
 ```bash
 ./automock init --project user-api --provider anthropic
 ```
+
+Note: when you pass `--provider anthropic` (or `openai` / `template`) the init
+flow will preselect that provider for AI generation and avoid asking you to
+choose a provider interactively. It will still ensure the provider's API key
+is set (e.g., `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`) and will prompt you to
+enter it if necessary.
 
 **Prompt examples:**
 - "REST API for a blog: posts, comments, users, authentication"
@@ -221,7 +236,7 @@ Import from existing API collections.
 **Supported formats:**
 - Postman Collection v2.1
 - Bruno Collection
-- Insomnia Workspace
+- Insomnia Workspace (beta)
 
 **Best for:** Converting existing tests to mocks
 
@@ -229,9 +244,9 @@ Import from existing API collections.
 - Executes APIs sequentially
 - Variable resolution
 - Pre/post-script processing
-- Automatic scenario detection
-- Auth variation handling
-- Intelligent priority assignment
+- Interactive matching configuration (guided; no automatic scenario inference)
+- Auth variation handling (via separate expectations)
+- Auto-incremented priorities to avoid collisions
 
 **Example:**
 ```bash
@@ -340,7 +355,7 @@ Upload pre-built MockServer JSON files.
 ```
 
 ### Access Your Mock API
-After deployment, you'll get URLs for:
+After deployment (on AWS), you'll get URLs for:
 - **API Endpoint**: `http://automock-{project}-{id}.{region}.elb.amazonaws.com`
 - **Dashboard**: `http://automock-{project}-{id}.{region}.elb.amazonaws.com/mockserver/dashboard`
 
@@ -404,9 +419,8 @@ Available variables:
 ### GraphQL Support
 Create expectations for GraphQL endpoints with:
 - Query matching
-- Mutation handling
-- Variable validation
 - Operation name matching
+- Optional variables matching (exact)
 
 ### Load Testing with Locust
 Generate load testing scripts from collections:
@@ -462,17 +476,12 @@ aws s3 cp s3://automock-{project}-config-{suffix}/expectations.json -
 - S3: ~$0.30/month
 - **Total**: ~$125/month
 
-### Cost Optimization
-1. **Use TTL cleanup** - Auto-destroy after set hours
-2. **Destroy when idle** - `./automock destroy --project name`
-3. **Adjust task count** - Modify min/max in Terraform
-4. **Use smaller regions** - Some regions have lower costs
+> Note: These are rough, region-dependent estimates and will vary with traffic, data transfer, and log volume. Please validate with the AWS Pricing Calculator for your account and region.
 
-### TTL-Based Costs
-- 4 hours: ~$0.68
-- 8 hours: ~$1.37
-- 24 hours: ~$4.11
-- 1 week: ~$28.77
+### Cost Optimization
+1. **Destroy when idle** - `./automock destroy --project name`
+2. **Adjust task count** - Modify min/max in Terraform
+3. **Use smaller regions** - Some regions have lower costs
 
 ## Troubleshooting
 

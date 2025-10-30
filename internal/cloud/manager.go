@@ -273,7 +273,8 @@ func (m *CloudManager) generateMockExpectations(cliContext *CLIContext) (string,
 
 	case ModeInteractive:
 		// REPL-driven: Interactive AI-guided configuration (primary experience)
-		return repl.StartMockGenerationREPL(m.getCurrentProject())
+		// Pass through any CLI provider override (e.g., --provider anthropic)
+		return repl.StartMockGenerationREPL(m.getCurrentProject(), cliContext.Provider)
 	default:
 		return "", fmt.Errorf("unsupported initialization mode")
 	}

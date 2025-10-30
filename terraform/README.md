@@ -24,7 +24,7 @@ This directory contains modular Terraform configurations for deploying productio
 - **Auto-Scaling** - CPU, memory, and request-based scaling (10-200 tasks)
 - **S3 Storage** - Versioned configuration storage
 - **CloudWatch** - Comprehensive logging and monitoring
-- **Optional TTL Cleanup** - Automatic infrastructure teardown
+
 
 ## Architecture
 
@@ -126,8 +126,7 @@ terraform apply \
   -var="project_name=my-api" \
   -var="instance_size=medium" \
   -var="min_tasks=20" \
-  -var="max_tasks=100" \
-  -var="ttl_hours=8"
+  -var="max_tasks=100"
 ```
 
 ## Modules
@@ -199,17 +198,7 @@ variable "max_tasks" {
   default     = 200
 }
 
-variable "ttl_hours" {
-  description = "Hours before auto-cleanup (0 = disabled)"
-  type        = number
-  default     = 4
-}
 
-variable "enable_ttl_cleanup" {
-  description = "Enable automatic TTL-based cleanup"
-  type        = bool
-  default     = true
-}
 
 variable "custom_domain" {
   description = "Custom domain name (optional)"
@@ -392,7 +381,7 @@ resource "aws_cloudwatch_metric_alarm" "high_5xx_errors" {
 **Log Groups:**
 - `/ecs/automock/{project}/mockserver` - MockServer logs
 - `/ecs/automock/{project}/config-loader` - Config loader logs
-- `/aws/lambda/automock-{project}-ttl-cleanup` - Cleanup logs
+
 
 **Retention:** 30 days (configurable)
 
@@ -419,6 +408,8 @@ aws logs tail /ecs/automock/my-api/config-loader --follow
 | S3 Storage (1 GB) | - | ~$0.30 |
 | **Total** | **~$0.17/hr** | **~$125/mo** |
 
+> Note: These are rough, region-dependent estimates and will vary with traffic, data transfer, and log volume. Please validate with the AWS Pricing Calculator for your account and region.
+
 ### With Auto-Scaling (10-50 avg)
 
 | Component | Monthly |
@@ -436,43 +427,28 @@ aws logs tail /ecs/automock/my-api/config-loader --follow
 | large (1 vCPU, 2 GB) | $0.1944 | ~$140 |
 | xlarge (2 vCPU, 4 GB) | $0.3888 | ~$280 |
 
-### TTL-Based Costs (small, 10 tasks)
 
-| Duration | Cost |
-|----------|------|
-| 1 hour | ~$0.17 |
-| 4 hours | ~$0.68 |
-| 8 hours | ~$1.37 |
-| 24 hours | ~$4.11 |
-| 1 week | ~$28.77 |
-| 1 month | ~$125 |
 
 ### Cost Optimization Strategies
 
-1. **Use TTL Cleanup**
-   ```bash
-   automock deploy --project my-api
-   # Infrastructure auto-destroys after 4 hours (default)
-   ```
-
-2. **Reduce Min Tasks**
+1. **Reduce Min Tasks**
    ```hcl
    variable "min_tasks" {
      default = 5  # Instead of 10
    }
    ```
 
-3. **Use Smaller Instance Size**
+2. **Use Smaller Instance Size**
    ```bash
    terraform apply -var="instance_size=small"
    ```
 
-4. **Destroy When Not in Use**
+3. **Destroy When Not in Use**
    ```bash
    automock destroy --project my-api
    ```
 
-5. **Single NAT Gateway** (Not Recommended for Prod)
+4. **Single NAT Gateway** (Not Recommended for Prod)
    ```hcl
    # Modify networking to use 1 NAT instead of 2
    # Saves ~$32/month but removes HA
@@ -491,12 +467,7 @@ aws logs tail /ecs/automock/my-api/config-loader --follow
 - S3 read access (expectations bucket)
 - CloudWatch metrics writes
 
-**Lambda Cleanup Role:**
-- ECS describe/update/delete
-- ALB describe/delete
-- VPC describe/delete
-- S3 read/delete
-- CloudWatch logs
+
 
 ### Policies
 
@@ -681,7 +652,7 @@ terraform destroy -var="project_name=test-..."
 
 ### Best Practices
 
-1. **Always use TTL** for ephemeral test environments
+1. **Destroy when idle** for ephemeral test environments
 2. **Use tags** to track resources
 3. **Monitor costs** with AWS Cost Explorer
 4. **Set up billing alerts** in AWS Console

@@ -18,7 +18,11 @@ import (
 const defaultBodyMatchType = "ONLY_MATCHING_FIELDS"
 
 // StartMockGenerationREPL is the main entry point for mock generation
-func StartMockGenerationREPL(projectName string) (string, error) {
+// StartMockGenerationREPL starts the interactive generation REPL.
+// If providerOverride is non-empty it will be used as the preselected MCP provider
+// (e.g. "anthropic", "openai", "template") and the REPL will skip the
+// provider selection prompt.
+func StartMockGenerationREPL(projectName string, providerOverride string) (string, error) {
 	fmt.Printf("🎯 MockServer Configuration Generator Initialized\n")
 	fmt.Printf("📦 Project: %s\n", projectName)
 	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
@@ -42,7 +46,7 @@ func StartMockGenerationREPL(projectName string) (string, error) {
 	method = strings.Split(method, " ")[0]
 
 	// Step 2: Generate mock configuration using MCP engine
-	mockServerJSON, err := generateMockConfiguration(method, projectName)
+	mockServerJSON, err := generateMockConfiguration(method, projectName, providerOverride)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate configuration: %w", err)
 	}
@@ -123,11 +127,11 @@ func SelectProjectAction(projectName string, existingConfig *models.MockConfigur
 
 // generateMockConfiguration uses the MCP engine to generate configurations
 // Returns: (mockServerJSON, error)
-func generateMockConfiguration(method, projectName string) (string, error) {
+func generateMockConfiguration(method, projectName, providerOverride string) (string, error) {
 	ctx := context.Background()
 	switch method {
 	case "describe":
-		return generateFromDescription(ctx, projectName)
+		return generateFromDescription(ctx, projectName, providerOverride)
 	case "interactive":
 		return generateInteractiveWithMenu()
 	case "collection":
@@ -135,7 +139,7 @@ func generateMockConfiguration(method, projectName string) (string, error) {
 	case "upload":
 		return configureUploadedExpectationWithMenu(projectName)
 	default:
-		return generateFromDescription(ctx, projectName)
+		return generateFromDescription(ctx, projectName, providerOverride)
 	}
 }
 
@@ -145,7 +149,7 @@ func generateMockConfiguration(method, projectName string) (string, error) {
 // - REST / GraphQL prompt hint.
 // - One optional regenerate pass.
 // - Returns MockServer JSON string produced from []models.MockExpectation.
-func generateFromDescription(ctx context.Context, projectName string) (string, error) {
+func generateFromDescription(ctx context.Context, projectName string, providerOverride string) (string, error) {
 	fmt.Println("🤖 AI-Powered Generation")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("⚠️  Disclaimer: Review inputs for any secrets/tokens before use.")
@@ -155,33 +159,50 @@ func generateFromDescription(ctx context.Context, projectName string) (string, e
 	if len(infos) == 0 {
 		return "", fmt.Errorf("no AI providers registered")
 	}
-	opts := make([]string, 0, len(infos))
-	for _, pi := range infos {
-		label := pi.Name
-		if !pi.Available {
-			label += " (not configured)"
-		}
-		fmt.Printf("%s %s\n", ternary(pi.Available, "✅", "❌"), label)
-		if pi.Available {
-			opts = append(opts, pi.Name)
-		}
-	}
-	if len(opts) == 0 {
-		// let user choose anyway, we’ll ask for API key below
-		for _, pi := range infos {
-			opts = append(opts, pi.Name)
-		}
-	}
-	fmt.Println()
 
-	// 2) Pick provider
+	// If the CLI passed an explicit provider, use it as the preselected provider.
 	var provider string
-	if err := survey.AskOne(&survey.Select{
-		Message: "Choose an AI provider:",
-		Options: opts,
-		Default: opts[0],
-	}, &provider); err != nil {
-		return "", err
+	if providerOverride != "" {
+		provider = providerOverride
+		// Normalize casing if possible (use registered name)
+		for _, pi := range infos {
+			if strings.EqualFold(pi.Name, providerOverride) {
+				provider = pi.Name
+				break
+			}
+		}
+		fmt.Printf("Using provider (from CLI): %s\n", provider)
+	} else {
+		opts := make([]string, 0, len(infos))
+		for _, pi := range infos {
+			label := pi.Name
+			if !pi.Available {
+				label += " (not configured)"
+			}
+			fmt.Printf("%s %s\n", ternary(pi.Available, "✅", "❌"), label)
+			if pi.Available {
+				opts = append(opts, pi.Name)
+			}
+		}
+		if len(opts) == 0 {
+			// let user choose anyway, we’ll ask for API key below
+			for _, pi := range infos {
+				opts = append(opts, pi.Name)
+			}
+		}
+		fmt.Println()
+
+		// 2) Pick provider interactively
+		if len(opts) == 0 {
+			return "", fmt.Errorf("no providers available to choose from")
+		}
+		if err := survey.AskOne(&survey.Select{
+			Message: "Choose an AI provider:",
+			Options: opts,
+			Default: opts[0],
+		}, &provider); err != nil {
+			return "", err
+		}
 	}
 
 	// 3) Ensure API key (env → prompt once → exit if still missing)

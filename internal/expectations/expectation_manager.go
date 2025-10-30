@@ -474,9 +474,14 @@ func editPriority(expectation *models.MockExpectation) {
 
 func editTimes(expectation *models.MockExpectation) {
 	var times int
+	// Determine default value: 0 for unlimited or unset, otherwise current remaining times
+	defaultTimes := 0
+	if expectation.Times != nil && !expectation.Times.Unlimited {
+		defaultTimes = expectation.Times.RemainingTimes
+	}
 	if err := survey.AskOne(&survey.Input{
 		Message: "Enter number of times this expectation should be matched (0 = unlimited):",
-		Default: fmt.Sprintf("%d", expectation.Times),
+		Default: fmt.Sprintf("%d", defaultTimes),
 		Help:    "Example: 0, 1, 5",
 	}, &times); err == nil && times >= 0 {
 		if times == 0 {

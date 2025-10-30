@@ -17,10 +17,14 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+// version is set via -ldflags "-X main.version=<version>" during build
+var version = "dev"
+
 func main() {
 	app := &cli.App{
-		Name:  "automock",
-		Usage: "Generate and deploy mock API infrastructure",
+		Name:    "automock",
+		Usage:   "Generate and deploy mock API infrastructure",
+		Version: version,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:  "profile",

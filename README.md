@@ -6,6 +6,8 @@
 
 **AutoMock** is an AI-powered, cloud-native CLI tool that generates and deploys production-ready mock API servers from simple descriptions, API collections, or interactive builders. Spin up ephemeral, fully managed mock servers in minutes with auto-scaling, monitoring, and intelligent expectation management.
 
+> Note: Cloud provider support is currently AWS-only. GCP and Azure are planned but not yet available.
+
 ---
 
 ## 🌟 Highlights
@@ -13,7 +15,6 @@
 - 🤖 **AI-Generated Mocks** - Describe your API in natural language, get complete MockServer configurations
 - ☁️ **Cloud-Native Deployment** - One command deploys ECS Fargate + ALB + Auto-scaling
 - 📦 **Multi-Format Import** - Postman, Bruno, Insomnia collections → MockServer expectations
-- 🎯 **Smart Scenario Detection** - Automatically handles auth variations, error states, edge cases
 - 🔧 **Interactive Builder** - 7-step guided builder for precise control
 - ⚡ **Auto-Scaling** - 10-200 tasks based on CPU/Memory/Requests
 - 💾 **Cloud Storage** - S3-backed, versioned, team-accessible
@@ -77,7 +78,7 @@ Generate complete MockServer configurations from natural language:
 - ✅ Multiple scenarios per endpoint
 
 **Supported AI Providers:**
-- **Anthropic** (Claude Sonnet 4.5) - Recommended
+- **Anthropic** (Claude Sonnet 4.5)
 - **OpenAI** (GPT-4)
 - **Template** (No AI, fallback mode)
 
@@ -97,14 +98,14 @@ Import existing API definitions from popular tools:
 **Supported Formats:**
 - **Postman** Collection v2.1 (.json)
 - **Bruno** Collection (.json)
-- **Insomnia** Workspace (.json)
+- **Insomnia** Workspace (.json) — beta
 
 **Smart Features:**
 - 🔄 Sequential API execution with variable resolution
-- 🎯 Automatic scenario detection (auth variations, error states)
-- 🏆 Intelligent priority assignment (100, 200, 300...)
-- 📝 Pre/post-script processing
-- 🔐 Auth header injection
+- �️ Interactive matching configuration (guided; no automatic scenario inference)
+- �️ Auto-incremented priorities to avoid collisions
+- 📝 Pre/post-script processing (Postman-like JS via embedded engine)
+- 🔐 Auth mapping to headers when provided in the collection
 
 **Example: Multi-Scenario Detection**
 ```
@@ -114,6 +115,7 @@ Same endpoint GET /api/users/123:
   Priority 300: Admin → 200 OK (admin view)
   Priority 400: Rate limited → 429 Too Many Requests
 ```
+Note: Scenarios like these are configured via the guided flow; they are not inferred automatically in all cases.
 
 ---
 
@@ -145,7 +147,6 @@ Precision-controlled, step-by-step expectation creation:
 **Response Features:**
 - Template variables: `$!uuid`, `$!now_epoch`, `$!request.headers['X-Request-ID'][0]`
 - Progressive delays: 100ms → 150ms → 200ms...
-- Conditional responses based on request data
 - Multiple response bodies per expectation
 
 ---
@@ -190,7 +191,7 @@ Deploy production-ready infrastructure with one command:
 - 🔍 **Monitoring** - CloudWatch metrics, logs, alarms
 - 🏥 **Health Checks** - ALB target health, /mockserver/status
 - 🔒 **Security** - IAM roles, security groups, private subnets
-- 💰 **Cost Optimization** - Optional TTL cleanup, auto-teardown
+- 💰 **Cost Optimization** - Guidance to minimize spend
 
 **Accessing Your Mock:**
 ```bash
@@ -369,17 +370,12 @@ Quick API mocks for presentations:
 | S3 Storage | ~$0.30 |
 | **Total** | **~$125** |
 
-### Hourly Rate
-- 10 tasks: **~$0.17/hour**
-- With TTL cleanup: **Pennies per test run**
+> Note: These are rough, region-dependent estimates and will vary with traffic, data transfer, and log volume. Please validate with the AWS Pricing Calculator for your account and region.
 
-### TTL-Based Costs
-| Duration | Cost |
-|----------|------|
-| 4 hours | ~$0.68 |
-| 8 hours | ~$1.37 |
-| 24 hours | ~$4.11 |
-| 1 week | ~$28.77 |
+### Hourly Rate (rough)
+- 10 tasks: **~$0.17/hour**
+
+<!-- TTL auto-teardown is not currently implemented; TTL-based cost examples removed. -->
 
 ### AI Generation Costs
 | Provider | Cost per API Generation |
@@ -388,7 +384,6 @@ Quick API mocks for presentations:
 | GPT-4 | $0.10 - $0.30 |
 
 **Cost Optimization Tips:**
-- Use TTL cleanup to auto-destroy infrastructure
 - Destroy when not in use: `./automock destroy --project name`
 - Reduce task count for smaller APIs
 - Use spot instances (future feature)
@@ -492,7 +487,7 @@ Dynamic values in responses:
 - `$!request.queryStringParameters['query'][0]` - Query parameter
 
 ### GraphQL Support
-Create expectations for GraphQL APIs:
+Basic GraphQL request matching (no schema validation):
 ```json
 {
   "httpRequest": {
@@ -513,28 +508,12 @@ Create expectations for GraphQL APIs:
 }
 ```
 
-### Conditional Responses
-Different responses based on request data:
-```json
-[
-  {
-    "priority": 100,
-    "httpRequest": {
-      "headers": {"X-User-Type": ["premium"]}
-    },
-    "httpResponse": {
-      "body": {"features": ["all"]}
-    }
-  },
-  {
-    "priority": 200,
-    "httpRequest": {},
-    "httpResponse": {
-      "body": {"features": ["basic"]}
-    }
-  }
-]
-```
+Supported matching:
+- Query string contains
+- Operation name extraction/matching
+- Optional variables matching (exact)
+
+---
 
 ---
 
@@ -623,6 +602,7 @@ https://github.com/hemantobora/auto-mock
 
 - **MockServer** - Powerful HTTP mocking server
 - **Anthropic** - Claude AI for intelligent mock generation
+- **OpenAI** - GPT-4 for intelligent mock generation
 - **AWS** - Cloud infrastructure platform
 - **Go** - Excellent tooling and performance
 - **Terraform** - Infrastructure as Code
