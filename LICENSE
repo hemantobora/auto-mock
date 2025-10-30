@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2025 Hemanto
+Copyright (c) 2025 Hemanto Bora
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,15 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+ATTRIBUTION REQUIREMENT:
+
+If you use this software in your project (including derivative works), you must
+include the following attribution in your documentation, README, or about page:
+
+"This project uses AutoMock by Hemanto Bora (https://github.com/hemantobora/auto-mock)"
+
+For commercial use or redistribution, proper attribution must be clearly visible
+to end users.

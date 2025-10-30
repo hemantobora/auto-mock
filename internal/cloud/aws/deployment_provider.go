@@ -21,7 +21,7 @@ func (p *Provider) SaveDeploymentMetadata(output *models.InfrastructureOutputs) 
 		ProjectName:      p.projectID,
 		DeploymentStatus: "deployed",
 		DeployedAt:       time.Now().UTC(),
-		Details:          *output,
+		Details:          output,
 	}
 
 	// Marshal to JSON

@@ -3,6 +3,7 @@ package builders
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
@@ -427,6 +428,26 @@ func GenerateResponseTemplate(expectation *MockExpectation) error {
 	}
 	expectation.HttpResponse.Body = manualJSON
 	return nil
+}
+
+var gqlOpRegex = regexp.MustCompile(`(?m)^\s*(query|mutation|subscription)\s+([_A-Za-z][_0-9A-Za-z]*)`)
+
+// ExtractGraphQLOperationName returns operation type (query/mutation/subscription)
+// and name if present; both are lowercased.
+func ExtractGraphQLOperationName(query string) (opType, opName string) {
+	query = strings.TrimSpace(query)
+	m := gqlOpRegex.FindStringSubmatch(query)
+	if len(m) >= 3 {
+		return strings.ToLower(m[1]), m[2]
+	}
+	// fallback if no explicit name (e.g. anonymous operation)
+	// detect type keyword only
+	for _, kw := range []string{"query", "mutation", "subscription"} {
+		if strings.HasPrefix(strings.ToLower(query), kw) {
+			return kw, ""
+		}
+	}
+	return "", ""
 }
 
 func generateEnhancedSuccessTemplate(method string) string {

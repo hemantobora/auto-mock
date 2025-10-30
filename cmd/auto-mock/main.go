@@ -12,7 +12,6 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/hemantobora/auto-mock/internal/client"
 	"github.com/hemantobora/auto-mock/internal/cloud"
-	"github.com/hemantobora/auto-mock/internal/models"
 	"github.com/hemantobora/auto-mock/internal/repl"
 	"github.com/hemantobora/auto-mock/internal/terraform"
 	"github.com/urfave/cli/v2"
@@ -41,15 +40,6 @@ func main() {
 						Name:  "provider",
 						Usage: "LLM provider (anthropic, openai, template) - bypasses provider selection",
 					},
-					&cli.BoolFlag{
-						Name:  "include-auth",
-						Usage: "Include authentication endpoints in mock config",
-					},
-					&cli.BoolFlag{
-						Name:  "include-errors",
-						Usage: "Include error responses in mock config",
-						Value: true,
-					},
 					&cli.StringFlag{
 						Name:  "collection-file",
 						Usage: "Path to API collection file (Postman/Bruno/Insomnia)",
@@ -65,8 +55,6 @@ func main() {
 					cliContext := &cloud.CLIContext{
 						ProjectName:    c.String("project"),
 						Provider:       c.String("provider"),
-						IncludeAuth:    c.Bool("include-auth"),
-						IncludeErrors:  c.Bool("include-errors"),
 						CollectionFile: c.String("collection-file"),
 						CollectionType: c.String("collection-type"),
 					}
@@ -211,25 +199,6 @@ func deployCommand(c *cli.Context) error {
 	return deployer.DeployInfrastructureWithTerraform(c.Bool("skip-confirmation"))
 }
 
-// parseCommaSeparated splits a comma-separated string into a slice, trimming whitespace
-func parseCommaSeparated(input string) []string {
-	if input == "" {
-		return nil
-	}
-
-	parts := strings.Split(input, ",")
-	result := make([]string, 0, len(parts))
-
-	for _, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-
-	return result
-}
-
 // destroyCommand handles infrastructure teardown
 func destroyCommand(c *cli.Context) error {
 	profile := c.String("profile")
@@ -299,10 +268,11 @@ func statusCommand(c *cli.Context) error {
 	projectName := c.String("project")
 	detailed := c.Bool("detailed")
 
-	fmt.Printf("\nChecking infrastructure status for: %s\n", projectName)
-	fmt.Println(strings.Repeat("=", 80))
+	fmt.Printf("\n🛰️  Checking infrastructure status for: %s\n", projectName)
+	fmt.Println(strings.Repeat("━", 80))
 
 	manager := cloud.NewCloudManager(profile)
+
 	// Step 1: Validate cloud provider credentials
 	if err := manager.AutoDetectProvider(profile); err != nil {
 		return err
@@ -310,21 +280,22 @@ func statusCommand(c *cli.Context) error {
 
 	exists, _ := manager.Provider.ProjectExists(context.Background(), projectName)
 	if !exists {
-		fmt.Printf("No project found with name: %s\n", projectName)
-		fmt.Println("Run 'automock init' to create a new project.")
+		fmt.Printf("❌ No project found with name: %s\n", projectName)
+		fmt.Println("💡 Run 'automock init' to create a new project.")
 		return nil
 	}
+
 	metadata, err := manager.Provider.GetDeploymentMetadata()
 	if err != nil {
-		fmt.Printf("%q\n", err)
-		fmt.Println("No infrastructure found for this project.")
-		fmt.Println("Run 'automock deploy --project " + projectName + "' to create it if expectations exist. Otherwise, run 'automock init' first.")
+		fmt.Printf("⚠️  %v\n", err)
+		fmt.Println("❌ No infrastructure found for this project.")
+		fmt.Printf("💡 Run 'automock deploy --project %s' to create it if expectations exist.\n", projectName)
+		fmt.Println("💡 Otherwise, run 'automock init' first.")
 		return nil
 	}
 
-	fmt.Println("\nInfrastructure is deployed with the following details:")
+	fmt.Println("\n✅ Infrastructure is deployed with the following details:")
 
-	// Compute uptime and add deployment info
 	deployedAt := metadata.DeployedAt.UTC()
 	deployedLocal := deployedAt.Local()
 	uptime := time.Since(deployedAt).Hours()
@@ -333,15 +304,13 @@ func statusCommand(c *cli.Context) error {
 	fmt.Printf("⏱️  Uptime: %.2f hours\n", uptime)
 	fmt.Println()
 
-	// Clear details for simple view
 	if !detailed {
-		metadata.Details = models.InfrastructureOutputs{}
-		fmt.Println("Summary Status:")
+		fmt.Println("📊 Summary Status:")
+		metadata.Details = nil // hide the nested infra outputs
 	} else {
-		fmt.Println("Detailed Status:")
+		fmt.Println("🧾 Detailed Status:")
 	}
 
-	// Pretty-print JSON
 	jsonBytes, err := json.MarshalIndent(metadata, "", "  ")
 	if err != nil {
 		fmt.Printf("❌ Failed to marshal metadata: %v\n", err)
@@ -349,86 +318,93 @@ func statusCommand(c *cli.Context) error {
 	}
 
 	fmt.Println(string(jsonBytes))
-
 	return nil
 }
 
-// showDetailedHelp provides comprehensive help
 func showDetailedHelp(c *cli.Context) error {
-	help := `
-AutoMock - AI-Powered Mock API Infrastructure
+	const (
+		h1    = "\033[36m" // cyan
+		h2    = "\033[33m" // yellow
+		reset = "\033[0m"
+	)
 
-BASIC USAGE:
-  automock init                    # Interactive mode (recommended)
-  automock help                    # Show this help
+	version := c.App.Version
+	if version == "" {
+		version = "beta"
+	}
 
-MAIN COMMANDS:
-  automock init --project myapi    # Create/update project and generate expectations
-  automock deploy --project myapi  # Deploy infrastructure for existing project  
-  automock status --project myapi  # Check infrastructure status
-  automock destroy --project myapi # Tear down infrastructure
+	help := fmt.Sprintf(`
+%sAutoMock — Mock API generator & infra helper%s
+Version: %s
 
-WORKFLOW (Interactive Mode):
-  1. Run 'automock init'
-  2. Select or create project
-  3. Generate expectations (AI, collection import, or interactive builder)
-  4. Choose generated expectations option:
-     - Save to Storage only
-     - Deploy complete infrastructure (ECS + ALB)
-     - Start local MockServer
-  5. Infrastructure deploys automatically
+%sGLOBAL FLAG%s
+  --profile <name>                 Credential profile name (e.g., dev, prod)
 
-SUPPORTED LLM PROVIDERS:
-  • anthropic    - Claude (requires ANTHROPIC_API_KEY)
-  • openai       - GPT-4 (requires OPENAI_API_KEY)
+%sCOMMANDS%s
+  init                             Initialize a project and initiate expectation generation
+  deploy                           Deploy infrastructure for an existing project expectations
+  destroy                          Destroy infrastructure for a project
+  status                           Show infrastructure status for a project
+  locust                           Generate a Locust load-testing bundle from an API collection
+  help                             Show this help
 
-SUPPORTED COLLECTION FORMATS:
-  • postman      - Postman Collection v2.1 (.json)
-  • bruno        - Bruno Collection (.json)
-  • insomnia     - Insomnia Workspace (.json)
+%sinit — flags%s
+  --project <name>                 Project name (bypasses interactive project selection)
+  --provider <anthropic|openai>
+                                   LLM provider; bypasses provider selection
+  --collection-file <path>         Path to API collection (Postman/Bruno/Insomnia)
+  --collection-type <postman|bruno|insomnia>
+                                   Required when using --collection-file
 
-INFRASTRUCTURE:
-  • Complete     - ECS Fargate + ALB + Auto-scaling
-  • Auto-scaling - 10-200 tasks based on CPU/Memory/Requests
-  • Cost         - ~$1.24/hour with 10 tasks, auto-teardown prevents runaway costs
-
-ENVIRONMENT VARIABLES:
-  AWS_PROFILE              # AWS profile to use
-  ANTHROPIC_API_KEY        # For Claude AI generation
-  OPENAI_API_KEY           # For GPT-4 AI generation
-
-EXAMPLES:
-  # Interactive mode (recommended for first-time users)
+Examples:
   automock init
+  automock init --project user-service
+  automock init --provider anthropic
+  automock init --collection-file api.postman.json --collection-type postman
 
-  # Quick project with AI generation
-  automock init --project user-service --provider anthropic
+%sdeploy — flags%s
+  --project <name>                 (required)
+  --skip-confirmation              Skip deployment confirmation prompt
 
-  # Import Postman collection and deploy
-  automock init --collection-file api.json --collection-type postman
-
-  # Deploy standalone (expectations already exist)
+Examples:
   automock deploy --project user-service
+  automock deploy --project user-service --skip-confirmation
 
-  # Deploy with existing networking resources (restricted VPC permissions)
-  automock deploy --project user-service \
-    --vpc-id vpc-0abcd1234 \
-    --subnet-ids subnet-111,subnet-222,subnet-333 \
-    --security-group-ids sg-abc123
+%sdestroy — flags%s
+  --project <name>                 (required)
+  --force                          Skip confirmation prompts
 
-  # Deploy with existing IAM roles (restricted IAM permissions)
-  automock deploy --project user-service \
-    --execution-role-arn arn:aws:iam::123456789:role/ECSTaskExecutionRole \
-    --task-role-arn arn:aws:iam::123456789:role/MyAppTaskRole
-
-  # Check what's running
-  automock status --project user-service
-
-  # Clean up
+Examples:
   automock destroy --project user-service
+  automock destroy --project user-service --force
 
-For more information: See INFRASTRUCTURE.md and CLI_INTEGRATION.md
-`
+%sstatus — flags%s
+  --project <name>                 (required)
+  --detailed                       Show detailed information including metrics
+
+Examples:
+  automock status --project user-service
+  automock status --project user-service --detailed
+
+%slocust — flags%s
+  --collection-file <path>         Path to API collection (Postman/Bruno/Insomnia)
+  --collection-type <postman|bruno|insomnia>
+                                   Required when using --collection-file
+  --dir <path>                     Output directory for generated Locust files
+  --headless                       Run Locust in headless mode (no UI)
+  --distributed                    Generate/run in distributed mode
+
+Examples:
+  automock locust --collection-file api.postman.json --collection-type postman --dir ./load
+  automock locust --collection-file api.postman.json --collection-type postman --headless
+
+ENVIRONMENT
+  AWS_PROFILE                      AWS profile to use (alternative to --profile)
+  ANTHROPIC_API_KEY                Used when --provider anthropic
+  ANTHROPIC_MODEL                  Used to select Anthropic model (default: claude-sonnet-4-5)
+  OPENAI_API_KEY                   Used when --provider openai
+  OPENAI_MODEL                     Used to select OpenAI model (default: gpt-5-mini)
+`, h1, reset, version, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset)
 
 	fmt.Print(help)
 	return nil

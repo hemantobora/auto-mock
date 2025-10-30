@@ -35,9 +35,7 @@ type CLIContext struct {
 	CollectionType string `json:"collection_type,omitempty"`
 
 	// Optional CLI overrides (used in both modes)
-	Provider      string `json:"provider,omitempty"` // LLM provider preference
-	IncludeAuth   bool   `json:"include_auth"`       // Include auth endpoints
-	IncludeErrors bool   `json:"include_errors"`     // Include error responses
+	Provider string `json:"provider,omitempty"` // LLM provider preference
 }
 
 // GetMode determines which initialization mode to use based on CLI context

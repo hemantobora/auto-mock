@@ -9,10 +9,10 @@ import (
 
 // DeploymentMetadata tracks infrastructure deployment information
 type DeploymentMetadata struct {
-	ProjectName      string                `json:"project_name"`
-	DeploymentStatus string                `json:"deployment_status"` // none, deploying, deployed, failed, destroyed
-	DeployedAt       time.Time             `json:"deployed_at,omitempty"`
-	Details          InfrastructureOutputs `json:"details,omitempty"`
+	ProjectName      string                 `json:"project_name"`
+	DeploymentStatus string                 `json:"deployment_status"` // none, deploying, deployed, failed, destroyed
+	DeployedAt       time.Time              `json:"deployed_at,omitempty"`
+	Details          *InfrastructureOutputs `json:"details,omitempty"`
 }
 
 // InfrastructureOutputs contains Terraform outputs after deployment

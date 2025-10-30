@@ -167,10 +167,14 @@ func applyPOSTRequest(req *HttpRequest, query string, variables map[string]any) 
 		req.Headers = map[string][]any{}
 	}
 	req.Headers["Content-Type"] = []any{"application/json"}
+	_, opName := ExtractGraphQLOperationName(query)
 
 	envelope := map[string]any{"query": query}
 	if variables != nil {
 		envelope["variables"] = variables
+	}
+	if opName != "" {
+		envelope["operationName"] = opName
 	}
 
 	var mt string
