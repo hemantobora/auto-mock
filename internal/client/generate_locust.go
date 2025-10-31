@@ -25,6 +25,12 @@ var locustfilePy []byte
 //go:embed templates/requirements.txt
 var requirementsTxt []byte
 
+//go:embed templates/user_data.yaml
+var userDataYaml []byte
+
+//go:embed templates/LOADTEST_README.md
+var loadtestReadme []byte
+
 // macOS/Linux
 //
 //go:embed templates/run_locust_headless.sh
@@ -165,6 +171,22 @@ func GenerateLoadtestBundle(opts Options) error {
 		return err
 	}
 
+	// Add a sample user_data.yaml (only if absent)
+	userDataPath := filepath.Join(opts.OutDir, "user_data.yaml")
+	if _, statErr := os.Stat(userDataPath); os.IsNotExist(statErr) {
+		if err := os.WriteFile(userDataPath, userDataYaml, 0o644); err != nil {
+			return err
+		}
+	}
+
+	// Add a README for the load test bundle (only if absent)
+	readmePath := filepath.Join(opts.OutDir, "LOADTEST_README.md")
+	if _, statErr := os.Stat(readmePath); os.IsNotExist(statErr) {
+		if err := os.WriteFile(readmePath, loadtestReadme, 0o644); err != nil {
+			return err
+		}
+	}
+
 	// OS-aware runner scripts — ONLY write what makes sense for the host OS
 	switch runtime.GOOS {
 	case "windows":
@@ -233,6 +255,13 @@ func GenerateLoadtestBundle(opts Options) error {
 			fmt.Println("  Worker: ./run_locust_worker.sh MASTER_HOST=<master-ip>")
 		}
 	}
+
+	fmt.Println()
+	fmt.Println("Data parameterization:")
+	fmt.Println("  - Edit 'user_data.yaml' in the bundle to add fields like account_number, username, etc.")
+	fmt.Println("  - Use placeholders ${data.<field>} in locust_endpoints.json headers/params/body.")
+	fmt.Println("  - Control selection with config.data_assignment: round_robin | shared | random.")
+	fmt.Println("    • Set 'shared' to use the same row for all users (or keep a single row).")
 	printLocustConfigHelp()
 	return nil
 }
@@ -250,14 +279,14 @@ func resolveVariables(neededVars []string, variables map[string]string) error {
 	for _, varName := range neededVars {
 		// Check if already resolved
 		if _, exists := variables[varName]; exists {
-			fmt.Printf("✅ %s = %s (from previous setting)\n", varName, variables[varName])
+			fmt.Printf("✅ %s (from previous setting)\n", varName)
 			continue
 		}
 
 		// Step 2: Check environment
 		if envVal := os.Getenv(varName); envVal != "" {
 			variables[varName] = envVal
-			fmt.Printf("✅ %s = %s (from environment)\n", varName, envVal)
+			fmt.Printf("✅ %s (from environment)\n", varName)
 			continue
 		}
 
@@ -283,10 +312,10 @@ func resolveVariables(neededVars []string, variables map[string]string) error {
 			}
 		}
 
-		// Confirm the value
+		// Confirm the value (without printing it)
 		var confirm bool
 		if err := survey.AskOne(&survey.Confirm{
-			Message: fmt.Sprintf("Use '%s' = '%s'?", varName, value),
+			Message: fmt.Sprintf("Use provided value for '%s'?", varName),
 			Default: true,
 		}, &confirm); err != nil {
 			return &models.VariableResolutionError{
@@ -310,7 +339,7 @@ func resolveVariables(neededVars []string, variables map[string]string) error {
 		}
 
 		variables[varName] = value
-		fmt.Printf("✅ %s = %s (user input)\n", varName, value)
+		fmt.Printf("✅ %s (user input)\n", varName)
 	}
 
 	return nil
@@ -530,6 +559,8 @@ func printLocustConfigHelp() {
 	fmt.Printf("%-28s %-12s %s\n", "verify_tls", "true", "Set false to skip SSL verification")
 	fmt.Printf("%-28s %-12s %s\n", "default_headers", "{}", "Merged into all request headers")
 	fmt.Printf("%-28s %-12s %s\n", "default_params", "{}", "Merged into all request query params")
+	fmt.Printf("%-28s %-12s %s\n", "data_assignment", "\"round_robin\"", "User data selection: shared | round_robin | random")
+	fmt.Printf("%-28s %-12s %s\n", "data_shared_index", "0", "Row index used when data_assignment=shared")
 	fmt.Println()
 	fmt.Println("Edit these under the \"config\" block in locust_endpoints.json to customize behavior.")
 	fmt.Println("Example:")
@@ -539,6 +570,8 @@ func printLocustConfigHelp() {
 	fmt.Println(`    "max_wait_seconds": 2.0,`)
 	fmt.Println(`    "request_timeout_seconds": 20,`)
 	fmt.Println(`    "verify_tls": false,`)
+	fmt.Println(`    "data_assignment": "round_robin",`)
+	fmt.Println(`    "data_shared_index": 0,`)
 	fmt.Println(`    "default_headers": { "Content-Type": "application/json" }`)
 	fmt.Println(`  }`)
 	fmt.Println("───────────────────────────────────────────────────────────────────────────────")

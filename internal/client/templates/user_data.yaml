@@ -1,0 +1,17 @@
+# Sample per-user data file for Locust runtime parameterization
+# Edit or replace this file. The generator will copy it into your loadtest bundle as 'user_data.yaml'.
+#
+# Use ${data.<field>} placeholders in locust_endpoints.json (headers/params/body) to substitute values
+# for each virtual user. See LOADTEST_README.md for details.
+-
+  account_number: "111111"
+  username: "user1"
+  password: "pass1"
+-
+  account_number: "222222"
+  username: "user2"
+  password: "pass2"
+-
+  account_number: "333333"
+  username: "user3"
+  password: "pass3"

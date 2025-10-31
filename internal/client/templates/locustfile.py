@@ -1,4 +1,4 @@
-import os, json, re, math, random
+import os, json, re, math, random, csv, threading
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs
 from locust import HttpUser, between, constant, events
@@ -11,6 +11,8 @@ JSON_PATH = os.getenv("AM_LOCUST_JSON", "locust_endpoints.json")
 HOST_ENV  = os.getenv("AM_HOST")  # Optional. If not set, host can be set in Locust UI.
 
 _env_re = re.compile(r"\$\{env\.([A-Za-z_][A-Za-z0-9_]*)\}")
+_data_re = re.compile(r"\$\{data\.([A-Za-z_][A-Za-z0-9_]*)\}")
+_user_re = re.compile(r"\$\{user\.(id|index)\}")
 
 def _expand_env(v: Any):
     if isinstance(v, str):
@@ -27,6 +29,102 @@ with open(JSON_PATH, "r", encoding="utf-8") as f:
 AUTH   = SPEC.get("auth") or {"mode": "none"}
 CFG    = SPEC.get("config") or {}
 EPS    = SPEC.get("endpoints") or []
+
+# Data assignment config
+DATA_ASSIGNMENT: str = (CFG.get("data_assignment") or "round_robin").lower()  # shared | round_robin | random
+try:
+    DATA_SHARED_INDEX: int = int(CFG.get("data_shared_index", 0))
+except Exception:
+    DATA_SHARED_INDEX = 0
+
+# -------------------------------------------------------------------
+# Optional per-user data (CSV/JSON) for parameterization
+# -------------------------------------------------------------------
+
+USER_DATA: List[Dict[str, Any]] = []
+_USER_DATA_INDEX = 0
+_DATA_LOCK = threading.Lock()
+_USER_COUNTER = 0
+
+def _load_user_data(base_dir: Optional[str] = None):
+    global USER_DATA
+    path = os.getenv("AM_USER_DATA")
+    if not path and base_dir:
+        # Auto-detect files next to the JSON spec
+        for name in ["user_data.yaml", "user_data.yml", "user_data.csv", "user_data.json"]:
+            candidate = os.path.join(base_dir, name)
+            if os.path.exists(candidate):
+                path = candidate
+                break
+    if not os.path.exists(path):
+        if path:
+            print(f"[data] User data file not found: {path}")
+        return
+    try:
+        if path.lower().endswith(".csv"):
+            with open(path, newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                USER_DATA = [row for row in reader]
+        elif path.lower().endswith(".yaml") or path.lower().endswith(".yml"):
+            try:
+                import yaml  # type: ignore
+            except Exception as e:
+                print("[data] PyYAML not installed; add 'pyyaml' to requirements.txt or use CSV/JSON")
+                USER_DATA = []
+            else:
+                with open(path, "r", encoding="utf-8") as yf:
+                    data = yaml.safe_load(yf) or []
+                    if isinstance(data, list):
+                        USER_DATA = data
+                    else:
+                        print("[data] YAML must be a list of objects")
+                        USER_DATA = []
+        else:
+            # JSON array or NDJSON
+            with open(path, "r", encoding="utf-8") as f:
+                txt = f.read().strip()
+                if not txt:
+                    return
+                if txt[0] == "[":
+                    USER_DATA = json.loads(txt)
+                else:
+                    USER_DATA = [json.loads(line) for line in txt.splitlines() if line.strip()]
+        if USER_DATA:
+            print(f"[data] Loaded {len(USER_DATA)} user data rows from {path}")
+    except Exception as e:
+        print(f"[data] Failed to load AM_USER_DATA: {e}")
+
+# Initialize user data with auto-discovery next to the spec JSON
+_load_user_data(os.path.dirname(JSON_PATH) or ".")
+
+def _expand_runtime(v: Any, ctx: Dict[str, Any]):
+    if isinstance(v, str):
+        s = v
+        s = _data_re.sub(lambda m: str((ctx.get("data") or {}).get(m.group(1), "")), s)
+        s = _user_re.sub(lambda m: str((ctx.get("user") or {}).get(m.group(1), "")), s)
+        return s
+    if isinstance(v, dict):
+        return {k: _expand_runtime(x, ctx) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_expand_runtime(x, ctx) for x in v]
+    return v
+
+def _claim_user_index() -> int:
+    global _USER_COUNTER
+    with _DATA_LOCK:
+        idx = _USER_COUNTER
+        _USER_COUNTER += 1
+        return idx
+
+def _assign_user_data(user_index: int):
+    if not USER_DATA:
+        return None
+    if DATA_ASSIGNMENT == "shared":
+        return USER_DATA[DATA_SHARED_INDEX % len(USER_DATA)]
+    if DATA_ASSIGNMENT == "random":
+        return random.choice(USER_DATA)
+    # round_robin (default)
+    return USER_DATA[user_index % len(USER_DATA)]
 
 # -------------------------------------------------------------------
 # Config defaults & helpers
@@ -88,7 +186,7 @@ def _json_get(d: Any, path: str, default=None):
         cur = cur[part]
     return cur
 
-def _do_auth(client):
+def _do_auth(client, ctx: Optional[Dict[str, Any]] = None):
     mode = (AUTH.get("mode") or "none").lower()
     if mode == "none":
         return None
@@ -97,6 +195,9 @@ def _do_auth(client):
     path    = AUTH.get("path") or "/"
     headers = AUTH.get("headers") or {}
     body    = AUTH.get("body")
+    if ctx is not None:
+        headers = _expand_runtime(headers, ctx)
+        body    = _expand_runtime(body, ctx)
 
     kwargs = {"headers": headers, "timeout": REQUEST_TIMEOUT, "verify": VERIFY_TLS}
     if body is not None:
@@ -187,8 +288,12 @@ class AutoMockUser(HttpUser):
 
         # Per-user auth
         self._token = None
+        # Assign deterministic user index and optional data row
+        self._user_index = _claim_user_index()
+        self._data = _assign_user_data(self._user_index)
         if (AUTH.get("mode") or "none").lower() == "per_user":
-            self._token = _do_auth(self.client)
+            ctx = {"data": self._data or {}, "user": {"id": self._user_index, "index": self._user_index}}
+            self._token = _do_auth(self.client, ctx)
 
     def _apply_token(self, headers: Dict[str, str]) -> Dict[str, str]:
         mode = (AUTH.get("mode") or "none").lower()
@@ -215,6 +320,12 @@ class AutoMockUser(HttpUser):
         headers = {**DEFAULT_HEADERS, **(ep.get("headers") or {})}
         params  = {**DEFAULT_PARAMS,  **(ep.get("params")  or {})}
         body    = ep.get("body")
+
+        # Runtime parameterization: ${data.field} and ${user.id|index}
+        ctx = {"data": self._data or {}, "user": {"id": self._user_index, "index": self._user_index}}
+        headers = _expand_runtime(headers, ctx)
+        params  = _expand_runtime(params, ctx)
+        body    = _expand_runtime(body, ctx)
 
         # Apply Authorization from auth flow (overrides same header if present)
         headers = self._apply_token(headers)

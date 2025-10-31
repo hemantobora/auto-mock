@@ -1782,14 +1782,14 @@ func (cp *CollectionProcessor) resolveVariables(api *APIRequest, neededVars []st
 	for _, varName := range neededVars {
 		// Check if already resolved
 		if _, exists := variables[varName]; exists {
-			fmt.Printf("   ✅ %s = %s (from previous API)\n", varName, variables[varName])
+			fmt.Printf("   ✅ %s (from previous API)\n", varName)
 			continue
 		}
 
 		// Step 2: Check environment
 		if envVal := os.Getenv(varName); envVal != "" {
 			variables[varName] = envVal
-			fmt.Printf("   ✅ %s = %s (from environment)\n", varName, envVal)
+			fmt.Printf("   ✅ %s (from environment)\n", varName)
 			continue
 		}
 
@@ -1798,7 +1798,7 @@ func (cp *CollectionProcessor) resolveVariables(api *APIRequest, neededVars []st
 			fmt.Printf("   🔧 Running pre-script for %s...\n", varName)
 			if val := cp.executePreScriptForVariable(api.PreScript, varName, variables); val != "" {
 				variables[varName] = val
-				fmt.Printf("   ✅ %s = %s (from pre-script)\n", varName, val)
+				fmt.Printf("   ✅ %s (from pre-script)\n", varName)
 				continue
 			}
 		}
@@ -1829,7 +1829,7 @@ func (cp *CollectionProcessor) resolveVariables(api *APIRequest, neededVars []st
 		// Confirm the value
 		var confirm bool
 		if err := survey.AskOne(&survey.Confirm{
-			Message: fmt.Sprintf("Use '%s' = '%s'?", varName, value),
+			Message: fmt.Sprintf("Use provided value for '%s'?", varName),
 			Default: true,
 		}, &confirm); err != nil {
 			return &models.VariableResolutionError{
@@ -1853,7 +1853,7 @@ func (cp *CollectionProcessor) resolveVariables(api *APIRequest, neededVars []st
 		}
 
 		variables[varName] = value
-		fmt.Printf("   ✅ %s = %s (user input)\n", varName, value)
+		fmt.Printf("   ✅ %s (user input)\n", varName)
 	}
 
 	return nil
