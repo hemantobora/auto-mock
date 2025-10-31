@@ -341,8 +341,14 @@ func showDetailedHelp(c *cli.Context) error {
 %sAutoMock — Mock API generator & infra helper%s
 Version: %s
 
+%sUSAGE%s
+	automock [global flags] <command> [command flags]
+	Note: Global flags must come before the command (urfa ve/cli v2)
+	      e.g. automock --profile sandbox deploy --project myproj
+
 %sGLOBAL FLAG%s
   --profile <name>                 Credential profile name (e.g., dev, prod)
+				   You can also set AWS_PROFILE instead of --profile
 
 %sCOMMANDS%s
   init                             Initialize a project and initiate expectation generation
@@ -361,34 +367,36 @@ Version: %s
                                    Required when using --collection-file
 
 Examples:
-  automock init
-  automock init --project user-service
-  automock init --provider anthropic
-  automock init --collection-file api.postman.json --collection-type postman
+	automock --profile sandbox init
+	automock --profile sandbox init --project user-service
+	automock --profile sandbox init --provider anthropic
+	automock --profile sandbox init --collection-file api.postman.json --collection-type postman
+	AWS_PROFILE=sandbox automock init
 
 %sdeploy — flags%s
   --project <name>                 (required)
   --skip-confirmation              Skip deployment confirmation prompt
 
 Examples:
-  automock deploy --project user-service
-  automock deploy --project user-service --skip-confirmation
+	automock --profile sandbox deploy --project user-service
+	automock --profile sandbox deploy --project user-service --skip-confirmation
+	AWS_PROFILE=sandbox automock deploy --project user-service
 
 %sdestroy — flags%s
   --project <name>                 (required)
   --force                          Skip confirmation prompts
 
 Examples:
-  automock destroy --project user-service
-  automock destroy --project user-service --force
+	automock --profile sandbox destroy --project user-service
+	automock --profile sandbox destroy --project user-service --force
 
 %sstatus — flags%s
   --project <name>                 (required)
   --detailed                       Show detailed information including metrics
 
 Examples:
-  automock status --project user-service
-  automock status --project user-service --detailed
+	automock --profile sandbox status --project user-service
+	automock --profile sandbox status --project user-service --detailed
 
 %slocust — flags%s
   --collection-file <path>         Path to API collection (Postman/Bruno/Insomnia)
@@ -408,7 +416,7 @@ ENVIRONMENT
   ANTHROPIC_MODEL                  Used to select Anthropic model (default: claude-sonnet-4-5)
   OPENAI_API_KEY                   Used when --provider openai
   OPENAI_MODEL                     Used to select OpenAI model (default: gpt-5-mini)
-`, h1, reset, version, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset)
+`, h1, reset, version, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset)
 
 	fmt.Print(help)
 	return nil
