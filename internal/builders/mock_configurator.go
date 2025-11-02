@@ -73,10 +73,19 @@ func (mc *MockConfigurator) CollectRequestBody(exp *MockExpectation, existing st
 			return err
 		}
 		if useBody {
-			// Store as a raw STRING matcher (exact text)
+			// Prefer JSON STRICT if 'existing' is valid JSON; otherwise fall back to exact STRING
+			trimmed := existing
+			if json.Valid([]byte(trimmed)) {
+				var v any
+				if err := json.Unmarshal([]byte(trimmed), &v); err == nil {
+					exp.HttpRequest.Body = NewJSONBody(v, MatchStrict)
+					return nil
+				}
+			}
+			// Fallback: exact STRING match (raw text)
 			exp.HttpRequest.Body = map[string]any{
 				"type":   "STRING",
-				"string": existing,
+				"string": trimmed,
 			}
 			return nil
 		}

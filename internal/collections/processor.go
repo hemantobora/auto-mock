@@ -139,7 +139,7 @@ func (cp *CollectionProcessor) showDisclaimer() error {
 	var proceed bool
 	if err := survey.AskOne(&survey.Confirm{
 		Message: "Assuming you agree to the above, is the order of APIs in the collection correct? Continue?",
-		Default: false,
+		Default: true,
 	}, &proceed); err != nil {
 		return err
 	}
@@ -294,21 +294,6 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 				}
 			}
 
-			// Response body: wrap as JSON if possible; else fall back to exact string
-			var respVal any
-			if json.Valid([]byte(node.Response.Body)) {
-				_ = json.Unmarshal([]byte(node.Response.Body), &respVal)
-				expectation.HttpResponse.Body = map[string]any{
-					"type": "JSON",
-					"json": respVal,
-				}
-			} else {
-				expectation.HttpResponse.Body = map[string]any{
-					"type":   "STRING",
-					"string": node.Response.Body,
-				}
-			}
-
 			if err := mock_configurator.CollectAdvancedFeatures(4, &expectation); err != nil {
 				return nil, err
 			}
@@ -419,7 +404,7 @@ func (cp *CollectionProcessor) executeAPIs(nodes []ExecutionNode) error {
 		if node.API.PreScript != "" {
 			fmt.Printf("   🔧 Running pre-script...\n")
 			// Execute pre-script with collection-type awareness
-			preScriptVars := cp.executePreScript(node.API.PreScript, variables)
+			preScriptVars := cp.executePreScript(node.API.PreScript, node.API, variables)
 			if len(preScriptVars) > 0 {
 				fmt.Printf("   📦 Pre-script set variables: ")
 				for k, v := range preScriptVars {
@@ -529,7 +514,7 @@ func (cp *CollectionProcessor) executeAPIs(nodes []ExecutionNode) error {
 		// Step 7: Run post-script to populate variables (collection-type aware)
 		if node.API.PostScript != "" {
 			fmt.Printf("   🔧 Running post-script...\n")
-			extractedVars := cp.executePostScript(node.API.PostScript, response, variables)
+			extractedVars := cp.executePostScript(node.API.PostScript, node.API, response, variables)
 			if len(extractedVars) > 0 {
 				fmt.Printf("   📦 Variables extracted from response: ")
 				for k, v := range extractedVars {
@@ -556,18 +541,18 @@ func (cp *CollectionProcessor) executeAPIs(nodes []ExecutionNode) error {
 func (cp *CollectionProcessor) classifyAPIsByType(nodes []ExecutionNode) ([]ExecutionNode, []ExecutionNode) {
 	var restNodes, graphqlNodes []ExecutionNode
 
-	for _, node := range nodes {
-		if node.Response == nil {
+	// Iterate by index to mutate the original slice elements so the ExecutionType persists
+	for i := range nodes {
+		if nodes[i].Response == nil {
 			continue
 		}
 
-		// Check if it's a GraphQL request
-		if cp.isGraphQLRequest(node.API) {
-			node.ExecutionType = GRAPHQL
-			graphqlNodes = append(graphqlNodes, node)
+		if cp.isGraphQLRequest(nodes[i].API) {
+			nodes[i].ExecutionType = GRAPHQL
+			graphqlNodes = append(graphqlNodes, nodes[i])
 		} else {
-			node.ExecutionType = REST
-			restNodes = append(restNodes, node)
+			nodes[i].ExecutionType = REST
+			restNodes = append(restNodes, nodes[i])
 		}
 	}
 
@@ -629,9 +614,9 @@ func (cp *CollectionProcessor) isGraphQLRequest(api APIRequest) bool {
 
 // configureExpectationCriteria handles scenario detection and configuration
 func (cp *CollectionProcessor) configureExpectationCriteria(nodes []ExecutionNode) ([]builders.MockExpectation, error) {
-	fmt.Println("\n🎯 ENHANCED SCENARIO-AWARE EXPECTATION CONFIGURATION")
+	fmt.Println("\n🎯 TYPE-AWARE EXPECTATION CONFIGURATION")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("Analyzing APIs for scenarios and configuring intelligent matching...")
+	fmt.Println("Analyzing APIs for type intelligence matching...")
 
 	// Step 1: Classify APIs by type (REST vs GraphQL)
 	restNodes, graphqlNodes := cp.classifyAPIsByType(nodes)
@@ -1826,32 +1811,6 @@ func (cp *CollectionProcessor) resolveVariables(api *APIRequest, neededVars []st
 			}
 		}
 
-		// Confirm the value
-		var confirm bool
-		if err := survey.AskOne(&survey.Confirm{
-			Message: fmt.Sprintf("Use provided value for '%s'?", varName),
-			Default: true,
-		}, &confirm); err != nil {
-			return &models.VariableResolutionError{
-				VariableName: varName,
-				Source:       "user-input",
-				Cause:        err,
-			}
-		}
-
-		if !confirm {
-			// Ask again
-			if err := survey.AskOne(&survey.Input{
-				Message: fmt.Sprintf("Re-enter value for '%s':", varName),
-			}, &value); err != nil {
-				return &models.VariableResolutionError{
-					VariableName: varName,
-					Source:       "user-input",
-					Cause:        err,
-				}
-			}
-		}
-
 		variables[varName] = value
 		fmt.Printf("   ✅ %s (user input)\n", varName)
 	}
@@ -1882,18 +1841,24 @@ func (cp *CollectionProcessor) executePreScriptForVariable(preScript string, var
 func (cp *CollectionProcessor) normalizeScript(script string) string {
 	switch cp.collectionType {
 	case "bruno":
-		return cp.convertBrunoScriptToPostman(script)
+		// First convert Bruno-specific constructs to Postman-compatible
+		converted := cp.convertBrunoScriptToPostman(script)
+		// Then apply generic normalizations common across sources
+		return cp.applyGenericScriptNormalizations(converted)
 	case "insomnia":
-		return cp.convertInsomniaScriptToPostman(script)
+		// Convert Insomnia constructs and then apply generic normalizations
+		converted := cp.convertInsomniaScriptToPostman(script)
+		return cp.applyGenericScriptNormalizations(converted)
 	case "postman":
-		return script // Already in Postman format
+		// Even Postman scripts sometimes use non-standard patterns like pm.response.body
+		return cp.applyGenericScriptNormalizations(script)
 	default:
-		return script
+		return cp.applyGenericScriptNormalizations(script)
 	}
 }
 
 // executePreScript executes pre-script and extracts variables using JavaScript engine
-func (cp *CollectionProcessor) executePreScript(preScript string, existingVars map[string]string) map[string]string {
+func (cp *CollectionProcessor) executePreScript(preScript string, api APIRequest, existingVars map[string]string) map[string]string {
 	// Normalize script based on collection type
 	normalizedScript := cp.normalizeScript(preScript)
 
@@ -1901,6 +1866,8 @@ func (cp *CollectionProcessor) executePreScript(preScript string, existingVars m
 
 	// Create script engine
 	engine := NewScriptEngine(existingVars)
+	// Provide request context for scripts
+	engine.SetRequestData(api.Method, api.URL, api.Body, api.Headers)
 
 	// Execute the script
 	err := engine.Execute(normalizedScript)
@@ -1924,7 +1891,7 @@ func (cp *CollectionProcessor) executePreScript(preScript string, existingVars m
 }
 
 // executePostScript executes post-script and extracts variables using JavaScript engine
-func (cp *CollectionProcessor) executePostScript(postScript string, response *APIResponse, existingVars map[string]string) map[string]string {
+func (cp *CollectionProcessor) executePostScript(postScript string, api APIRequest, response *APIResponse, existingVars map[string]string) map[string]string {
 	// Parse response body as JSON for script context
 	var jsonData interface{}
 	if err := json.Unmarshal([]byte(response.Body), &jsonData); err != nil {
@@ -1940,9 +1907,11 @@ func (cp *CollectionProcessor) executePostScript(postScript string, response *AP
 
 	// Create script engine
 	engine := NewScriptEngine(existingVars)
+	// Provide request context for scripts
+	engine.SetRequestData(api.Method, api.URL, api.Body, api.Headers)
 
-	// Set response data
-	engine.SetResponseData(jsonData, response.Headers)
+	// Set response data (json, text, status, headers)
+	engine.SetResponseData(jsonData, response.Body, response.StatusCode, response.Headers)
 
 	// Execute the script
 	err := engine.Execute(normalizedScript)
@@ -2112,6 +2081,10 @@ func (cp *CollectionProcessor) convertBrunoScriptToPostman(brunoScript string) s
 	postmanScript = strings.ReplaceAll(postmanScript, "req.", "pm.request.")
 	postmanScript = strings.ReplaceAll(postmanScript, "res.", "pm.response.")
 
+	// Handle common Bruno pattern res.body.<prop> -> pm.response.json().<prop>
+	// Do this before converting bru.* so that any occurrences get normalized properly
+	postmanScript = regexp.MustCompile(`\bpm\.response\.body\b`).ReplaceAllString(postmanScript, "pm.response.json()")
+
 	// Convert Bruno's getEnvVar/setEnvVar to Postman's environment.get/set
 	postmanScript = regexp.MustCompile(`bru\.getEnvVar\(([^)]+)\)`).ReplaceAllString(postmanScript, "pm.environment.get($1)")
 	postmanScript = regexp.MustCompile(`bru\.setEnvVar\(([^,]+),\s*([^)]+)\)`).ReplaceAllString(postmanScript, "pm.environment.set($1, $2)")
@@ -2148,6 +2121,31 @@ func (cp *CollectionProcessor) convertInsomniaScriptToPostman(insomniaScript str
 	postmanScript = regexp.MustCompile(`setEnvironmentVariable\(([^,]+),\s*([^)]+)\)`).ReplaceAllString(postmanScript, "pm.environment.set($1, $2)")
 
 	return postmanScript
+}
+
+// applyGenericScriptNormalizations fixes common non-standard patterns across all sources
+func (cp *CollectionProcessor) applyGenericScriptNormalizations(script string) string {
+	s := script
+
+	// Normalize any usage of pm.response.body -> pm.response.json()
+	s = regexp.MustCompile(`\bpm\.response\.body\b`).ReplaceAllString(s, "pm.response.json()")
+
+	// Normalize Bruno-style alias that may have slipped through: res.body -> pm.response.json()
+	s = regexp.MustCompile(`\bres\.body\b`).ReplaceAllString(s, "pm.response.json()")
+
+	// Normalize response status access
+	// res.status -> pm.response.code()
+	s = regexp.MustCompile(`\bres\.status\b`).ReplaceAllString(s, "pm.response.code()")
+	// pm.response.status -> pm.response.code()
+	s = regexp.MustCompile(`\bpm\.response\.status\b`).ReplaceAllString(s, "pm.response.code()")
+
+	// Normalize bracket header access to .get()
+	// pm.response.headers["X"] -> pm.response.headers.get("X")
+	s = regexp.MustCompile(`pm\.response\.headers\s*\[\s*(["'][^"']+["'])\s*\]`).ReplaceAllString(s, "pm.response.headers.get($1)")
+	// pm.request.headers["X"] -> pm.request.headers.get("X")
+	s = regexp.MustCompile(`pm\.request\.headers\s*\[\s*(["'][^"']+["'])\s*\]`).ReplaceAllString(s, "pm.request.headers.get($1)")
+
+	return s
 }
 
 // resolveInsomniaTemplateTags resolves Insomnia template tags like _.variableName
