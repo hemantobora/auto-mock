@@ -73,6 +73,7 @@ func (p *Provider) CreateDeploymentConfiguration() *models.DeploymentOptions {
 	if err != nil {
 		return nil
 	}
+	fmt.Println("✓ Networking configuration complete")
 	options.ProjectName = p.GetProjectName()
 	options.Region = p.GetRegion()
 	options.BucketName = p.BucketName
