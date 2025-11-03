@@ -204,19 +204,14 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 				Method:                node.API.Method,
 				Path:                  cp.extractPath(path),
 				QueryStringParameters: queryParams,
-				Headers:               map[string][]any{
-					// Keep room for regex or exact values later
-				},
+				Headers:               map[string][]any{},
 			},
 			HttpResponse: &builders.HttpResponse{
 				StatusCode: node.Response.StatusCode,
-				Headers:    map[string][]string{"Content-Type": {"application/json"}},
+				Headers:    make(map[string][]string),
 			},
 		}
-		// loop through headers and place in httpRequest.headers
-		for k, v := range node.API.Headers {
-			expectation.HttpRequest.Headers[k] = []any{v}
-		}
+
 		if node.ExecutionType == GRAPHQL {
 			// Decide transport by method and where query lives
 			method := strings.ToUpper(node.API.Method)
@@ -243,11 +238,6 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 					expectation.HttpRequest.QueryStringParameters["variables"] = []string{string(b)}
 				}
 			} else {
-				// POST: JSON body wrapper with selectable match type.
-				if expectation.HttpRequest.Headers == nil {
-					expectation.HttpRequest.Headers = map[string][]any{}
-				}
-				expectation.HttpRequest.Headers["Content-Type"] = []any{"application/json"}
 
 				// If body couldn’t be parsed but we still have a literal, try a minimal envelope
 				if query == "" && node.API.Body != "" && json.Valid([]byte(node.API.Body)) {
@@ -294,13 +284,14 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 				}
 			}
 
-			if err := mock_configurator.CollectAdvancedFeatures(4, &expectation); err != nil {
+			if err := mock_configurator.CollectRequestHeaderMatching(&expectation); err != nil {
 				return nil, err
 			}
-			// Optional: show a compact review prompt like your REST flow
-			if err := builders.ReviewGraphQLExpectation(&expectation); err != nil {
+
+			if err := mock_configurator.CollectAdvancedFeatures(&expectation); err != nil {
 				return nil, err
 			}
+
 		} else {
 			// Request body for methods that typically have bodies
 			if node.API.Method == "POST" || node.API.Method == "PUT" || node.API.Method == "PATCH" {
@@ -310,22 +301,38 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 			}
 
 			// Configure matching criteria for this individual API
-			if err := mock_configurator.CollectQueryParameterMatching(1, &expectation); err != nil {
+			if err := mock_configurator.CollectQueryParameterMatching(&expectation); err != nil {
 				return nil, err
 			}
 
-			if err := mock_configurator.CollectPathMatchingStrategy(2, &expectation); err != nil {
-				return nil, err
-			}
-
-			if err := mock_configurator.CollectRequestHeaderMatching(3, &expectation); err != nil {
-				return nil, err
-			}
-
-			if err := mock_configurator.CollectAdvancedFeatures(4, &expectation); err != nil {
+			if err := mock_configurator.CollectPathMatchingStrategy(&expectation); err != nil {
 				return nil, err
 			}
 		}
+
+		if err := mock_configurator.CollectRequestHeaderMatching(&expectation); err != nil {
+			return nil, err
+		}
+
+		if err := mock_configurator.CollectAdvancedFeatures(&expectation); err != nil {
+			return nil, err
+		}
+
+		var v any
+		if err := json.Unmarshal([]byte(node.Response.Body), &v); err != nil {
+			return nil, err
+		}
+		// Set body wrapper
+		expectation.HttpResponse.Body = map[string]any{
+			"type": "JSON",
+			"json": v,
+		}
+		fmt.Println("✅ Configured response body")
+
+		for k, v := range node.Response.Headers {
+			expectation.HttpResponse.Headers[k] = append(expectation.HttpResponse.Headers[k], v)
+		}
+
 		expectations = append(expectations, expectation)
 	}
 
@@ -1233,6 +1240,7 @@ func (cp *CollectionProcessor) parseBrunoRequest(reqMap map[string]interface{}) 
 						api.Body = string(bodyBytes)
 					}
 				}
+				api.Headers["Content-Type"] = "application/json"
 			default:
 				// Try to get body as string
 				if bodyStr := cp.getString(body, "text"); bodyStr != "" {
@@ -1560,21 +1568,6 @@ func (cp *CollectionProcessor) parseInsomniaGraphQLRequest(resourceMap map[strin
 	}
 
 	return api
-}
-
-// extractInsomniaParameters extracts query parameters
-func (cp *CollectionProcessor) extractInsomniaParameters(parameters []interface{}) map[string]string {
-	result := make(map[string]string)
-	for _, p := range parameters {
-		if param, ok := p.(map[string]interface{}); ok {
-			key := cp.getString(param, "name")
-			value := cp.getString(param, "value")
-			if key != "" && value != "" {
-				result[key] = value
-			}
-		}
-	}
-	return result
 }
 
 // extractInsomniaAuth extracts authentication information

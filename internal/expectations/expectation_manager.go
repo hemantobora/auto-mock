@@ -507,17 +507,9 @@ func editMethod(expectation *models.MockExpectation) {
 }
 
 func editPath(expectation *models.MockExpectation) {
-	var newPath string
-	if err := survey.AskOne(&survey.Input{
-		Message: "Enter request path:",
-		Default: expectation.HttpRequest.Path,
-		Help:    "Example: /api/v1/users/{id}",
-	}, &newPath); err == nil && strings.TrimSpace(newPath) != "" {
-		expectation.HttpRequest.Path = newPath
-		mc := &builders.MockConfigurator{}
-		mc.CollectPathMatchingStrategy(0, expectation)
-		fmt.Printf("✅ Updated path to %s\n", newPath)
-	}
+	mc := &builders.MockConfigurator{}
+	mc.CollectPathMatchingStrategy(expectation)
+	fmt.Printf("✅ Updated path to %s\n", expectation.HttpRequest.Path)
 }
 
 func editStatusCode(expectation *models.MockExpectation) {

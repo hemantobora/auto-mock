@@ -226,8 +226,8 @@ func (mc *MockConfigurator) CollectRequestBody(exp *MockExpectation, existing st
 	}
 }
 
-func (mc *MockConfigurator) CollectQueryParameterMatching(step int, exp *MockExpectation) error {
-	fmt.Printf("\n🔍 Step %d: Query Parameter Matching\n", step)
+func (mc *MockConfigurator) CollectQueryParameterMatching(exp *MockExpectation) error {
+	fmt.Printf("\n🔍 Query Parameter Matching\n")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// Already configured?
@@ -332,23 +332,21 @@ func (mc *MockConfigurator) ParsePathAndQueryParams(fullPath string) (cleanPath 
 	return cleanPath, queryParams
 }
 
-func (mc *MockConfigurator) CollectPathMatchingStrategy(step int, exp *MockExpectation) error {
-	if step <= 0 {
-		fmt.Println("\n🛤️ Path Matching Strategy")
-	} else {
-		fmt.Printf("\n🛤️  Step %d: Path Matching Strategy\n", step)
-	}
+func (mc *MockConfigurator) CollectPathMatchingStrategy(exp *MockExpectation) error {
+	fmt.Println("\n🛤️ Path Matching Strategy")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	path := strings.TrimSpace(exp.HttpRequest.Path)
-	if path == "" {
+	rawPath := strings.TrimSpace(exp.HttpRequest.Path)
+	if rawPath == "" {
 		return fmt.Errorf("path is empty")
 	}
 
-	hasBraces := strings.Contains(path, "{") && strings.Contains(path, "}")
+	hasBraces := strings.Contains(rawPath, "{") && strings.Contains(rawPath, "}")
 
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Case 1: no {params} → exact vs regex (path stays a STRING)
+	// ─────────────────────────────────────────────────────────────────────────────
 	if !hasBraces {
-		// Exact vs regex for plain paths
 		var useRegex bool
 		if err := survey.AskOne(&survey.Confirm{
 			Message: "Use regex pattern matching for this path?",
@@ -357,79 +355,100 @@ func (mc *MockConfigurator) CollectPathMatchingStrategy(step int, exp *MockExpec
 		}, &useRegex); err != nil {
 			return err
 		}
+
 		if useRegex {
+			def := "^" + regexp.QuoteMeta(rawPath) + "$"
 			var pattern string
 			if err := survey.AskOne(&survey.Input{
-				Message: "Enter regex for path:",
-				Default: "^" + regexp.QuoteMeta(path) + "$",
+				Message: "Enter regex for path (as a string):",
+				Default: def,
 			}, &pattern, survey.WithValidator(survey.Required)); err != nil {
 				return err
 			}
-			// Optional pre-check
 			if _, err := regexp.Compile(pattern); err != nil {
 				return fmt.Errorf("invalid path regex: %w", err)
 			}
-			exp.HttpRequest.Path = pattern // MockServer accepts regex in "path"
-			fmt.Printf("🔍 Using regex: %s\n", exp.HttpRequest.Path)
+			exp.HttpRequest.Path = pattern // regex in string form (valid for MockServer)
+			fmt.Printf("🔍 Using regex path (string): %s\n", pattern)
 		} else {
-			fmt.Println("ℹ️  Using exact string matching for path")
-			fmt.Printf("🔍 Pattern: %s (exact)\n", exp.HttpRequest.Path)
-		}
-	} else {
-		// Path template with {params} → collect pathParameters
-		fmt.Printf("ℹ️  Path parameters detected in: %s\n", path)
-		if exp.HttpRequest.PathParameters == nil {
-			exp.HttpRequest.PathParameters = map[string][]string{}
+			exp.HttpRequest.Path = rawPath // exact literal
+			fmt.Println("ℹ️  Using exact string match for path")
+			fmt.Printf("🔍 Path: %s (exact)\n", rawPath)
 		}
 
-		// Extract {param} names
-		re := regexp.MustCompile(`\{([^}/]+)\}`)
-		matches := re.FindAllStringSubmatch(path, -1)
-		seen := map[string]bool{}
-		for _, m := range matches {
-			name := m[1]
-			if seen[name] {
-				continue
-			}
-			seen[name] = true
-
-			var valuesLine string
-			if err := survey.AskOne(&survey.Input{
-				Message: fmt.Sprintf("Regex or values for {%s} (comma-separated or single regex):", name),
-				Default: "[^/]+",
-				Help:    "Example values: 123,456  • Example regex: ^[0-9]{1,6}$",
-			}, &valuesLine, survey.WithValidator(survey.Required)); err != nil {
-				return err
-			}
-			// Allow either comma list or single regex
-			if strings.Contains(valuesLine, ",") {
-				parts := strings.Split(valuesLine, ",")
-				var vals []string
-				for _, p := range parts {
-					p = strings.TrimSpace(p)
-					if p != "" {
-						vals = append(vals, p)
-					}
-				}
-				if len(vals) == 0 {
-					return fmt.Errorf("no values provided for {%s}", name)
-				}
-				exp.HttpRequest.PathParameters[name] = vals
-			} else {
-				// treat as single regex/value
-				exp.HttpRequest.PathParameters[name] = []string{strings.TrimSpace(valuesLine)}
-			}
-		}
-		fmt.Println("💡 Path parameters will be matched via pathParameters.")
+		fmt.Println("✅ Path matching configured")
+		return nil
 	}
 
-	fmt.Printf("✅ Path matching configured for: %s\n", exp.HttpRequest.Path)
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Case 2: templated path with {params}
+	// Keep the templated path STRING (MockServer matches it as a path-template)
+	// Collect pathParameters as map[string][]string (regex strings or exact values)
+	// ─────────────────────────────────────────────────────────────────────────────
+	fmt.Printf("ℹ️  Path parameters detected in: %s\n", rawPath)
+	exp.HttpRequest.Path = rawPath
+
+	if exp.HttpRequest.PathParameters == nil {
+		exp.HttpRequest.PathParameters = make(map[string][]string)
+	}
+
+	// Extract param names like {id}
+	nameRe := regexp.MustCompile(`\{([^}/]+)\}`)
+	matches := nameRe.FindAllStringSubmatch(rawPath, -1)
+	seen := map[string]bool{}
+
+	for _, m := range matches {
+		name := m[1]
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+
+		var valuesLine string
+		if err := survey.AskOne(&survey.Input{
+			Message: fmt.Sprintf("Regex or comma-separated values for {%s}:", name),
+			Default: "[^/]+", // common “any segment” regex
+			Help:    "Examples → values: 123,456  • regex: ^[0-9]{1,6}$  • simple: [A-Z0-9\\-]+",
+		}, &valuesLine, survey.WithValidator(survey.Required)); err != nil {
+			return err
+		}
+
+		valuesLine = strings.TrimSpace(valuesLine)
+
+		// Allow either a single regex/value or a comma list
+		var vals []string
+		if strings.Contains(valuesLine, ",") {
+			parts := strings.Split(valuesLine, ",")
+			for _, p := range parts {
+				if v := strings.TrimSpace(p); v != "" {
+					vals = append(vals, v)
+				}
+			}
+		} else {
+			vals = []string{valuesLine}
+		}
+
+		// Optional: validate entries that look like regex
+		for _, v := range vals {
+			looksRegex := strings.HasPrefix(v, "^") || strings.ContainsAny(v, `[]{}+*?|().\^$`)
+			if looksRegex {
+				if _, err := regexp.Compile(v); err != nil {
+					return fmt.Errorf("invalid regex for {%s}: %w", name, err)
+				}
+			}
+		}
+
+		exp.HttpRequest.PathParameters[name] = vals
+	}
+
+	fmt.Println("💡 Path parameters will be matched via pathParameters (each entry can be a regex string).")
+	fmt.Println("✅ Path matching configured")
 	return nil
 }
 
 // Step 4: Request Header Matching
-func (mc *MockConfigurator) CollectResponseHeader(step int, exp *MockExpectation) error {
-	fmt.Printf("\n📝 Step %d: Response Headers\n", step)
+func (mc *MockConfigurator) CollectResponseHeader(exp *MockExpectation) error {
+	fmt.Printf("\n📝 Response Headers\n")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	var needsHeaders bool
@@ -484,8 +503,8 @@ func (mc *MockConfigurator) CollectResponseHeader(step int, exp *MockExpectation
 	return nil
 }
 
-func (mc *MockConfigurator) CollectRequestHeaderMatching(step int, exp *MockExpectation) error {
-	fmt.Printf("\n📝 Step %d: Request Header Matching\n", step)
+func (mc *MockConfigurator) CollectRequestHeaderMatching(exp *MockExpectation) error {
+	fmt.Printf("\n📝 Request Header Matching\n")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	var needsHeaders bool
@@ -587,8 +606,8 @@ func addHeaderRegex(h map[string][]any, name, pattern string) {
 }
 
 // Step 6: Advanced Features (shared between REST and GraphQL)
-func (mc *MockConfigurator) CollectAdvancedFeatures(step int, expectation *MockExpectation) error {
-	fmt.Printf("\n⚙️  Step %d: Advanced MockServer Features\n", step)
+func (mc *MockConfigurator) CollectAdvancedFeatures(expectation *MockExpectation) error {
+	fmt.Printf("\n⚙️ Advanced MockServer Features\n")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// 3.2 Feature picker

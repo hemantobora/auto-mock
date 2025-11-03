@@ -106,13 +106,13 @@ func SelectProjectAction(projectName string, existingConfig *models.MockConfigur
 			"replace - Replace ALL existing expectations with new ones",
 			"delete - Delete the entire project and tear down infrastructure (if running)",
 			"add - Add new expectations to existing ones",
-			"cancel - Cancel the operation and exit",
+			"exit - Cancel the operation and exit",
 		}
 	} else {
 		// When no expectations exist: only generation (no management operations)
 		options = []string{
 			"generate - Create a set of expectations from Collection, Interactively or examples",
-			"cancel - Cancel the operation and exit",
+			"exit - Cancel the operation and exit",
 		}
 	}
 

@@ -10,7 +10,6 @@ const (
 	ActionDestroy  ActionType = "destroy"
 	ActionCreate   ActionType = "create"
 	ActionReplace  ActionType = "replace"
-	ActionCancel   ActionType = "cancel"
 	ActionGenerate ActionType = "generate"
 	ActionDelete   ActionType = "delete"
 	ActionDownload ActionType = "download"

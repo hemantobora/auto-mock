@@ -51,7 +51,7 @@ func BuildGraphQLExpectationWithContext() (MockExpectation, error) {
 	}
 
 	// Step 6: Collect response (JSON only)
-	if err := collectGraphQLResponseJSON(exp.HttpResponse); err != nil {
+	if err := CollectGraphQLResponseJSON("", exp.HttpResponse); err != nil {
 		return exp, err
 	}
 
@@ -66,8 +66,8 @@ func BuildGraphQLExpectationWithContext() (MockExpectation, error) {
 		exp.HttpResponse.StatusCode = 200
 	}
 	var mock_configurator MockConfigurator
-	mock_configurator.CollectResponseHeader(0, &exp)
-	mock_configurator.CollectAdvancedFeatures(0, &exp)
+	mock_configurator.CollectResponseHeader(&exp)
+	mock_configurator.CollectAdvancedFeatures(&exp)
 
 	if err := ReviewGraphQLExpectation(&exp); err != nil {
 		return exp, err
@@ -209,15 +209,19 @@ func applyGETRequest(req *HttpRequest, query string, variables map[string]any) {
 
 // ─── Response JSON ─────────────────────────────────────────────────────────────
 
-func collectGraphQLResponseJSON(resp *HttpResponse) error {
+func CollectGraphQLResponseJSON(body string, resp *HttpResponse) error {
 	var payload string
-	if err := survey.AskOne(&survey.Multiline{
-		Message: "Response JSON payload (data / errors):",
-		Help:    `Example: {"data":{"user":{"id":"123","name":"Ada"}}}`,
-	}, &payload, survey.WithValidator(survey.Required)); err != nil {
-		return err
+	if body == "" {
+		if err := survey.AskOne(&survey.Multiline{
+			Message: "Response JSON payload (data / errors):",
+			Help:    `Example: {"data":{"user":{"id":"123","name":"Ada"}}}`,
+		}, &payload, survey.WithValidator(survey.Required)); err != nil {
+			return err
+		}
+		payload = strings.TrimSpace(payload)
+	} else {
+		payload = body
 	}
-	payload = strings.TrimSpace(payload)
 	if !json.Valid([]byte(payload)) {
 		return fmt.Errorf("response must be valid JSON")
 	}
