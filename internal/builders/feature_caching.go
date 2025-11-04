@@ -8,14 +8,20 @@ import (
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 // applyCaching returns a FeatureFunc that collects cache control configuration
+// and stores it into exp.HttpResponse.Headers ([]NameValues).
 func applyCaching() FeatureFunc {
 	return func(exp *MockExpectation) error {
 		fmt.Println("\n🗄️  Cache Control Configuration")
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-		ensureMaps(exp)
+
+		// ensure slice exists
+		if exp.HttpResponse.Headers == nil {
+			exp.HttpResponse.Headers = []models.NameValues{}
+		}
 
 		// Cache-Control
 		var cc string
@@ -32,15 +38,16 @@ func applyCaching() FeatureFunc {
 		}, &cc, survey.WithValidator(survey.Required)); err != nil {
 			return err
 		}
+
 		switch cc {
 		case "no-store":
-			exp.HttpResponse.Headers["Cache-Control"] = []string{"no-store"}
+			setHeader(&exp.HttpResponse.Headers, "Cache-Control", []string{"no-store"})
 		case "no-cache":
-			exp.HttpResponse.Headers["Cache-Control"] = []string{"no-cache"}
+			setHeader(&exp.HttpResponse.Headers, "Cache-Control", []string{"no-cache"})
 		case "private, max-age=60":
-			exp.HttpResponse.Headers["Cache-Control"] = []string{"private, max-age=60"}
+			setHeader(&exp.HttpResponse.Headers, "Cache-Control", []string{"private, max-age=60"})
 		case "public, max-age=300":
-			exp.HttpResponse.Headers["Cache-Control"] = []string{"public, max-age=300"}
+			setHeader(&exp.HttpResponse.Headers, "Cache-Control", []string{"public, max-age=300"})
 		case "custom":
 			var custom string
 			if err := survey.AskOne(&survey.Input{
@@ -49,7 +56,7 @@ func applyCaching() FeatureFunc {
 			}, &custom, survey.WithValidator(survey.Required)); err != nil {
 				return err
 			}
-			exp.HttpResponse.Headers["Cache-Control"] = []string{strings.TrimSpace(custom)}
+			setHeader(&exp.HttpResponse.Headers, "Cache-Control", []string{strings.TrimSpace(custom)})
 		}
 
 		// ETag
@@ -62,8 +69,9 @@ func applyCaching() FeatureFunc {
 		}
 		if addETag {
 			etag := computeETag(exp.HttpResponse.Body)
-			exp.HttpResponse.Headers["ETag"] = []string{etag}
+			setHeader(&exp.HttpResponse.Headers, "ETag", []string{etag})
 		}
+
 		fmt.Println("\n📚 Cache Control Resources:")
 		fmt.Println("   MDN Cache-Control: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control")
 		fmt.Println("   ETag Documentation: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/ETag")
@@ -71,7 +79,7 @@ func applyCaching() FeatureFunc {
 	}
 }
 
-func computeETag(body interface{}) string {
+func computeETag(body any) string {
 	// strong ETag based on SHA-1 of canonical JSON
 	b, _ := json.Marshal(body)
 	sum := sha1.Sum(b)

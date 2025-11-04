@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 type MockConfigurator struct {
@@ -464,10 +465,6 @@ func (mc *MockConfigurator) CollectResponseHeader(exp *MockExpectation) error {
 		return nil
 	}
 
-	if exp.HttpResponse.Headers == nil {
-		exp.HttpResponse.Headers = make(map[string][]string)
-	}
-
 	for {
 		var headerName string
 		if err := survey.AskOne(&survey.Input{
@@ -495,7 +492,11 @@ func (mc *MockConfigurator) CollectResponseHeader(exp *MockExpectation) error {
 			continue
 		}
 
-		exp.HttpResponse.Headers[headerName] = append(exp.HttpResponse.Headers[headerName], headerValue)
+		// We only support the slice-of-structs representation: []struct{Name string; Values []string}
+		// Use the reflect-based helper which appends to that slice form.
+		if err := addResponseHeader(exp, headerName, headerValue); err != nil {
+			return err
+		}
 		fmt.Printf("✅ Added header: %s: %q\n", headerName, headerValue)
 	}
 
@@ -503,7 +504,22 @@ func (mc *MockConfigurator) CollectResponseHeader(exp *MockExpectation) error {
 	return nil
 }
 
-func (mc *MockConfigurator) CollectRequestHeaderMatching(exp *MockExpectation) error {
+func parseCSVValues(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if v := strings.TrimSpace(p); v != "" {
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
+}
+
+// CollectRequestHeaderMatching builds HttpRequest.Headers as []NameValues with exact matching.
+func (mc *MockConfigurator) CollectRequestHeaderMatching(exp *models.MockExpectation) error {
 	fmt.Printf("\n📝 Request Header Matching\n")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
@@ -520,8 +536,9 @@ func (mc *MockConfigurator) CollectRequestHeaderMatching(exp *MockExpectation) e
 		return nil
 	}
 
+	// Ensure slice init
 	if exp.HttpRequest.Headers == nil {
-		exp.HttpRequest.Headers = make(map[string][]any)
+		exp.HttpRequest.Headers = []models.NameValues{}
 	}
 
 	for {
@@ -537,60 +554,25 @@ func (mc *MockConfigurator) CollectRequestHeaderMatching(exp *MockExpectation) e
 			break
 		}
 
-		var matchingType string
-		if err := survey.AskOne(&survey.Select{
-			Message: fmt.Sprintf("How should '%s' be matched?", headerName),
-			Options: []string{
-				"exact - Match exact value (e.g., 'Bearer abc123')",
-				"regex - Use pattern (e.g., '^Bearer .+$')",
-			},
-			Default: "exact - Match exact value (e.g., 'Bearer abc123')",
-		}, &matchingType); err != nil {
-			return err
-		}
-		isRegex := strings.HasPrefix(matchingType, "regex")
-
-		var headerValue string
+		var valuesCSV string
 		if err := survey.AskOne(&survey.Input{
-			Message: func() string {
-				if isRegex {
-					return fmt.Sprintf("Regex for '%s':", headerName)
-				}
-				return fmt.Sprintf("Exact value for '%s':", headerName)
-			}(),
-			Help: func() string {
-				if isRegex {
-					return "Example: ^Bearer\\s+.+$ or application/.+"
-				}
-				return "Example: Bearer abc123"
-			}(),
-		}, &headerValue); err != nil {
+			Message: fmt.Sprintf("Exact value(s) for '%s' (comma-separated for multiple):", headerName),
+			Help:    "Examples: 'Bearer abc123' or 'application/json, application/xml'",
+		}, &valuesCSV); err != nil {
 			return err
 		}
-		headerValue = strings.TrimSpace(headerValue)
-		if headerValue == "" {
-			continue
-		}
+		values := parseCSVValues(valuesCSV)
 
-		if isRegex {
-			if _, err := regexp.Compile(headerValue); err != nil {
-				fmt.Printf("⚠️  Invalid regex: %v\n", err)
-				var proceed bool
-				if err := survey.AskOne(&survey.Confirm{
-					Message: "Use this regex anyway?",
-					Default: false,
-				}, &proceed); err != nil {
-					return err
-				}
-				if !proceed {
-					continue
-				}
-			}
-			addHeaderRegex(exp.HttpRequest.Headers, headerName, headerValue)
-			fmt.Printf("✅ Added header: %s: {regex: %q}\n", headerName, headerValue)
+		// upsert into []NameValues
+		if idx := headerIndex(exp.HttpRequest.Headers, headerName); idx >= 0 {
+			exp.HttpRequest.Headers[idx].Values = values
+			fmt.Printf("✅ Updated header: %s: %s\n", headerName, strings.Join(values, ", "))
 		} else {
-			addHeaderExact(exp.HttpRequest.Headers, headerName, headerValue)
-			fmt.Printf("✅ Added header: %s: %q\n", headerName, headerValue)
+			exp.HttpRequest.Headers = append(exp.HttpRequest.Headers, models.NameValues{
+				Name:   headerName,
+				Values: values,
+			})
+			fmt.Printf("✅ Added header: %s: %s\n", headerName, strings.Join(values, ", "))
 		}
 	}
 
@@ -598,14 +580,34 @@ func (mc *MockConfigurator) CollectRequestHeaderMatching(exp *MockExpectation) e
 	return nil
 }
 
-func addHeaderExact(h map[string][]any, name, value string) {
-	h[name] = append(h[name], value)
-}
-func addHeaderRegex(h map[string][]any, name, pattern string) {
-	h[name] = append(h[name], map[string]string{"regex": pattern})
+// addResponseHeader adds or appends a value to a response header using []NameValues.
+// - If the header exists, it appends the value.
+// - If it doesn't, it creates the header with the given value.
+func addResponseHeader(exp *models.MockExpectation, name, value string) error {
+	if exp == nil {
+		return fmt.Errorf("nil expectation")
+	}
+
+	// ensure slice is initialized
+	if exp.HttpResponse.Headers == nil {
+		exp.HttpResponse.Headers = []models.NameValues{}
+	}
+
+	i := headerIndex(exp.HttpResponse.Headers, name)
+	if i >= 0 {
+		// append to existing header values
+		exp.HttpResponse.Headers[i].Values = append(exp.HttpResponse.Headers[i].Values, value)
+		return nil
+	}
+
+	// create new header
+	exp.HttpResponse.Headers = append(exp.HttpResponse.Headers, models.NameValues{
+		Name:   name,
+		Values: []string{value},
+	})
+	return nil
 }
 
-// Step 6: Advanced Features (shared between REST and GraphQL)
 func (mc *MockConfigurator) CollectAdvancedFeatures(expectation *MockExpectation) error {
 	fmt.Printf("\n⚙️ Advanced MockServer Features\n")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")

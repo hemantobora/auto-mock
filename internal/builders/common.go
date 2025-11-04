@@ -103,28 +103,45 @@ type RegexPattern struct {
 }
 
 // ensure maps exist before writes
-func ensureMaps(m *MockExpectation) {
+func ensureNameValues(m *MockExpectation) {
 	if m.HttpRequest != nil && m.HttpRequest.Headers == nil {
-		m.HttpRequest.Headers = map[string][]any{}
+		m.HttpRequest.Headers = []models.NameValues{}
 	}
 	if m.HttpResponse != nil && m.HttpResponse.Headers == nil {
-		m.HttpResponse.Headers = map[string][]string{}
+		m.HttpResponse.Headers = []models.NameValues{}
 	}
 	if m.HttpRequest != nil && m.HttpRequest.QueryStringParameters == nil {
 		m.HttpRequest.QueryStringParameters = map[string][]string{}
 	}
 }
 
+// helper: deep-copy []NameValues
+func copyNameValuesSlice(in []models.NameValues) []models.NameValues {
+	if in == nil {
+		return nil
+	}
+	out := make([]models.NameValues, len(in))
+	for i, nv := range in {
+		vs := make([]string, len(nv.Values))
+		copy(vs, nv.Values)
+		out[i] = models.NameValues{
+			Name:   nv.Name,
+			Values: vs,
+		}
+	}
+	return out
+}
+
 func CloneExpectation(src *MockExpectation) *MockExpectation {
 	if src == nil {
 		return nil
 	}
-	dst := *src // copy scalars
+	dst := *src // copy scalars / top-level
 
 	// ---- HttpRequest ----
 	if src.HttpRequest != nil {
 		dst.HttpRequest = new(models.HttpRequest)
-		*dst.HttpRequest = *src.HttpRequest // copy scalars
+		*dst.HttpRequest = *src.HttpRequest // copy request scalars
 
 		// PathParameters: map[string][]string
 		if src.HttpRequest.PathParameters != nil {
@@ -146,16 +163,9 @@ func CloneExpectation(src *MockExpectation) *MockExpectation {
 			}
 		}
 
-		// Headers: map[string][]any   (deep copy slice + elements)
+		// Headers: []NameValues (new shape)
 		if src.HttpRequest.Headers != nil {
-			dst.HttpRequest.Headers = make(map[string][]any, len(src.HttpRequest.Headers))
-			for k, sv := range src.HttpRequest.Headers {
-				cp := make([]any, len(sv))
-				for i := range sv {
-					cp[i] = deepCopyInterface(sv[i]) // ensure objects like {"regex": "..."} are cloned
-				}
-				dst.HttpRequest.Headers[k] = cp
-			}
+			dst.HttpRequest.Headers = copyNameValuesSlice(src.HttpRequest.Headers)
 		}
 
 		// Body: any
@@ -167,16 +177,16 @@ func CloneExpectation(src *MockExpectation) *MockExpectation {
 	// ---- HttpResponse ----
 	if src.HttpResponse != nil {
 		dst.HttpResponse = new(models.HttpResponse)
-		*dst.HttpResponse = *src.HttpResponse // copy scalars
+		*dst.HttpResponse = *src.HttpResponse // copy response scalars
 
-		// Headers: map[string][]string
+		// Headers: []NameValues (new shape)
 		if src.HttpResponse.Headers != nil {
-			dst.HttpResponse.Headers = make(map[string][]string, len(src.HttpResponse.Headers))
-			for k, v := range src.HttpResponse.Headers {
-				cp := make([]string, len(v))
-				copy(cp, v)
-				dst.HttpResponse.Headers[k] = cp
-			}
+			dst.HttpResponse.Headers = copyNameValuesSlice(src.HttpResponse.Headers)
+		}
+
+		// Cookies: []NameValues (new shape)
+		if src.HttpResponse.Cookies != nil {
+			dst.HttpResponse.Cookies = copyNameValuesSlice(src.HttpResponse.Cookies)
 		}
 
 		// Body: any
@@ -498,4 +508,22 @@ func generateComprehensiveErrorTemplate(statusCode int) string {
 
 func generateMinimalTemplate() string {
 	return `{"success": true, "timestamp": "$!now_epoch"}`
+}
+
+func headerIndex(headers []models.NameValues, name string) int {
+	for i, h := range headers {
+		if strings.EqualFold(h.Name, name) {
+			return i
+		}
+	}
+	return -1
+}
+
+func setHeader(headers *[]models.NameValues, name string, values []string) {
+	n := strings.TrimSpace(name)
+	if i := headerIndex(*headers, n); i >= 0 {
+		(*headers)[i].Values = values
+		return
+	}
+	*headers = append(*headers, models.NameValues{Name: n, Values: values})
 }

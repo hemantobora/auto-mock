@@ -33,16 +33,21 @@ type HttpRequest struct {
 	Path                  string              `json:"path,omitempty"`
 	PathParameters        map[string][]string `json:"pathParameters,omitempty"`
 	QueryStringParameters map[string][]string `json:"queryStringParameters,omitempty"`
-	Headers               map[string][]any    `json:"headers,omitempty"`
+	Headers               []NameValues        `json:"headers,omitempty"`
 	Body                  any                 `json:"body,omitempty"`
 }
 
 type HttpResponse struct {
-	StatusCode   int                 `json:"statusCode,omitempty"`
-	ReasonPhrase string              `json:"reasonPhrase,omitempty"`
-	Body         any                 `json:"body,omitempty"`
-	Headers      map[string][]string `json:"headers,omitempty"`
-	Delay        *Delay              `json:"delay,omitempty"`
+	StatusCode int          `json:"statusCode,omitempty"`
+	Body       any          `json:"body,omitempty"`
+	Headers    []NameValues `json:"headers,omitempty"`
+	Cookies    []NameValues `json:"cookies,omitempty"`
+	Delay      *Delay       `json:"delay,omitempty"`
+}
+
+type NameValues struct {
+	Name   string   `json:"name,omitempty"`
+	Values []string `json:"values,omitempty"`
 }
 
 type HttpForward struct {

@@ -5,9 +5,12 @@ import (
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
-// applyResponseHeaders returns a FeatureFunc that collects custom response headers
+// applyResponseHeaders prompts for response headers and stores them in
+// exp.HttpResponse.Headers ([]NameValues). If duplicate (case-insensitive)
+// names are detected, it reverts to the original expectation.
 func applyResponseHeaders() FeatureFunc {
 	return func(exp *MockExpectation) error {
 		fmt.Println("\n📋 Custom Response Headers Configuration")
@@ -19,8 +22,11 @@ func applyResponseHeaders() FeatureFunc {
 		fmt.Println("   • Cache-Control: Caching behavior")
 		fmt.Println("   • X-Custom-*: Application-specific headers")
 
-		ensureMaps(exp)
-		original := CloneExpectation(exp)
+		// Ensure slice is initialized (keep your existing helper if you like)
+		if exp.HttpResponse.Headers == nil {
+			exp.HttpResponse.Headers = []models.NameValues{}
+		}
+
 		oldLength := len(exp.HttpResponse.Headers)
 
 		for {
@@ -42,13 +48,10 @@ func applyResponseHeaders() FeatureFunc {
 			if err := survey.AskOne(&survey.Input{Message: "Header value:"}, &v, survey.WithValidator(survey.Required)); err != nil {
 				return err
 			}
-			exp.HttpResponse.Headers[strings.TrimSpace(k)] = []string{v}
-		}
 
-		// sanity: forbid duplicate case-insensitive keys (MockServer normalizes)
-		if dup := findCaseDupes(exp.HttpResponse.Headers); len(dup) > 0 {
-			*exp = *original
-			return fmt.Errorf("duplicate header keys (case-insensitive): %v", dup)
+			k = strings.TrimSpace(k)
+			v = strings.TrimSpace(v)
+			upsertHeader(&exp.HttpResponse.Headers, k, v)
 		}
 
 		if oldLength < len(exp.HttpResponse.Headers) {
@@ -60,16 +63,16 @@ func applyResponseHeaders() FeatureFunc {
 	}
 }
 
-func findCaseDupes(m map[string][]string) []string {
-	seen := map[string]string{}
-	var d []string
-	for k := range m {
-		l := strings.ToLower(k)
-		if prev, ok := seen[l]; ok {
-			d = append(d, fmt.Sprintf("%q vs %q", prev, k))
-		} else {
-			seen[l] = k
-		}
+// upsertHeader updates an existing header (case-insensitive) or appends a new one.
+// If exists, it REPLACES the values with a single-value slice [v] (mirrors old behavior).
+func upsertHeader(headers *[]models.NameValues, name, value string) {
+	i := headerIndex(*headers, name)
+	if i >= 0 {
+		(*headers)[i].Values = []string{value}
+		return
 	}
-	return d
+	*headers = append(*headers, models.NameValues{
+		Name:   name,
+		Values: []string{value},
+	})
 }

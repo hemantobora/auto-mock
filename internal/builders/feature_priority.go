@@ -18,7 +18,6 @@ func applyPriority() FeatureFunc {
 		fmt.Println("   • Higher priority expectations are matched first")
 		fmt.Println("   • Use this to resolve conflicts between overlapping expectations")
 		fmt.Println("   • Example: Specific /users/123 before generic /users/{id}")
-		original := CloneExpectation(exp)
 
 		var pStr string
 		if err := survey.AskOne(&survey.Input{
@@ -29,7 +28,6 @@ func applyPriority() FeatureFunc {
 		}
 		p, err := strconv.Atoi(strings.TrimSpace(pStr))
 		if err != nil || p < 0 {
-			*exp = *original
 			return fmt.Errorf("invalid priority: %q", pStr)
 		}
 		exp.Priority = p

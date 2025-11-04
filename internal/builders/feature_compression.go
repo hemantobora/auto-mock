@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 // --- enums/aliases (adjust to your actual types) ---
@@ -154,13 +155,62 @@ func bodyToBytes(body any, explicitCT string) ([]byte, string, error) {
 
 // --- Your feature function, fixed ---
 
+// --- small helpers for []NameValues headers/cookies --------------------------
+
+func getHeader(headers []models.NameValues, name string) ([]string, bool) {
+	if i := headerIndex(headers, name); i >= 0 {
+		return headers[i].Values, true
+	}
+	return nil, false
+}
+
+func deleteHeader(headers *[]models.NameValues, name string) {
+	if i := headerIndex(*headers, name); i >= 0 {
+		h := *headers
+		*headers = append(h[:i], h[i+1:]...)
+	}
+}
+
+func headerHasValue(values []string, needle string) bool {
+	for _, v := range values {
+		if strings.EqualFold(strings.TrimSpace(v), needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// mergeVaryNV ensures "Accept-Encoding" is present in Vary (case-insensitive).
+func mergeVaryNV(headers *[]models.NameValues, token string) {
+	vals, ok := getHeader(*headers, "Vary")
+	if !ok || len(vals) == 0 {
+		setHeader(headers, "Vary", []string{token})
+		return
+	}
+	// Vary can be a single comma-separated item; normalize into a set
+	var parts []string
+	for _, v := range vals {
+		for _, p := range strings.Split(v, ",") {
+			if s := strings.TrimSpace(p); s != "" {
+				parts = append(parts, s)
+			}
+		}
+	}
+	if !headerHasValue(parts, token) {
+		parts = append(parts, token)
+	}
+	setHeader(headers, "Vary", []string{strings.Join(parts, ", ")})
+}
+
+// --- your function rewritten for []NameValues --------------------------------
+
+// applyCompression lets the user choose compression and updates Headers ([]NameValues)
 func applyCompression() FeatureFunc {
 	return func(exp *MockExpectation) error {
 		fmt.Println("\n🗜️  Response Compression Configuration")
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-		// Safety: ensure HttpResponse & headers maps exist
-		ensureMaps(exp)
+		ensureNameValues(exp) // makes slices non-nil
 
 		// 1) pick algorithm
 		var algoStr string
@@ -191,25 +241,25 @@ func applyCompression() FeatureFunc {
 		}
 
 		switch mode {
+
 		case CompressionHeaderOnly:
 			if algo == AlgoIdentity {
-				delete(exp.HttpResponse.Headers, "Content-Encoding")
+				deleteHeader(&exp.HttpResponse.Headers, "Content-Encoding")
 			} else {
-				setHeaderKV(exp.HttpResponse.Headers, "Content-Encoding", []string{string(algo)})
-				mergeVary(exp.HttpResponse.Headers, "Accept-Encoding")
+				setHeader(&exp.HttpResponse.Headers, "Content-Encoding", []string{string(algo)})
+				mergeVaryNV(&exp.HttpResponse.Headers, "Accept-Encoding")
 			}
 			// Add Content-Type if missing
-			if _, ok := exp.HttpResponse.Headers["Content-Type"]; !ok {
-				ct := inferContentType(exp.HttpResponse.Body)
-				if ct != "" {
-					setHeaderKV(exp.HttpResponse.Headers, "Content-Type", []string{ct})
+			if _, ok := getHeader(exp.HttpResponse.Headers, "Content-Type"); !ok {
+				if ct := inferContentType(exp.HttpResponse.Body); ct != "" {
+					setHeader(&exp.HttpResponse.Headers, "Content-Type", []string{ct})
 				}
 			}
 			return nil
 
 		case CompressionPreCompress:
 			if algo == AlgoIdentity {
-				delete(exp.HttpResponse.Headers, "Content-Encoding")
+				deleteHeader(&exp.HttpResponse.Headers, "Content-Encoding")
 				return nil
 			}
 
@@ -234,25 +284,24 @@ func applyCompression() FeatureFunc {
 			}
 
 			// Set headers to reflect compressed entity
-			setHeaderKV(exp.HttpResponse.Headers, "Content-Encoding", []string{string(algo)})
-			mergeVary(exp.HttpResponse.Headers, "Accept-Encoding")
+			setHeader(&exp.HttpResponse.Headers, "Content-Encoding", []string{string(algo)})
+			mergeVaryNV(&exp.HttpResponse.Headers, "Accept-Encoding")
 			if ct != "" {
-				setHeaderKV(exp.HttpResponse.Headers, "Content-Type", []string{ct})
+				setHeader(&exp.HttpResponse.Headers, "Content-Type", []string{ct})
 			}
-			setHeaderKV(exp.HttpResponse.Headers, "Content-Length", []string{fmt.Sprintf("%d", len(out))})
+			setHeader(&exp.HttpResponse.Headers, "Content-Length", []string{fmt.Sprintf("%d", len(out))})
 
 			// Update ETag if present (entity bytes changed)
-			if et, ok := exp.HttpResponse.Headers["ETag"]; ok && len(et) > 0 && strings.TrimSpace(et[0]) != "" {
+			if etVals, ok := getHeader(exp.HttpResponse.Headers, "ETag"); ok && len(etVals) > 0 && strings.TrimSpace(etVals[0]) != "" {
 				sum := sha1.Sum(out)
-				setHeaderKV(exp.HttpResponse.Headers, "ETag", []string{`"` + hex.EncodeToString(sum[:]) + `"`})
+				setHeader(&exp.HttpResponse.Headers, "ETag", []string{`"` + hex.EncodeToString(sum[:]) + `"`})
 			}
 
-			// 🔑 IMPORTANT: store compressed body as MockServer BINARY wrapper
+			// Store compressed body using MockServer BINARY wrapper
 			exp.HttpResponse.Body = map[string]any{
 				"type":        "BINARY",
 				"base64Bytes": base64.StdEncoding.EncodeToString(out),
 			}
-
 			return nil
 
 		default:

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 // BuildGraphQLExpectationWithContext builds with context of existing expectations.
@@ -14,7 +15,7 @@ func BuildGraphQLExpectationWithContext() (MockExpectation, error) {
 	var exp MockExpectation
 	exp.HttpRequest = &HttpRequest{}
 	exp.HttpResponse = &HttpResponse{}
-	exp.HttpResponse.Headers = make(map[string][]string)
+	exp.HttpResponse.Headers = []models.NameValues{}
 
 	fmt.Println("🧬 Starting GraphQL Expectation Builder (POST/GET JSON only)")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -163,10 +164,7 @@ func collectGraphQLVariables() (vars map[string]any, err error) {
 
 // ─── Apply request by method ────────────────────────────────────────────────────
 func applyPOSTRequest(req *HttpRequest, query string, variables map[string]any) {
-	if req.Headers == nil {
-		req.Headers = map[string][]any{}
-	}
-	req.Headers["Content-Type"] = []any{"application/json"}
+
 	_, opName := ExtractGraphQLOperationName(query)
 
 	envelope := map[string]any{"query": query}
@@ -231,9 +229,23 @@ func CollectGraphQLResponseJSON(body string, resp *HttpResponse) error {
 	}
 	// Ensure Content-Type
 	if resp.Headers == nil {
-		resp.Headers = map[string][]string{}
+		resp.Headers = []models.NameValues{}
 	}
-	resp.Headers["Content-Type"] = []string{"application/json"}
+	// Set Content-Type header
+	found := false
+	for i, h := range resp.Headers {
+		if strings.EqualFold(h.Name, "Content-Type") {
+			resp.Headers[i].Values = []string{"application/json"}
+			found = true
+			break
+		}
+	}
+	if !found {
+		resp.Headers = append(resp.Headers, models.NameValues{
+			Name:   "Content-Type",
+			Values: []string{"application/json"},
+		})
+	}
 	// Set body wrapper
 	resp.Body = map[string]any{
 		"type": "JSON",

@@ -15,7 +15,7 @@ func applyDelays() func(exp *MockExpectation) error {
 	return func(exp *MockExpectation) error {
 		fmt.Println("\n⏱️  Response Delay Configuration")
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-		ensureMaps(exp)
+		ensureNameValues(exp)
 
 		var mode string
 		if err := survey.AskOne(&survey.Select{

@@ -51,18 +51,19 @@ func applyChunked() FeatureFunc {
 		}
 
 		if useChunked {
-			ensureMaps(expectation)
+			ensureNameValues(expectation)
 			if expectation.ConnectionOptions == nil {
 				expectation.ConnectionOptions = &ConnectionOptions{}
 			}
 			expectation.ConnectionOptions.ChunkedEncoding = true
-			delete(expectation.HttpResponse.Headers, "Content-Length")
-			expectation.HttpResponse.Headers["Transfer-Encoding"] = []string{"chunked"}
+
+			// update headers ([]NameValues)
+			deleteHeader(&expectation.HttpResponse.Headers, "Content-Length")
+			setHeader(&expectation.HttpResponse.Headers, "Transfer-Encoding", []string{"chunked"})
 			fmt.Println("✅ Chunked encoding enabled")
 		} else {
 			fmt.Println("ℹ️  Chunked encoding not enabled")
 		}
-
 		return nil
 	}
 }
@@ -83,18 +84,20 @@ func applyKeepAlive() FeatureFunc {
 		}
 
 		if useKeepAlive {
-			ensureMaps(expectation)
+			ensureNameValues(expectation)
 			if expectation.ConnectionOptions == nil {
 				expectation.ConnectionOptions = &ConnectionOptions{}
 			}
 			expectation.ConnectionOptions.KeepAlive = true
 			expectation.ConnectionOptions.CloseSocket = false
-			expectation.HttpResponse.Headers["Connection"] = []string{"keep-alive"}
+
+			// update headers ([]NameValues)
+			setHeader(&expectation.HttpResponse.Headers, "Connection", []string{"keep-alive"})
 			fmt.Println("✅ Keep-alive enabled")
 		} else {
+			// optional: you could explicitly set "Connection: close" here if desired
 			fmt.Println("ℹ️  Keep-alive disabled - connection will close after response")
 		}
-
 		return nil
 	}
 }

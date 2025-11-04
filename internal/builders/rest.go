@@ -52,7 +52,7 @@ func collectRESTAPIDetails(expectation *MockExpectation) error {
 	var mock_configurator MockConfigurator
 
 	expectation.HttpRequest = &models.HttpRequest{
-		Headers:               make(map[string][]any),
+		Headers:               []models.NameValues{},
 		QueryStringParameters: make(map[string][]string),
 	}
 
@@ -119,7 +119,7 @@ func collectResponseDefinition(expectation *MockExpectation) error {
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	expectation.HttpResponse = &models.HttpResponse{
-		Headers: make(map[string][]string),
+		Headers: []models.NameValues{},
 	}
 
 	// Status code selection (hierarchical)

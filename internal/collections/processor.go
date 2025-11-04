@@ -204,11 +204,11 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 				Method:                node.API.Method,
 				Path:                  cp.extractPath(path),
 				QueryStringParameters: queryParams,
-				Headers:               map[string][]any{},
+				Headers:               []models.NameValues{},
 			},
 			HttpResponse: &builders.HttpResponse{
 				StatusCode: node.Response.StatusCode,
-				Headers:    make(map[string][]string),
+				Headers:    []models.NameValues{},
 			},
 		}
 
@@ -284,14 +284,6 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 				}
 			}
 
-			if err := mock_configurator.CollectRequestHeaderMatching(&expectation); err != nil {
-				return nil, err
-			}
-
-			if err := mock_configurator.CollectAdvancedFeatures(&expectation); err != nil {
-				return nil, err
-			}
-
 		} else {
 			// Request body for methods that typically have bodies
 			if node.API.Method == "POST" || node.API.Method == "PUT" || node.API.Method == "PATCH" {
@@ -329,8 +321,22 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 		}
 		fmt.Println("✅ Configured response body")
 
-		for k, v := range node.Response.Headers {
-			expectation.HttpResponse.Headers[k] = append(expectation.HttpResponse.Headers[k], v)
+		// Merge response headers into expectation.HttpResponse.Headers (slice of models.NameValues)
+		for hk, hv := range node.Response.Headers {
+			added := false
+			for i := range expectation.HttpResponse.Headers {
+				if strings.EqualFold(expectation.HttpResponse.Headers[i].Name, hk) {
+					expectation.HttpResponse.Headers[i].Values = append(expectation.HttpResponse.Headers[i].Values, hv)
+					added = true
+					break
+				}
+			}
+			if !added {
+				expectation.HttpResponse.Headers = append(expectation.HttpResponse.Headers, models.NameValues{
+					Name:   hk,
+					Values: []string{hv},
+				})
+			}
 		}
 
 		expectations = append(expectations, expectation)
