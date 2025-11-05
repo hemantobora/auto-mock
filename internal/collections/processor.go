@@ -203,13 +203,18 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 			HttpRequest: &builders.HttpRequest{
 				Method:                node.API.Method,
 				Path:                  cp.extractPath(path),
-				QueryStringParameters: queryParams,
+				QueryStringParameters: []models.NameValues{},
 				Headers:               []models.NameValues{},
 			},
 			HttpResponse: &builders.HttpResponse{
 				StatusCode: node.Response.StatusCode,
 				Headers:    []models.NameValues{},
 			},
+		}
+
+		// Handle existing query parameters
+		for name, value := range queryParams {
+			builders.SetNameValues(&expectation.HttpRequest.QueryStringParameters, name, value)
 		}
 
 		if node.ExecutionType == GRAPHQL {
@@ -228,14 +233,14 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 			if isGET {
 				// GET: put fields in queryStringParameters.
 				if expectation.HttpRequest.QueryStringParameters == nil {
-					expectation.HttpRequest.QueryStringParameters = map[string][]string{}
+					expectation.HttpRequest.QueryStringParameters = []models.NameValues{}
 				}
 				if query != "" {
-					expectation.HttpRequest.QueryStringParameters["query"] = []string{query}
+					builders.SetNameValues(&expectation.HttpRequest.QueryStringParameters, "query", []string{query})
 				}
 				if vars != nil {
 					b, _ := json.Marshal(vars)
-					expectation.HttpRequest.QueryStringParameters["variables"] = []string{string(b)}
+					builders.SetNameValues(&expectation.HttpRequest.QueryStringParameters, "variables", []string{string(b)})
 				}
 			} else {
 
@@ -323,6 +328,9 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 
 		// Merge response headers into expectation.HttpResponse.Headers (slice of models.NameValues)
 		for hk, hv := range node.Response.Headers {
+			if strings.EqualFold(hk, "Content-Length") {
+				continue
+			}
 			added := false
 			for i := range expectation.HttpResponse.Headers {
 				if strings.EqualFold(expectation.HttpResponse.Headers[i].Name, hk) {
@@ -335,6 +343,23 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 				expectation.HttpResponse.Headers = append(expectation.HttpResponse.Headers, models.NameValues{
 					Name:   hk,
 					Values: []string{hv},
+				})
+			}
+		}
+
+		for ck, cv := range node.Response.Cookies {
+			added := false
+			for i := range expectation.HttpResponse.Cookies {
+				if strings.EqualFold(expectation.HttpResponse.Cookies[i].Name, ck) {
+					expectation.HttpResponse.Cookies[i].Values = append(expectation.HttpResponse.Cookies[i].Values, cv)
+					added = true
+					break
+				}
+			}
+			if !added {
+				expectation.HttpResponse.Cookies = append(expectation.HttpResponse.Cookies, models.NameValues{
+					Name:   ck,
+					Values: []string{cv},
 				})
 			}
 		}

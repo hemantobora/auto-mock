@@ -2,34 +2,23 @@ package builders
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
 )
 
-// applyDropConnection returns a FeatureFunc for drop connection configuration
-func applyDropConnection() FeatureFunc {
+// suppressConnection returns a FeatureFunc for drop connection configuration
+func suppressConnectionHeader() FeatureFunc {
 	return func(exp *MockExpectation) error {
-		fmt.Println("\n🔌 Drop Connection Configuration")
+		fmt.Println("\n🔌 Suppress Connection Header Configuration")
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-		var dropConnection bool
-		if err := survey.AskOne(&survey.Confirm{
-			Message: "Drop connection (simulate network failure)?",
-			Default: false,
-			Help:    "Close connection immediately without sending response",
-		}, &dropConnection); err != nil {
-			return err
-		}
 
-		if dropConnection {
-			if exp.ConnectionOptions == nil {
-				exp.ConnectionOptions = &ConnectionOptions{}
-			}
-			exp.ConnectionOptions.DropConnection = true
-			exp.HttpResponse.Body = nil
-			fmt.Println("✅ Drop connection enabled - will simulate network failure")
-		} else {
-			fmt.Println("ℹ️  Connection drop not enabled")
+		if exp.HttpResponse.ConnectionOptions == nil {
+			exp.HttpResponse.ConnectionOptions = &ConnectionOptions{}
 		}
+		exp.HttpResponse.ConnectionOptions.SuppressConnectionHeader = true
+		fmt.Println("✅ Suppress connection header enabled")
 
 		return nil
 	}
@@ -41,25 +30,30 @@ func applyChunked() FeatureFunc {
 		fmt.Println("\n📦 Chunked Encoding Configuration")
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-		var useChunked bool
-		if err := survey.AskOne(&survey.Confirm{
-			Message: "Enable chunked transfer encoding?",
-			Default: false,
+		var useChunked string
+		if err := survey.AskOne(&survey.Input{
+			Message: "Enable chunked transfer encoding? With chunk size in bytes (e.g., 50 for 50 bytes):",
+			Default: "50",
 			Help:    "Send response in chunks (Transfer-Encoding: chunked)",
 		}, &useChunked); err != nil {
 			return err
 		}
 
-		if useChunked {
+		val, err := strconv.Atoi(strings.TrimSpace(useChunked))
+		if err != nil || val < 0 {
+			fmt.Printf("invalid chunk size: %q, Chunked encoding not enabled\n", useChunked)
+			return nil
+		}
+		if val > 0 {
 			ensureNameValues(expectation)
-			if expectation.ConnectionOptions == nil {
-				expectation.ConnectionOptions = &ConnectionOptions{}
+			if expectation.HttpResponse.ConnectionOptions == nil {
+				expectation.HttpResponse.ConnectionOptions = &ConnectionOptions{}
 			}
-			expectation.ConnectionOptions.ChunkedEncoding = true
+			expectation.HttpResponse.ConnectionOptions.ChunkSize = val
 
 			// update headers ([]NameValues)
 			deleteHeader(&expectation.HttpResponse.Headers, "Content-Length")
-			setHeader(&expectation.HttpResponse.Headers, "Transfer-Encoding", []string{"chunked"})
+			deleteHeader(&expectation.HttpResponse.Headers, "Transfer-Encoding")
 			fmt.Println("✅ Chunked encoding enabled")
 		} else {
 			fmt.Println("ℹ️  Chunked encoding not enabled")
@@ -76,7 +70,7 @@ func applyKeepAlive() FeatureFunc {
 
 		var useKeepAlive bool
 		if err := survey.AskOne(&survey.Confirm{
-			Message: "Enable connection keep-alive?",
+			Message: "Override connection keep-alive?",
 			Default: true,
 			Help:    "Reuse HTTP connection for multiple requests",
 		}, &useKeepAlive); err != nil {
@@ -85,19 +79,70 @@ func applyKeepAlive() FeatureFunc {
 
 		if useKeepAlive {
 			ensureNameValues(expectation)
-			if expectation.ConnectionOptions == nil {
-				expectation.ConnectionOptions = &ConnectionOptions{}
+			if expectation.HttpResponse.ConnectionOptions == nil {
+				expectation.HttpResponse.ConnectionOptions = &ConnectionOptions{}
 			}
-			expectation.ConnectionOptions.KeepAlive = true
-			expectation.ConnectionOptions.CloseSocket = false
-
+			expectation.HttpResponse.ConnectionOptions.KeepAliveOverride = true
+			expectation.HttpResponse.ConnectionOptions.CloseSocket = false
 			// update headers ([]NameValues)
-			setHeader(&expectation.HttpResponse.Headers, "Connection", []string{"keep-alive"})
+			deleteHeader(&expectation.HttpResponse.Headers, "Connection")
 			fmt.Println("✅ Keep-alive enabled")
 		} else {
 			// optional: you could explicitly set "Connection: close" here if desired
 			fmt.Println("ℹ️  Keep-alive disabled - connection will close after response")
 		}
+		return nil
+	}
+}
+
+func closeSocket() FeatureFunc {
+	return func(expectation *MockExpectation) error {
+		fmt.Println("\n❌ Close Socket Configuration")
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+		var shouldClose bool
+		if err := survey.AskOne(&survey.Confirm{
+			Message: "Close socket after response?",
+			Default: false,
+			Help:    "Forcefully close the connection after sending response",
+		}, &shouldClose); err != nil {
+			return err
+		}
+
+		if shouldClose {
+			var shouldDelay bool
+			if err := survey.AskOne(&survey.Confirm{
+				Message: "Would you like to delay closing the socket?",
+				Default: false,
+				Help:    "Introduce a delay before forcefully closing the connection",
+			}, &shouldDelay); err != nil {
+				return err
+			}
+
+			if expectation.HttpResponse.ConnectionOptions == nil {
+				expectation.HttpResponse.ConnectionOptions = &ConnectionOptions{}
+			}
+			expectation.HttpResponse.ConnectionOptions.CloseSocket = true
+			if shouldDelay {
+				var fixedStr string
+				if err := survey.AskOne(&survey.Input{
+					Message: "Delay in milliseconds (e.g., 500):",
+					Default: "500",
+				}, &fixedStr, survey.WithValidator(survey.Required)); err != nil {
+					return err
+				}
+				val, err := strconv.Atoi(strings.TrimSpace(fixedStr))
+				if err != nil || val < 0 {
+					fmt.Printf("invalid delay: %q, Socket would be closed immediately\n", fixedStr)
+					return nil
+				}
+				expectation.HttpResponse.ConnectionOptions.CloseSocketDelay = &Delay{TimeUnit: "MILLISECONDS", Value: val}
+			}
+			fmt.Println("✅ Socket will be closed after response")
+		} else {
+			fmt.Println("ℹ️  Socket will remain open after response")
+		}
+
 		return nil
 	}
 }

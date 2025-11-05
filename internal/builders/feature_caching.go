@@ -41,13 +41,13 @@ func applyCaching() FeatureFunc {
 
 		switch cc {
 		case "no-store":
-			setHeader(&exp.HttpResponse.Headers, "Cache-Control", []string{"no-store"})
+			SetNameValues(&exp.HttpResponse.Headers, "Cache-Control", []string{"no-store"})
 		case "no-cache":
-			setHeader(&exp.HttpResponse.Headers, "Cache-Control", []string{"no-cache"})
+			SetNameValues(&exp.HttpResponse.Headers, "Cache-Control", []string{"no-cache"})
 		case "private, max-age=60":
-			setHeader(&exp.HttpResponse.Headers, "Cache-Control", []string{"private, max-age=60"})
+			SetNameValues(&exp.HttpResponse.Headers, "Cache-Control", []string{"private, max-age=60"})
 		case "public, max-age=300":
-			setHeader(&exp.HttpResponse.Headers, "Cache-Control", []string{"public, max-age=300"})
+			SetNameValues(&exp.HttpResponse.Headers, "Cache-Control", []string{"public, max-age=300"})
 		case "custom":
 			var custom string
 			if err := survey.AskOne(&survey.Input{
@@ -56,7 +56,7 @@ func applyCaching() FeatureFunc {
 			}, &custom, survey.WithValidator(survey.Required)); err != nil {
 				return err
 			}
-			setHeader(&exp.HttpResponse.Headers, "Cache-Control", []string{strings.TrimSpace(custom)})
+			SetNameValues(&exp.HttpResponse.Headers, "Cache-Control", []string{strings.TrimSpace(custom)})
 		}
 
 		// ETag
@@ -69,7 +69,7 @@ func applyCaching() FeatureFunc {
 		}
 		if addETag {
 			etag := computeETag(exp.HttpResponse.Body)
-			setHeader(&exp.HttpResponse.Headers, "ETag", []string{etag})
+			SetNameValues(&exp.HttpResponse.Headers, "ETag", []string{etag})
 		}
 
 		fmt.Println("\n📚 Cache Control Resources:")

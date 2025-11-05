@@ -195,13 +195,13 @@ func applyPOSTRequest(req *HttpRequest, query string, variables map[string]any) 
 func applyGETRequest(req *HttpRequest, query string, variables map[string]any) {
 	// GET encodes query & variables in the URL
 	if req.QueryStringParameters == nil {
-		req.QueryStringParameters = map[string][]string{}
+		req.QueryStringParameters = []models.NameValues{}
 	}
-	req.QueryStringParameters["query"] = []string{query}
+	SetNameValues(&req.QueryStringParameters, "query", []string{query})
 	if variables != nil {
 		// Variables must be a JSON string in the query param.
 		b, _ := json.Marshal(variables)
-		req.QueryStringParameters["variables"] = []string{string(b)}
+		SetNameValues(&req.QueryStringParameters, "variables", []string{string(b)})
 	}
 }
 

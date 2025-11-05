@@ -53,7 +53,7 @@ func collectRESTAPIDetails(expectation *MockExpectation) error {
 
 	expectation.HttpRequest = &models.HttpRequest{
 		Headers:               []models.NameValues{},
-		QueryStringParameters: make(map[string][]string),
+		QueryStringParameters: []models.NameValues{},
 	}
 
 	// HTTP Method selection
@@ -97,7 +97,9 @@ func collectRESTAPIDetails(expectation *MockExpectation) error {
 		}
 
 		if useDetected {
-			expectation.HttpRequest.QueryStringParameters = detectedParams
+			for name, value := range detectedParams {
+				SetNameValues(&expectation.HttpRequest.QueryStringParameters, name, value)
+			}
 			fmt.Printf("✅ Pre-configured %d query parameters\n", len(detectedParams))
 		}
 	}

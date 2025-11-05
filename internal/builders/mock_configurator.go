@@ -259,7 +259,7 @@ func (mc *MockConfigurator) CollectQueryParameterMatching(exp *MockExpectation) 
 			fmt.Println("ℹ️  No query parameter matching configured")
 			return nil
 		}
-		exp.HttpRequest.QueryStringParameters = make(map[string][]string)
+		exp.HttpRequest.QueryStringParameters = []models.NameValues{}
 	}
 
 	for {
@@ -297,7 +297,7 @@ func (mc *MockConfigurator) CollectQueryParameterMatching(exp *MockExpectation) 
 			continue
 		}
 
-		exp.HttpRequest.QueryStringParameters[name] = out
+		SetNameValues(&exp.HttpRequest.QueryStringParameters, name, out)
 		fmt.Printf("✅ Added: %s=%v\n", name, out)
 	}
 
@@ -456,7 +456,7 @@ func (mc *MockConfigurator) CollectResponseHeader(exp *MockExpectation) error {
 	if err := survey.AskOne(&survey.Confirm{
 		Message: "Does this response require specific headers?",
 		Default: false,
-		Help:    "e.g., Content-Type, Content-Length",
+		Help:    "e.g., Content-Type, CORS headers",
 	}, &needsHeaders); err != nil {
 		return err
 	}
@@ -492,11 +492,8 @@ func (mc *MockConfigurator) CollectResponseHeader(exp *MockExpectation) error {
 			continue
 		}
 
-		// We only support the slice-of-structs representation: []struct{Name string; Values []string}
-		// Use the reflect-based helper which appends to that slice form.
-		if err := addResponseHeader(exp, headerName, headerValue); err != nil {
-			return err
-		}
+		// Append value to response header (case-insensitive name)
+		appendNameValues(&exp.HttpResponse.Headers, headerName, headerValue)
 		fmt.Printf("✅ Added header: %s: %q\n", headerName, headerValue)
 	}
 
@@ -577,34 +574,6 @@ func (mc *MockConfigurator) CollectRequestHeaderMatching(exp *models.MockExpecta
 	}
 
 	fmt.Printf("✅ Request Headers: %d configured\n", len(exp.HttpRequest.Headers))
-	return nil
-}
-
-// addResponseHeader adds or appends a value to a response header using []NameValues.
-// - If the header exists, it appends the value.
-// - If it doesn't, it creates the header with the given value.
-func addResponseHeader(exp *models.MockExpectation, name, value string) error {
-	if exp == nil {
-		return fmt.Errorf("nil expectation")
-	}
-
-	// ensure slice is initialized
-	if exp.HttpResponse.Headers == nil {
-		exp.HttpResponse.Headers = []models.NameValues{}
-	}
-
-	i := headerIndex(exp.HttpResponse.Headers, name)
-	if i >= 0 {
-		// append to existing header values
-		exp.HttpResponse.Headers[i].Values = append(exp.HttpResponse.Headers[i].Values, value)
-		return nil
-	}
-
-	// create new header
-	exp.HttpResponse.Headers = append(exp.HttpResponse.Headers, models.NameValues{
-		Name:   name,
-		Values: []string{value},
-	})
 	return nil
 }
 

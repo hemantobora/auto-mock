@@ -111,7 +111,7 @@ func ensureNameValues(m *MockExpectation) {
 		m.HttpResponse.Headers = []models.NameValues{}
 	}
 	if m.HttpRequest != nil && m.HttpRequest.QueryStringParameters == nil {
-		m.HttpRequest.QueryStringParameters = map[string][]string{}
+		m.HttpRequest.QueryStringParameters = []models.NameValues{}
 	}
 }
 
@@ -155,12 +155,7 @@ func CloneExpectation(src *MockExpectation) *MockExpectation {
 
 		// QueryStringParameters: map[string][]string
 		if src.HttpRequest.QueryStringParameters != nil {
-			dst.HttpRequest.QueryStringParameters = make(map[string][]string, len(src.HttpRequest.QueryStringParameters))
-			for k, v := range src.HttpRequest.QueryStringParameters {
-				cp := make([]string, len(v))
-				copy(cp, v)
-				dst.HttpRequest.QueryStringParameters[k] = cp
-			}
+			dst.HttpRequest.QueryStringParameters = copyNameValuesSlice(src.HttpRequest.QueryStringParameters)
 		}
 
 		// Headers: []NameValues (new shape)
@@ -206,9 +201,9 @@ func CloneExpectation(src *MockExpectation) *MockExpectation {
 		tmp := *src.Times
 		dst.Times = &tmp
 	}
-	if src.ConnectionOptions != nil {
-		tmp := *src.ConnectionOptions
-		dst.ConnectionOptions = &tmp
+	if src.HttpResponse != nil && src.HttpResponse.ConnectionOptions != nil {
+		tmp := *src.HttpResponse.ConnectionOptions
+		dst.HttpResponse.ConnectionOptions = &tmp
 	}
 
 	return &dst
@@ -262,9 +257,9 @@ func ReviewGraphQLExpectation(exp *MockExpectation) error {
 	// Request matching summary (POST vs GET)
 	if exp.HttpRequest != nil && strings.EqualFold(method, "GET") {
 		q := exp.HttpRequest.QueryStringParameters
-		_, hasQuery := q["query"]
-		_, hasOpName := q["operationName"]
-		_, hasV := q["variables"]
+		hasQuery := headerIndex(q, "query") >= 0
+		hasOpName := headerIndex(q, "operationName") >= 0
+		hasV := headerIndex(q, "variables") >= 0
 		fmt.Printf("   Transport: GET (query string)\n")
 		fmt.Printf("   Query present: %v, OperationName: %v, Variables: %v\n", hasQuery, hasOpName, hasV)
 	} else {
@@ -510,8 +505,8 @@ func generateMinimalTemplate() string {
 	return `{"success": true, "timestamp": "$!now_epoch"}`
 }
 
-func headerIndex(headers []models.NameValues, name string) int {
-	for i, h := range headers {
+func headerIndex(list []models.NameValues, name string) int {
+	for i, h := range list {
 		if strings.EqualFold(h.Name, name) {
 			return i
 		}
@@ -519,11 +514,47 @@ func headerIndex(headers []models.NameValues, name string) int {
 	return -1
 }
 
-func setHeader(headers *[]models.NameValues, name string, values []string) {
-	n := strings.TrimSpace(name)
-	if i := headerIndex(*headers, n); i >= 0 {
-		(*headers)[i].Values = values
+// setNameValues sets/replaces the values for a given name in a []NameValues list.
+// - Case-insensitive match on Name
+// - Initializes the list if it's nil
+// - Replaces the existing values with the provided slice
+// This is generic and can be used for headers, cookies, or query parameters
+// represented as []models.NameValues.
+func SetNameValues(list *[]models.NameValues, name string, values []string) {
+	if list == nil {
 		return
 	}
-	*headers = append(*headers, models.NameValues{Name: n, Values: values})
+	n := strings.TrimSpace(name)
+	if *list == nil {
+		*list = []models.NameValues{}
+	}
+	if i := headerIndex(*list, n); i >= 0 {
+		(*list)[i].Values = values
+		return
+	}
+	*list = append(*list, models.NameValues{Name: n, Values: values})
+}
+
+// appendHeaderValue appends a single value to the header with the given name.
+// If the header does not exist, it creates it with the provided value.
+// Header name matching is case-insensitive.
+// appendNameValues appends a single value to an entry in a []NameValues list.
+// - Case-insensitive match on Name
+// - Initializes the list if it's nil
+// - Creates a new entry if name not present
+// This is generic and can be used for headers, cookies, or query parameters
+// that are represented as []models.NameValues.
+func appendNameValues(list *[]models.NameValues, name string, value string) {
+	if list == nil {
+		return
+	}
+	n := strings.TrimSpace(name)
+	if *list == nil {
+		*list = []models.NameValues{}
+	}
+	if i := headerIndex(*list, n); i >= 0 {
+		(*list)[i].Values = append((*list)[i].Values, value)
+		return
+	}
+	*list = append(*list, models.NameValues{Name: n, Values: []string{value}})
 }
