@@ -35,3 +35,7 @@ Thumbs.db
 
 # Ignore by name
 AWSCLIV2.pkg
+
+# Ignore build files
+auto-mock
+automock

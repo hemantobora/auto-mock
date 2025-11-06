@@ -1,6 +1,7 @@
 package repl
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/AlecAivazis/survey/v2"
@@ -32,6 +33,11 @@ func (d *Deployment) DeployInfrastructureWithTerraform(skip_confirmation bool) e
 	manager, err := terraform.NewManager(d.ProjectName, d.Profile, d.Provider)
 	if err != nil {
 		return fmt.Errorf("failed to create terraform manager: %w", err)
+	}
+
+	// ── 1) Check Project Configuration ───────────────────────────────────────
+	if _, err := manager.Provider.GetConfig(context.Background(), d.ProjectName); err != nil {
+		return fmt.Errorf("project configuration does not exist, nothing to deploy; please run 'auto-mock init' first")
 	}
 
 	// Check Terraform installation

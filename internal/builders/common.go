@@ -103,28 +103,45 @@ type RegexPattern struct {
 }
 
 // ensure maps exist before writes
-func ensureMaps(m *MockExpectation) {
+func ensureNameValues(m *MockExpectation) {
 	if m.HttpRequest != nil && m.HttpRequest.Headers == nil {
-		m.HttpRequest.Headers = map[string][]any{}
+		m.HttpRequest.Headers = []models.NameValues{}
 	}
 	if m.HttpResponse != nil && m.HttpResponse.Headers == nil {
-		m.HttpResponse.Headers = map[string][]string{}
+		m.HttpResponse.Headers = []models.NameValues{}
 	}
 	if m.HttpRequest != nil && m.HttpRequest.QueryStringParameters == nil {
-		m.HttpRequest.QueryStringParameters = map[string][]string{}
+		m.HttpRequest.QueryStringParameters = []models.NameValues{}
 	}
+}
+
+// helper: deep-copy []NameValues
+func copyNameValuesSlice(in []models.NameValues) []models.NameValues {
+	if in == nil {
+		return nil
+	}
+	out := make([]models.NameValues, len(in))
+	for i, nv := range in {
+		vs := make([]string, len(nv.Values))
+		copy(vs, nv.Values)
+		out[i] = models.NameValues{
+			Name:   nv.Name,
+			Values: vs,
+		}
+	}
+	return out
 }
 
 func CloneExpectation(src *MockExpectation) *MockExpectation {
 	if src == nil {
 		return nil
 	}
-	dst := *src // copy scalars
+	dst := *src // copy scalars / top-level
 
 	// ---- HttpRequest ----
 	if src.HttpRequest != nil {
 		dst.HttpRequest = new(models.HttpRequest)
-		*dst.HttpRequest = *src.HttpRequest // copy scalars
+		*dst.HttpRequest = *src.HttpRequest // copy request scalars
 
 		// PathParameters: map[string][]string
 		if src.HttpRequest.PathParameters != nil {
@@ -138,24 +155,12 @@ func CloneExpectation(src *MockExpectation) *MockExpectation {
 
 		// QueryStringParameters: map[string][]string
 		if src.HttpRequest.QueryStringParameters != nil {
-			dst.HttpRequest.QueryStringParameters = make(map[string][]string, len(src.HttpRequest.QueryStringParameters))
-			for k, v := range src.HttpRequest.QueryStringParameters {
-				cp := make([]string, len(v))
-				copy(cp, v)
-				dst.HttpRequest.QueryStringParameters[k] = cp
-			}
+			dst.HttpRequest.QueryStringParameters = copyNameValuesSlice(src.HttpRequest.QueryStringParameters)
 		}
 
-		// Headers: map[string][]any   (deep copy slice + elements)
+		// Headers: []NameValues (new shape)
 		if src.HttpRequest.Headers != nil {
-			dst.HttpRequest.Headers = make(map[string][]any, len(src.HttpRequest.Headers))
-			for k, sv := range src.HttpRequest.Headers {
-				cp := make([]any, len(sv))
-				for i := range sv {
-					cp[i] = deepCopyInterface(sv[i]) // ensure objects like {"regex": "..."} are cloned
-				}
-				dst.HttpRequest.Headers[k] = cp
-			}
+			dst.HttpRequest.Headers = copyNameValuesSlice(src.HttpRequest.Headers)
 		}
 
 		// Body: any
@@ -167,16 +172,16 @@ func CloneExpectation(src *MockExpectation) *MockExpectation {
 	// ---- HttpResponse ----
 	if src.HttpResponse != nil {
 		dst.HttpResponse = new(models.HttpResponse)
-		*dst.HttpResponse = *src.HttpResponse // copy scalars
+		*dst.HttpResponse = *src.HttpResponse // copy response scalars
 
-		// Headers: map[string][]string
+		// Headers: []NameValues (new shape)
 		if src.HttpResponse.Headers != nil {
-			dst.HttpResponse.Headers = make(map[string][]string, len(src.HttpResponse.Headers))
-			for k, v := range src.HttpResponse.Headers {
-				cp := make([]string, len(v))
-				copy(cp, v)
-				dst.HttpResponse.Headers[k] = cp
-			}
+			dst.HttpResponse.Headers = copyNameValuesSlice(src.HttpResponse.Headers)
+		}
+
+		// Cookies: []NameValues (new shape)
+		if src.HttpResponse.Cookies != nil {
+			dst.HttpResponse.Cookies = copyNameValuesSlice(src.HttpResponse.Cookies)
 		}
 
 		// Body: any
@@ -196,9 +201,9 @@ func CloneExpectation(src *MockExpectation) *MockExpectation {
 		tmp := *src.Times
 		dst.Times = &tmp
 	}
-	if src.ConnectionOptions != nil {
-		tmp := *src.ConnectionOptions
-		dst.ConnectionOptions = &tmp
+	if src.HttpResponse != nil && src.HttpResponse.ConnectionOptions != nil {
+		tmp := *src.HttpResponse.ConnectionOptions
+		dst.HttpResponse.ConnectionOptions = &tmp
 	}
 
 	return &dst
@@ -252,9 +257,9 @@ func ReviewGraphQLExpectation(exp *MockExpectation) error {
 	// Request matching summary (POST vs GET)
 	if exp.HttpRequest != nil && strings.EqualFold(method, "GET") {
 		q := exp.HttpRequest.QueryStringParameters
-		_, hasQuery := q["query"]
-		_, hasOpName := q["operationName"]
-		_, hasV := q["variables"]
+		hasQuery := headerIndex(q, "query") >= 0
+		hasOpName := headerIndex(q, "operationName") >= 0
+		hasV := headerIndex(q, "variables") >= 0
 		fmt.Printf("   Transport: GET (query string)\n")
 		fmt.Printf("   Query present: %v, OperationName: %v, Variables: %v\n", hasQuery, hasOpName, hasV)
 	} else {
@@ -498,4 +503,58 @@ func generateComprehensiveErrorTemplate(statusCode int) string {
 
 func generateMinimalTemplate() string {
 	return `{"success": true, "timestamp": "$!now_epoch"}`
+}
+
+func headerIndex(list []models.NameValues, name string) int {
+	for i, h := range list {
+		if strings.EqualFold(h.Name, name) {
+			return i
+		}
+	}
+	return -1
+}
+
+// setNameValues sets/replaces the values for a given name in a []NameValues list.
+// - Case-insensitive match on Name
+// - Initializes the list if it's nil
+// - Replaces the existing values with the provided slice
+// This is generic and can be used for headers, cookies, or query parameters
+// represented as []models.NameValues.
+func SetNameValues(list *[]models.NameValues, name string, values []string) {
+	if list == nil {
+		return
+	}
+	n := strings.TrimSpace(name)
+	if *list == nil {
+		*list = []models.NameValues{}
+	}
+	if i := headerIndex(*list, n); i >= 0 {
+		(*list)[i].Values = values
+		return
+	}
+	*list = append(*list, models.NameValues{Name: n, Values: values})
+}
+
+// appendHeaderValue appends a single value to the header with the given name.
+// If the header does not exist, it creates it with the provided value.
+// Header name matching is case-insensitive.
+// appendNameValues appends a single value to an entry in a []NameValues list.
+// - Case-insensitive match on Name
+// - Initializes the list if it's nil
+// - Creates a new entry if name not present
+// This is generic and can be used for headers, cookies, or query parameters
+// that are represented as []models.NameValues.
+func appendNameValues(list *[]models.NameValues, name string, value string) {
+	if list == nil {
+		return
+	}
+	n := strings.TrimSpace(name)
+	if *list == nil {
+		*list = []models.NameValues{}
+	}
+	if i := headerIndex(*list, n); i >= 0 {
+		(*list)[i].Values = append((*list)[i].Values, value)
+		return
+	}
+	*list = append(*list, models.NameValues{Name: n, Values: []string{value}})
 }

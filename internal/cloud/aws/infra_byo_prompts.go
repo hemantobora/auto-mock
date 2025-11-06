@@ -95,11 +95,6 @@ func validateInputs(u models.UseExisting, in models.Inputs) error {
 			return err
 		}
 	}
-	if u.NAT {
-		if err := req(len(in.NatGatewayIDs) > 0, "NAT Gateway IDs"); err != nil {
-			return err
-		}
-	}
 	if u.SG {
 		if err := req(in.ALBSGID != "", "ALB Security Group ID"); err != nil {
 			return err
@@ -371,7 +366,7 @@ func promptCapabilitiesSurvey(identity string) (Capability, error) {
 	}
 	var netSel []string
 	if err := survey.AskOne(&survey.MultiSelect{
-		Message: "Networking & IAM Resources (CREATE permissions):",
+		Message: "Create/BYO Networking & IAM Resources (CREATE permissions):",
 		Options: netChoices,
 		Default: netChoices, // sane default: assume greenfield
 	}, &netSel); err != nil {
@@ -408,18 +403,18 @@ func promptInputsForMissingSurvey(cap Capability) (Inputs, error) {
 	if !cap.Networking.VPC {
 		var pubCSV, privCSV string
 		if err := survey.AskOne(&survey.Input{
-			Message: "Public Subnet IDs (comma-separated)",
+			Message: "Load balancer Subnet IDs (comma-separated)",
 			Help:    "Example: subnet-aaaa,subnet-bbbb",
 		}, &pubCSV, survey.WithValidator(func(ans interface{}) error {
-			return listOrEmpty(ans.(string), reSub, "Public Subnet IDs")
+			return listOrEmpty(ans.(string), reSub, "Load balancer Subnet IDs")
 		})); err != nil {
 			return in, err
 		}
 		if err := survey.AskOne(&survey.Input{
-			Message: "Private Subnet IDs (comma-separated)",
+			Message: "Application Subnet IDs (comma-separated)",
 			Help:    "Example: subnet-aaaa,subnet-bbbb",
 		}, &privCSV, survey.WithValidator(func(ans interface{}) error {
-			return listOrEmpty(ans.(string), reSub, "Private Subnet IDs")
+			return listOrEmpty(ans.(string), reSub, "Application Subnet IDs")
 		})); err != nil {
 			return in, err
 		}

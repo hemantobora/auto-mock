@@ -94,7 +94,7 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 	if err != nil {
 		return err
 	}
-	if actionType == models.ActionExit || actionType == models.ActionCancel {
+	if actionType == models.ActionExit {
 		return nil
 	}
 
@@ -107,7 +107,8 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 	if err != nil {
 		return fmt.Errorf("failed to create expectation manager: %w", err)
 	}
-
+	deployer := repl.NewDeployment(project, m.profile, m.Provider)
+	var refreshConfig bool = false
 	for {
 		switch actionType {
 		case models.ActionCreate:
@@ -116,33 +117,33 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 		case models.ActionGenerate:
 			// Proceed to generation flow
 			fmt.Printf("➕ Generating new expectations for project: %s\n", project)
-			return m.generateMockConfiguration(cliContext)
+			m.generateMockConfiguration(cliContext)
+			refreshConfig = true
 		case models.ActionAdd:
 			fmt.Printf("➕ Adding new expectations to project: %s\n", project)
-			return m.addMockConfiguration(cliContext, existingConfig)
+			m.addMockConfiguration(cliContext, existingConfig)
+			refreshConfig = true
 		case models.ActionView:
 			fmt.Printf("👁️ Viewing expectations for project: %s\n", project)
 			if err := expManager.ViewExpectations(existingConfig); err != nil {
 				return fmt.Errorf("view failed: %w", err)
 			}
-			actionType = repl.SelectProjectAction(m.getCurrentProject(), existingConfig)
 		case models.ActionDownload:
 			fmt.Printf("💾 Downloading expectations for project: %s\n", project)
 			if err := expManager.DownloadExpectations(existingConfig); err != nil {
 				return fmt.Errorf("download failed: %w", err)
 			}
-			return nil
 		case models.ActionEdit:
 			if err := m.handleEditExpectations(expManager, existingConfig); err != nil {
 				return fmt.Errorf("edit failed: %w", err)
 			}
-			return nil
+			refreshConfig = true
 		case models.ActionRemove:
 			// Manager handles actual removal (data operations)
 			if err := m.handleRemoveExpectations(expManager, existingConfig); err != nil {
 				return fmt.Errorf("remove failed: %w", err)
 			}
-			return nil
+			refreshConfig = true
 		case models.ActionDelete:
 			fmt.Printf("🗑️ Deleting project: %s\n", project)
 			if err := expManager.DeleteProjectPrompt(); err != nil {
@@ -151,16 +152,41 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 			if err := m.destroyInfrastructureAndDeleteProject(); err != nil {
 				return fmt.Errorf("failed to destroy infrastructure: %w", err)
 			}
-			return nil
+			refreshConfig = false
 		case models.ActionReplace:
 			fmt.Printf("🔄 Replacing expectations for project: %s\n", project)
 			if err := expManager.ReplaceExpectationsPrompt(); err != nil {
 				return fmt.Errorf("replace failed: %w", err)
 			}
-			return m.generateMockConfiguration(cliContext)
+			if err := m.generateMockConfiguration(cliContext); err != nil {
+				return fmt.Errorf("failed to generate mock configuration: %w", err)
+			}
+			refreshConfig = true
+		case models.ActionExit:
+			fmt.Println("❌ Exiting auto-mock. Have a great day!")
+			return nil
+		case models.ActionDeploy:
+			fmt.Printf("🚀 Deploying infrastructure for project: %s\n", project)
+			deployed, _ := m.Provider.IsDeployed()
+			if deployed {
+				fmt.Println("✅ Infrastructure is already deployed.")
+			} else {
+				if err := deployer.DeployInfrastructureWithTerraform(false); err != nil {
+					return fmt.Errorf("deployment failed: %w", err)
+				}
+			}
+			return nil
 		default:
 			return fmt.Errorf("unsupported action type")
 		}
+		if refreshConfig {
+			existingConfig, err = m.getMockConfiguration()
+			if err != nil {
+				return fmt.Errorf("failed to get latest mock configuration: %w", err)
+			}
+			refreshConfig = false
+		}
+		actionType = repl.SelectProjectAction(m.getCurrentProject(), existingConfig)
 	}
 }
 

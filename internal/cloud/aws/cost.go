@@ -36,12 +36,18 @@ func (p *Provider) DisplayCostEstimate(options *models.DeploymentOptions) {
 	// Base compute (24/7 @ minTasks)
 	baseMonthly := float64(options.MinTasks) * perTaskHour * hoursPerMonth
 
-	totalMonthly := baseMonthly + albMonthly + natMonthly + dataMonthly + storageLogs
+	totalMonthly := baseMonthly + albMonthly + dataMonthly + storageLogs
+
+	if len(options.NatGatewayIDs) > 0 {
+		totalMonthly += natMonthly
+	}
 
 	fmt.Printf("  Base (24/7, %d x %s @ %.2fvCPU/%.1fGB):  				$%.2f/month\n",
 		options.MinTasks, options.InstanceSize, vCPU, memGB, baseMonthly)
 	fmt.Printf("  ALB (1x):                                				$%.2f/month\n", albMonthly)
-	fmt.Printf("  NAT Gateway (1x):                        				$%.2f/month\n", natMonthly)
+	if len(options.NatGatewayIDs) > 0 {
+		fmt.Printf("  NAT Gateway (1x):                        				$%.2f/month\n", natMonthly)
+	}
 	fmt.Printf("  Data Transfer (assumed ~20 GB egress @ $0.09/GB):                 	$%.2f/month\n", dataMonthly)
 	fmt.Printf("  Storage & Logs (assumed < 1 GB):                			$%.2f/month\n", storageLogs)
 	fmt.Printf("  -----------------------------------------------------------------------------\n")

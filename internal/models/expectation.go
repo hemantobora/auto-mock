@@ -17,9 +17,8 @@ type MockExpectation struct {
 	HttpResponse *HttpResponse `json:"httpResponse,omitempty"`
 	Forward      *HttpForward  `json:"httpForward,omitempty"`
 
-	Times             *Times             `json:"times,omitempty"`
-	ConnectionOptions *ConnectionOptions `json:"connectionOptions,omitempty"`
-	Progressive       *Progressive       `json:"-"`
+	Times       *Times       `json:"times,omitempty"`
+	Progressive *Progressive `json:"-"`
 }
 
 type Progressive struct {
@@ -32,17 +31,23 @@ type HttpRequest struct {
 	Method                string              `json:"method,omitempty"`
 	Path                  string              `json:"path,omitempty"`
 	PathParameters        map[string][]string `json:"pathParameters,omitempty"`
-	QueryStringParameters map[string][]string `json:"queryStringParameters,omitempty"`
-	Headers               map[string][]any    `json:"headers,omitempty"`
+	QueryStringParameters []NameValues        `json:"queryStringParameters,omitempty"`
+	Headers               []NameValues        `json:"headers,omitempty"`
 	Body                  any                 `json:"body,omitempty"`
 }
 
 type HttpResponse struct {
-	StatusCode   int                 `json:"statusCode,omitempty"`
-	ReasonPhrase string              `json:"reasonPhrase,omitempty"`
-	Body         any                 `json:"body,omitempty"`
-	Headers      map[string][]string `json:"headers,omitempty"`
-	Delay        *Delay              `json:"delay,omitempty"`
+	StatusCode        int                `json:"statusCode,omitempty"`
+	Body              any                `json:"body,omitempty"`
+	Headers           []NameValues       `json:"headers,omitempty"`
+	Cookies           []NameValues       `json:"cookies,omitempty"`
+	Delay             *Delay             `json:"delay,omitempty"`
+	ConnectionOptions *ConnectionOptions `json:"connectionOptions,omitempty"`
+}
+
+type NameValues struct {
+	Name   string   `json:"name,omitempty"`
+	Values []string `json:"values,omitempty"`
 }
 
 type HttpForward struct {
@@ -59,12 +64,14 @@ type Times struct {
 
 // ConnectionOptions represents MockServer connection options
 type ConnectionOptions struct {
-	SuppressConnectionErrors bool `json:"suppressConnectionErrors,omitempty"`
-	SuppressContentLength    bool `json:"suppressContentLength,omitempty"`
-	ChunkedEncoding          bool `json:"chunkedEncoding,omitempty"`
-	KeepAlive                bool `json:"keepAlive,omitempty"`
-	CloseSocket              bool `json:"closeSocket,omitempty"`
-	DropConnection           bool `json:"dropConnection,omitempty"`
+	ContentLengthOverride       int  `json:"contentLengthHeaderOverride,omitempty"`
+	SuppressContentLengthHeader bool `json:"suppressContentLengthHeader,omitempty"`
+	ChunkSize                   int  `json:"chunkSize,omitempty"`
+
+	SuppressConnectionHeader bool   `json:"suppressConnectionHeader,omitempty"`
+	KeepAliveOverride        bool   `json:"keepAliveOverride,omitempty"`
+	CloseSocket              bool   `json:"closeSocket,omitempty"`
+	CloseSocketDelay         *Delay `json:"closeSocketDelay,omitempty"`
 }
 
 // PathMatchingStrategy represents how paths should be matched

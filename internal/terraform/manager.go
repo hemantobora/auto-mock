@@ -134,7 +134,7 @@ func (m *Manager) Deploy(options *models.DeploymentOptions) (*InfrastructureOutp
 	}
 
 	// Step 5: Apply infrastructure
-	fmt.Println("🏗️  Applying infrastructure changes...")
+	fmt.Println("\n🏗️  Applying infrastructure changes...")
 	if err := m.applyTerraform(); err != nil {
 		return nil, fmt.Errorf("terraform apply failed: %w", err)
 	}

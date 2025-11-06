@@ -91,8 +91,8 @@ output "infrastructure_summary" {
     }
     networking = {
       vpc_id             = local.ecs_vpc_id
-      public_subnet_ids  = local.ecs_pub_subnets
-      private_subnet_ids = local.ecs_priv_subnets
+      application_subnet_ids  = local.ecs_pub_subnets
+      load_balancer_subnet_ids = local.ecs_priv_subnets
     }
     storage = {
       bucket_name       = local.cfg_bucket_name

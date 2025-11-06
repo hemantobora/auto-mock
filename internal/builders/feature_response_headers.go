@@ -2,74 +2,63 @@ package builders
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/hemantobora/auto-mock/internal/models"
 )
 
-// applyResponseHeaders returns a FeatureFunc that collects custom response headers
-func applyResponseHeaders() FeatureFunc {
+// ControlContentLengthHeaders prompts for response headers and stores them in
+// exp.HttpResponse.Headers ([]NameValues). If duplicate (case-insensitive)
+// names are detected, it reverts to the original expectation.
+func ControlContentLengthHeaders() FeatureFunc {
 	return func(exp *MockExpectation) error {
 		fmt.Println("\n📋 Custom Response Headers Configuration")
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-		fmt.Println("\n💡 Common Response Headers:")
-		fmt.Println("   • X-Request-ID: Track requests")
-		fmt.Println("   • X-RateLimit-*: Rate limiting info")
-		fmt.Println("   • Cache-Control: Caching behavior")
-		fmt.Println("   • X-Custom-*: Application-specific headers")
-
-		ensureMaps(exp)
-		original := CloneExpectation(exp)
-		oldLength := len(exp.HttpResponse.Headers)
-
-		for {
-			var add bool
-			if err := survey.AskOne(&survey.Confirm{
-				Message: "Add / update a response header?",
-				Default: len(exp.HttpResponse.Headers) == 0,
-			}, &add); err != nil {
-				return err
-			}
-			if !add {
-				break
-			}
-
-			var k, v string
-			if err := survey.AskOne(&survey.Input{Message: "Header name:"}, &k, survey.WithValidator(survey.Required)); err != nil {
-				return err
-			}
-			if err := survey.AskOne(&survey.Input{Message: "Header value:"}, &v, survey.WithValidator(survey.Required)); err != nil {
-				return err
-			}
-			exp.HttpResponse.Headers[strings.TrimSpace(k)] = []string{v}
+		// Ensure ConnectionOptions is initialized
+		if exp.HttpResponse.ConnectionOptions == nil {
+			exp.HttpResponse.ConnectionOptions = &models.ConnectionOptions{}
 		}
 
-		// sanity: forbid duplicate case-insensitive keys (MockServer normalizes)
-		if dup := findCaseDupes(exp.HttpResponse.Headers); len(dup) > 0 {
-			*exp = *original
-			return fmt.Errorf("duplicate header keys (case-insensitive): %v", dup)
+		// add selection between contentLengthHeaderOverride and suppressContentLengthHeader.
+		// Only one could be chosen.
+		var choice string
+		if err := survey.AskOne(&survey.Select{
+			Message: "Choose Content-Length header action:",
+			Options: []string{
+				"Set Content-Length header value",
+				"Suppress Content-Length header",
+				"Skip",
+			},
+		}, &choice); err != nil {
+			return err
 		}
 
-		if oldLength < len(exp.HttpResponse.Headers) {
-			fmt.Printf("✅ Custom response headers: %d configured\n", len(exp.HttpResponse.Headers))
-		} else {
-			fmt.Println("ℹ️  No custom response headers added")
+		if choice == "Set Content-Length header value" {
+			// Prompt for Content-Length header value
+			var contentLengthHeader string
+			if err := survey.AskOne(&survey.Input{
+				Message: "Set Content-Length header value (leave blank to skip):",
+				Help:    "Specify a value for the Content-Length header",
+			}, &contentLengthHeader); err != nil {
+				return nil
+			}
+			if contentLengthHeader != "" {
+				val, err := strconv.Atoi(strings.TrimSpace(contentLengthHeader))
+				if err != nil || val < 0 {
+					fmt.Printf("invalid Content-Length value: %q, skipping setting Content-Length header\n", contentLengthHeader)
+					return nil
+				}
+				exp.HttpResponse.ConnectionOptions.ContentLengthOverride = val
+				fmt.Printf("✅ Content-Length header set to: %d\n", val)
+			}
+			return nil
+		} else if choice == "Suppress Content-Length header" {
+			exp.HttpResponse.ConnectionOptions.SuppressContentLengthHeader = true
+			fmt.Println("✅ Content-Length header will be suppressed")
 		}
 		return nil
 	}
-}
-
-func findCaseDupes(m map[string][]string) []string {
-	seen := map[string]string{}
-	var d []string
-	for k := range m {
-		l := strings.ToLower(k)
-		if prev, ok := seen[l]; ok {
-			d = append(d, fmt.Sprintf("%q vs %q", prev, k))
-		} else {
-			seen[l] = k
-		}
-	}
-	return d
 }

@@ -20,7 +20,7 @@ func BuildRESTExpectationWithContext() (MockExpectation, error) {
 
 	steps := []struct {
 		name string
-		fn   func(step int, exp *MockExpectation) error
+		fn   func(exp *MockExpectation) error
 	}{
 		{"API Details", collectRESTAPIDetails},
 		{"Query Parameter Matching", mock_configurator.CollectQueryParameterMatching},
@@ -32,8 +32,8 @@ func BuildRESTExpectationWithContext() (MockExpectation, error) {
 		{"Review and Confirm", reviewAndConfirm},
 	}
 
-	for i, step := range steps {
-		if err := step.fn(i+1, &expectation); err != nil {
+	for _, step := range steps {
+		if err := step.fn(&expectation); err != nil {
 			return expectation, &models.ExpectationBuildError{
 				ExpectationType: "REST",
 				Step:            step.name,
@@ -46,14 +46,14 @@ func BuildRESTExpectationWithContext() (MockExpectation, error) {
 }
 
 // Step 1: Collect API Details (Method, Path, Request Body)
-func collectRESTAPIDetails(step int, expectation *MockExpectation) error {
-	fmt.Printf("\n📋 Step %d: API Details\n", step)
+func collectRESTAPIDetails(expectation *MockExpectation) error {
+	fmt.Printf("\n📋 API Details\n")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━")
 	var mock_configurator MockConfigurator
 
 	expectation.HttpRequest = &models.HttpRequest{
-		Headers:               make(map[string][]any),
-		QueryStringParameters: make(map[string][]string),
+		Headers:               []models.NameValues{},
+		QueryStringParameters: []models.NameValues{},
 	}
 
 	// HTTP Method selection
@@ -97,7 +97,9 @@ func collectRESTAPIDetails(step int, expectation *MockExpectation) error {
 		}
 
 		if useDetected {
-			expectation.HttpRequest.QueryStringParameters = detectedParams
+			for name, value := range detectedParams {
+				SetNameValues(&expectation.HttpRequest.QueryStringParameters, name, value)
+			}
 			fmt.Printf("✅ Pre-configured %d query parameters\n", len(detectedParams))
 		}
 	}
@@ -114,12 +116,12 @@ func collectRESTAPIDetails(step int, expectation *MockExpectation) error {
 }
 
 // Step 5: Response Definition
-func collectResponseDefinition(step int, expectation *MockExpectation) error {
-	fmt.Printf("\n📤 Step %d: Response Definition\n", step)
+func collectResponseDefinition(expectation *MockExpectation) error {
+	fmt.Printf("\n📤 Response Definition\n")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	expectation.HttpResponse = &models.HttpResponse{
-		Headers: make(map[string][]string),
+		Headers: []models.NameValues{},
 	}
 
 	// Status code selection (hierarchical)
@@ -263,8 +265,8 @@ func collectResponseBody(expectation *MockExpectation) error {
 }
 
 // Step 8: Review and Confirm
-func reviewAndConfirm(step int, expectation *MockExpectation) error {
-	fmt.Printf("\n🔄 Step %d: Review and Confirm\n", step)
+func reviewAndConfirm(expectation *MockExpectation) error {
+	fmt.Printf("\n🔄 Review and Confirm\n")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// Display summary

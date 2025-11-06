@@ -16,7 +16,7 @@
 - ☁️ **Cloud-Native Deployment** - One command deploys ECS Fargate + ALB + Auto-scaling
 - 📦 **Multi-Format Import** - Postman, Bruno, Insomnia collections → MockServer expectations
 - 🔧 **Interactive Builder** - 7-step guided builder for precise control
-- ⚡ **Auto-Scaling** - 10-200 tasks based on CPU/Memory/Requests
+- ⚡ **Auto-Scaling** - Configurable min/max based on CPU/Memory/Requests (defaults: 10–200 tasks)
 - 💾 **Cloud Storage** - S3-backed, versioned, team-accessible
 - 🎭 **Advanced Features** - Progressive delays, GraphQL, response templates, rate limiting
 - 🧪 **Load Testing** - Built-in Locust test generation
@@ -24,7 +24,57 @@
 
 ---
 
-## 🚀 Quick Start
+## �️ Installation
+
+You can install Automock via Homebrew (recommended), download prebuilt binaries from Releases, or build from source with Go.
+
+### Option A — Homebrew (recommended)
+
+macOS or Linux with Homebrew:
+
+```bash
+brew tap hemantobora/auto-mock
+brew install hemantobora/auto-mock/automock
+# Verify
+automock --version
+```
+
+Tip: You can also directly run `brew install hemantobora/auto-mock/automock` and Homebrew will auto-tap the repo.
+
+### Option B — Download release binaries
+
+1) Go to the Releases page: https://github.com/hemantobora/auto-mock/releases
+2) Download the archive for your OS/arch (e.g., `automock_0.0.1_darwin_arm64.tar.gz`)
+3) Extract and place the binary on your PATH, e.g.:
+
+```bash
+tar -xzf automock_*.tar.gz
+sudo mv automock /usr/local/bin/   # or ~/.local/bin on Linux
+automock --version
+```
+
+### Option C — Go install (from source)
+
+Requires Go 1.22+:
+
+```bash
+go install github.com/hemantobora/auto-mock/cmd/auto-mock@latest
+# or pin a version, e.g. v0.0.1
+go install github.com/hemantobora/auto-mock/cmd/auto-mock@v0.0.1
+
+# Ensure your GOPATH/bin (or GOBIN) is on PATH
+automock --version
+```
+
+### Upgrading
+
+- Homebrew: `brew upgrade automock`
+- Release binary: download the newer version and replace your existing binary
+- Go install: `go install github.com/hemantobora/auto-mock/cmd/auto-mock@latest`
+
+---
+
+## �🚀 Quick Start
 
 ```bash
 # Install
@@ -176,7 +226,7 @@ Deploy production-ready infrastructure with one command:
 │  ECS Fargate Cluster                     │
 │  • MockServer (port 1080)                │
 │  • Config Loader (sidecar)               │
-│  • Auto-scaling: 10-200 tasks            │
+│  • Auto-scaling: configurable (defaults 10–200 tasks) │
 └──────────────────────────────────────────┘
               │
     ┌─────────┴──────────┐
@@ -359,6 +409,8 @@ Quick API mocks for presentations:
 ## 💰 Cost Estimates
 
 ### AWS Infrastructure (10 tasks, 24/7)
+
+Note: 10 tasks reflects the default `min_tasks`; both `min_tasks` and `max_tasks` are configurable during setup.
 
 | Component | Monthly Cost |
 |-----------|--------------|

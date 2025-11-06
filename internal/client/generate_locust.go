@@ -400,7 +400,7 @@ func promptAuthSelection(reqs []collections.APIRequest) (index int, mode, tokenP
 	headerName = "Authorization"
 	_ = survey.AskOne(&survey.Input{Message: "Header name to carry the token:", Default: "Authorization"}, &headerName)
 	headerPrefix = "Bearer "
-	_ = survey.AskOne(&survey.Input{Message: "Header prefix (empty for none, ' '):", Default: "Bearer "}, &headerPrefix)
+	_ = survey.AskOne(&survey.Input{Message: "Header prefix (empty for none, e.g. ' '):", Default: "Bearer "}, &headerPrefix)
 
 	return idx, mode, tokenPath, headerName, headerPrefix, nil
 }
@@ -462,7 +462,7 @@ func promptRetainHostSelection(reqs []collections.APIRequest) (map[string]bool, 
 
 	selected := []string{}
 	prompt := &survey.MultiSelect{
-		Message:  "Select API requests for which to RETAIN full host & scheme:",
+		Message:  "Select API requests to RETAIN full host & scheme:",
 		Options:  opts,
 		PageSize: 15,
 	}

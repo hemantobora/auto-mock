@@ -206,8 +206,8 @@ func buildAPIList(expectations []models.MockExpectation) []string {
 		queryInfo := ""
 		if len(exp.HttpRequest.QueryStringParameters) > 0 {
 			var queryParts []string
-			for key, val := range exp.HttpRequest.QueryStringParameters {
-				queryParts = append(queryParts, fmt.Sprintf("%s=%s", key, val))
+			for _, nv := range exp.HttpRequest.QueryStringParameters {
+				queryParts = append(queryParts, fmt.Sprintf("%s=%s", nv.Name, strings.Join(nv.Values, ",")))
 			}
 			if len(queryParts) > 0 {
 				queryInfo = fmt.Sprintf(" [?%s]", strings.Join(queryParts, "&"))
@@ -507,17 +507,9 @@ func editMethod(expectation *models.MockExpectation) {
 }
 
 func editPath(expectation *models.MockExpectation) {
-	var newPath string
-	if err := survey.AskOne(&survey.Input{
-		Message: "Enter request path:",
-		Default: expectation.HttpRequest.Path,
-		Help:    "Example: /api/v1/users/{id}",
-	}, &newPath); err == nil && strings.TrimSpace(newPath) != "" {
-		expectation.HttpRequest.Path = newPath
-		mc := &builders.MockConfigurator{}
-		mc.CollectPathMatchingStrategy(0, expectation)
-		fmt.Printf("✅ Updated path to %s\n", newPath)
-	}
+	mc := &builders.MockConfigurator{}
+	mc.CollectPathMatchingStrategy(expectation)
+	fmt.Printf("✅ Updated path to %s\n", expectation.HttpRequest.Path)
 }
 
 func editStatusCode(expectation *models.MockExpectation) {
@@ -581,68 +573,157 @@ func editBodyAsJSON(expectation *models.MockExpectation, currentBody string) {
 	}
 }
 
+// editResponseHeaders lets users add/view/edit/delete response headers when
+// HttpResponse.Headers is []NameValues.
+//
+// Assumptions:
+//   - addResponseHeader(*models.MockExpectation) appends or updates Headers.
+//   - viewResponseHeaders([]models.NameValues) pretty-prints current headers.
+//   - editResponseHeaderValue(*models.MockExpectation, name string) updates the
+//     Values for the first header with that name (case-insensitive).
 func editResponseHeaders(expectation *models.MockExpectation) {
+	// Initialize slice if nil
 	if expectation.HttpResponse.Headers == nil {
-		expectation.HttpResponse.Headers = make(map[string][]string)
+		expectation.HttpResponse.Headers = []models.NameValues{}
 	}
+	editNameValuesList(&expectation.HttpResponse.Headers, "header")
+}
+
+// helper: find header index by name (case-insensitive)
+func findNameIndex(items []models.NameValues, name string) int {
+	for i, nv := range items {
+		if strings.EqualFold(nv.Name, name) {
+			return i
+		}
+	}
+	return -1
+}
+
+// helper: split "a, b,  c" -> []string{"a","b","c"} (drop empties)
+func parseCSVValues(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if v := strings.TrimSpace(p); v != "" {
+			out = append(out, v)
+		}
+	}
+	// if user gave an empty string, preserve a single empty value
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
+}
+
+// --- Generic NameValues editor helpers --------------------------------------
+
+func editNameValuesList(list *[]models.NameValues, nounSingular string) {
 	for {
 		var action string
-		options := []string{"add - Add new header", "view - View current headers"}
-		for key := range expectation.HttpResponse.Headers {
-			options = append(options, fmt.Sprintf("edit:%s - Edit %s", key, key))
-			options = append(options, fmt.Sprintf("delete:%s - Delete %s", key, key))
+
+		options := []string{
+			fmt.Sprintf("add - Add new %s", nounSingular),
+			fmt.Sprintf("view - View current %ss", nounSingular),
 		}
-		options = append(options, "done - Finish editing headers")
-		if err := survey.AskOne(&survey.Select{Message: "Header actions:", Options: options}, &action); err != nil {
+		for _, nv := range *list {
+			options = append(options, fmt.Sprintf("edit:%s - Edit %s", nv.Name, nv.Name))
+			options = append(options, fmt.Sprintf("delete:%s - Delete %s", nv.Name, nv.Name))
+		}
+		options = append(options, fmt.Sprintf("done - Finish editing %ss", nounSingular))
+
+		if err := survey.AskOne(&survey.Select{Message: fmt.Sprintf("%s actions:", strings.Title(nounSingular)), Options: options}, &action); err != nil {
 			return
 		}
-		actionParts := strings.Split(action, " ")
-		if actionParts[0] == "add" {
-			addResponseHeader(expectation)
-		} else if actionParts[0] == "view" {
-			viewResponseHeaders(expectation.HttpResponse.Headers)
-		} else if actionParts[0] == "done" {
+
+		token := strings.Fields(action)
+		if len(token) == 0 {
+			continue
+		}
+		actionToken := token[0]
+
+		switch {
+		case actionToken == "add":
+			addNameValue(list, nounSingular)
+
+		case actionToken == "view":
+			viewNameValues(*list, nounSingular)
+
+		case actionToken == "done":
 			return
-		} else if strings.Contains(actionParts[0], ":") {
-			parts := strings.Split(actionParts[0], ":")
-			if len(parts) == 2 {
-				if parts[0] == "edit" {
-					editResponseHeaderValue(expectation, parts[1])
-				} else if parts[0] == "delete" {
-					delete(expectation.HttpResponse.Headers, parts[1])
-					fmt.Printf("✅ Deleted header %s\n", parts[1])
+
+		case strings.Contains(actionToken, ":"):
+			parts := strings.SplitN(actionToken, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			cmd, name := parts[0], parts[1]
+			switch cmd {
+			case "edit":
+				editNameValue(list, name, nounSingular)
+			case "delete":
+				if idx := findNameIndex(*list, name); idx >= 0 {
+					h := *list
+					*list = append(h[:idx], h[idx+1:]...)
+					fmt.Printf("✅ Deleted %s %s\n", nounSingular, name)
+				} else {
+					fmt.Printf("⚠️ %s %s not found\n", strings.Title(nounSingular), name)
 				}
 			}
 		}
 	}
 }
 
-func addResponseHeader(expectation *models.MockExpectation) {
-	var headerName, headerValue string
-	if err := survey.AskOne(&survey.Input{Message: "Header name:"}, &headerName); err == nil && strings.TrimSpace(headerName) != "" {
-		if err := survey.AskOne(&survey.Input{Message: "Header value:"}, &headerValue); err == nil {
-			expectation.HttpResponse.Headers[headerName] = []string{headerValue}
-			fmt.Printf("✅ Added header %s\n", headerName)
-		}
+func addNameValue(list *[]models.NameValues, noun string) {
+	var name, valueCSV string
+	if err := survey.AskOne(&survey.Input{Message: fmt.Sprintf("%s name:", strings.Title(noun))}, &name); err != nil {
+		return
 	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	if err := survey.AskOne(&survey.Input{Message: fmt.Sprintf("%s value (comma-separated for multiple):", strings.Title(noun))}, &valueCSV); err != nil {
+		return
+	}
+	values := parseCSVValues(valueCSV)
+	if *list == nil {
+		*list = []models.NameValues{}
+	}
+	if idx := findNameIndex(*list, name); idx >= 0 {
+		(*list)[idx].Values = values
+		fmt.Printf("✅ Updated %s %s\n", noun, name)
+		return
+	}
+	*list = append(*list, models.NameValues{Name: name, Values: values})
+	fmt.Printf("✅ Added %s %s\n", noun, name)
 }
 
-func editResponseHeaderValue(expectation *models.MockExpectation, headerKey string) {
-	var newValue string
-	defaultValue := strings.Join(expectation.HttpResponse.Headers[headerKey], ", ")
-	if err := survey.AskOne(&survey.Input{Message: fmt.Sprintf("New value for %s:", headerKey), Default: defaultValue}, &newValue); err == nil {
-		expectation.HttpResponse.Headers[headerKey] = []string{newValue}
-		fmt.Printf("✅ Updated header %s\n", headerKey)
+func editNameValue(list *[]models.NameValues, name string, noun string) {
+	if *list == nil {
+		*list = []models.NameValues{}
 	}
+	idx := findNameIndex(*list, name)
+	if idx < 0 {
+		fmt.Printf("⚠️ %s %s not found; creating it.\n", strings.Title(noun), name)
+		addNameValue(list, noun)
+		return
+	}
+	defaultValue := strings.Join((*list)[idx].Values, ", ")
+	var newVal string
+	if err := survey.AskOne(&survey.Input{Message: fmt.Sprintf("New value for %s (comma-separated for multiple):", name), Default: defaultValue}, &newVal); err != nil {
+		return
+	}
+	(*list)[idx].Values = parseCSVValues(newVal)
+	fmt.Printf("✅ Updated %s %s\n", noun, name)
 }
 
-func viewResponseHeaders(headers map[string][]string) {
-	fmt.Println("\nCurrent response headers:")
-	if len(headers) == 0 {
-		fmt.Println("  (no headers set)")
+func viewNameValues(list []models.NameValues, noun string) {
+	fmt.Printf("\nCurrent %ss:\n", noun)
+	if len(list) == 0 {
+		fmt.Println("  (none set)")
 	} else {
-		for k, v := range headers {
-			fmt.Printf("  %s: %s\n", k, strings.Join(v, ", "))
+		for _, nv := range list {
+			fmt.Printf("  %s: %s\n", nv.Name, strings.Join(nv.Values, ", "))
 		}
 	}
 	fmt.Println()
@@ -650,70 +731,12 @@ func viewResponseHeaders(headers map[string][]string) {
 
 func editQueryParams(expectation *models.MockExpectation) {
 	if expectation.HttpRequest.QueryStringParameters == nil {
-		expectation.HttpRequest.QueryStringParameters = make(map[string][]string)
+		expectation.HttpRequest.QueryStringParameters = []models.NameValues{}
 	}
-	for {
-		var action string
-		options := []string{"add - Add parameter", "view - View current parameters"}
-		for key := range expectation.HttpRequest.QueryStringParameters {
-			options = append(options, fmt.Sprintf("edit:%s - Edit %s", key, key))
-			options = append(options, fmt.Sprintf("delete:%s - Delete %s", key, key))
-		}
-		options = append(options, "done - Finish editing parameters")
-		if err := survey.AskOne(&survey.Select{Message: "Query parameter actions:", Options: options}, &action); err != nil {
-			return
-		}
-		actionParts := strings.Split(action, " ")
-		if actionParts[0] == "add" {
-			addQueryParam(expectation)
-		} else if actionParts[0] == "view" {
-			viewQueryParams(expectation.HttpRequest.QueryStringParameters)
-		} else if actionParts[0] == "done" {
-			return
-		} else if strings.Contains(actionParts[0], ":") {
-			parts := strings.Split(actionParts[0], ":")
-			if len(parts) == 2 {
-				if parts[0] == "edit" {
-					editQueryParamValue(expectation, parts[1])
-				} else if parts[0] == "delete" {
-					delete(expectation.HttpRequest.QueryStringParameters, parts[1])
-					fmt.Printf("✅ Deleted parameter %s\n", parts[1])
-				}
-			}
-		}
-	}
+	editNameValuesList(&expectation.HttpRequest.QueryStringParameters, "parameter")
 }
 
-func addQueryParam(expectation *models.MockExpectation) {
-	var paramName, paramValue string
-	if err := survey.AskOne(&survey.Input{Message: "Parameter name:"}, &paramName); err == nil && strings.TrimSpace(paramName) != "" {
-		if err := survey.AskOne(&survey.Input{Message: "Parameter value or pattern:"}, &paramValue); err == nil {
-			expectation.HttpRequest.QueryStringParameters[paramName] = []string{paramValue}
-			fmt.Printf("✅ Added parameter %s\n", paramName)
-		}
-	}
-}
-
-func editQueryParamValue(expectation *models.MockExpectation, paramKey string) {
-	var newValue string
-	defaultValue := strings.Join(expectation.HttpRequest.QueryStringParameters[paramKey], ", ")
-	if err := survey.AskOne(&survey.Input{Message: fmt.Sprintf("New value for %s:", paramKey), Default: defaultValue}, &newValue); err == nil {
-		expectation.HttpRequest.QueryStringParameters[paramKey] = []string{newValue}
-		fmt.Printf("✅ Updated parameter %s\n", paramKey)
-	}
-}
-
-func viewQueryParams(params map[string][]string) {
-	fmt.Println("\nCurrent query parameters:")
-	if len(params) == 0 {
-		fmt.Println("  (no parameters set)")
-	} else {
-		for k, v := range params {
-			fmt.Printf("  %s: %s\n", k, strings.Join(v, ", "))
-		}
-	}
-	fmt.Println()
-}
+// Removed legacy map-based query param editors; handled by generic NameValues editor.
 
 func viewCurrentConfig(expectation *models.MockExpectation) {
 	fmt.Println("\n📋 Current Configuration:")

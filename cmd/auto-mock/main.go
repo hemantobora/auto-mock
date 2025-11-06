@@ -18,7 +18,7 @@ import (
 )
 
 // version is set via -ldflags "-X main.version=<version>" during build
-var version = "dev"
+var version = "0.0.1-alpha"
 
 func main() {
 	app := &cli.App{

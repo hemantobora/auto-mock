@@ -14,7 +14,37 @@ func PrintIAMPolicies() {
 	fmt.Println("───────────────────────────────")
 
 	fmt.Println("ECS EXECUTION ROLE:")
-	fmt.Println(`Use the default trust policy when creating this role.
+	fmt.Println(`Use the following trust policy when creating this role.
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "",
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "ecs.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+        },
+        {
+            "Sid": "",
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+        },
+        {
+            "Sid": "",
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "events.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+        }
+    ]
+}
+
 How to create: https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_execution_IAM_role.html
 Steps:
   1. Go to IAM → "Create Role"
@@ -25,9 +55,32 @@ Steps:
 
 	fmt.Println("\nAttach the managed policy:")
 	fmt.Println("  • AmazonECSTaskExecutionRolePolicy")
+	fmt.Println()
+	fmt.Println()
 
 	fmt.Println("ECS TASK ROLE:")
-	fmt.Println(`Use the default trust policy when creating this role.
+	fmt.Println(`Use the following trust policy when creating this role.
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "",
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+        },
+        {
+            "Sid": "",
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "events.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+        }
+    ]
+}	
 How to create: https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-iam-roles.html
 Steps:
   1. Go to IAM → "Create Role"
@@ -73,6 +126,7 @@ func (p *Provider) CreateDeploymentConfiguration() *models.DeploymentOptions {
 	if err != nil {
 		return nil
 	}
+	fmt.Println("✓ Networking configuration complete")
 	options.ProjectName = p.GetProjectName()
 	options.Region = p.GetRegion()
 	options.BucketName = p.BucketName

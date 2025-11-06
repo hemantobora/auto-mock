@@ -21,7 +21,7 @@ This directory contains modular Terraform configurations for deploying productio
 
 - **ECS Fargate** - Containerized MockServer with config loader sidecar
 - **Application Load Balancer** - Public HTTP/HTTPS access
-- **Auto-Scaling** - CPU, memory, and request-based scaling (10-200 tasks)
+- **Auto-Scaling** - CPU, memory, and request-based scaling with configurable min/max (defaults 10–200 tasks)
 - **S3 Storage** - Versioned configuration storage
 - **CloudWatch** - Comprehensive logging and monitoring
 
@@ -59,7 +59,7 @@ This directory contains modular Terraform configurations for deploying productio
         │  ┌────────────────────────┐  │
         │  │ Task 2..N              │  │
         │  └────────────────────────┘  │
-        │  Auto-scaling: 10-200 tasks  │
+  │  Auto-scaling: configurable (defaults 10–200 tasks) │
         └───────────┬──────────────────┘
                     │
                     ▼
@@ -397,6 +397,8 @@ aws logs tail /ecs/automock/my-api/config-loader --follow
 ## Cost Estimates
 
 ### Base Infrastructure (10 tasks, 24/7)
+
+Note: The 10-task baseline reflects the default `min_tasks`. You can set `min_tasks`/`max_tasks` to fit your workload.
 
 | Component | Hourly | Monthly |
 |-----------|--------|---------|
