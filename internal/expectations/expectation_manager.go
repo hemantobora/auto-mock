@@ -409,51 +409,136 @@ func (em *ExpectationManager) DeleteProjectPrompt() error {
 	return nil
 }
 
-func editSingleExpectation(expectation *models.MockExpectation) error {
-	fmt.Printf("\n📝 Editing: %s %s\n", expectation.HttpRequest.Method, expectation.HttpRequest.Path)
+// Tree-style sectional editor: click section to expand/collapse, click item to run handler.
+func editSingleExpectation(exp *models.MockExpectation) error {
+	fmt.Printf("\n📝 Editing: %s %s\n", exp.HttpRequest.Method, exp.HttpRequest.Path)
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	for {
-		var editOption string
-		if err := survey.AskOne(&survey.Select{
-			Message: "What would you like to edit?",
-			Options: []string{
-				"method - HTTP Method",
-				"path - Request Path",
-				"status - Response Status Code",
-				"body - Response Body",
-				"headers - Response Headers",
-				"query - Query Parameters",
-				"view - View Current Configuration",
-				"priority - Set Expectation Priority",
-				"times - Set Expectation Times",
-				"done - Finish Editing",
+	type handler func(*models.MockExpectation)
+
+	type item struct {
+		Label   string
+		Run     handler
+		Visible func(*models.MockExpectation) bool // optional
+	}
+
+	type section struct {
+		Name  string
+		Open  bool
+		Items []item
+	}
+
+	sections := []section{
+		{
+			Name: "Request",
+			Open: true,
+			Items: []item{
+				{"Method", editMethod, nil},
+				{"Path", editPath, nil},
+				{"Query", editQueryParams, nil},
+				{"Headers", editRequestHeaders, nil},
+				{"Body", editRequestBody, func(e *models.MockExpectation) bool {
+					switch strings.ToUpper(e.HttpRequest.Method) {
+					case "POST", "PUT", "PATCH":
+						return true
+					default:
+						return false
+					}
+				}},
 			},
-		}, &editOption); err != nil {
+		},
+		{
+			Name: "Response",
+			Open: true,
+			Items: []item{
+				{"Status", editStatusCode, nil},
+				{"Headers", editResponseHeaders, nil},
+				{"Body", editResponseBody, nil},
+			},
+		},
+		{
+			Name: "Configuration",
+			Open: false,
+			Items: []item{
+				{"Priority", editPriority, nil},
+				{"Times", editTimes, nil},
+			},
+		},
+		{
+			Name: "Utility",
+			Open: false,
+			Items: []item{
+				{"View Current Configuration", viewCurrentConfig, nil},
+			},
+		},
+	}
+
+	for {
+		// Build display list + action map (index-aligned)
+		type action struct {
+			kind    string // "section" | "item" | "done"
+			secIdx  int
+			itemIdx int
+		}
+
+		var options []string
+		var actions []action
+
+		for si := range sections {
+			sec := &sections[si]
+			prefix := "[-]"
+			if !sec.Open {
+				prefix = "[+]"
+			}
+			options = append(options, fmt.Sprintf("%s %s", prefix, sec.Name))
+			actions = append(actions, action{kind: "section", secIdx: si})
+
+			if sec.Open {
+				for ii, it := range sec.Items {
+					if it.Visible != nil && !it.Visible(exp) {
+						continue
+					}
+					// Disambiguate duplicates (e.g., "Body") by appending section
+					leaf := fmt.Sprintf("  • %s (%s)", it.Label, sec.Name)
+					options = append(options, leaf)
+					actions = append(actions, action{kind: "item", secIdx: si, itemIdx: ii})
+				}
+			}
+		}
+		options = append(options, "✅ Done")
+		actions = append(actions, action{kind: "done"})
+
+		var choice string
+		if err := survey.AskOne(&survey.Select{
+			Message:  "Select:",
+			Options:  options,
+			PageSize: 12,
+		}, &choice); err != nil {
 			return err
 		}
 
-		editOption = strings.Split(editOption, " ")[0]
+		// Resolve choice by position to avoid string-equality pitfalls
+		var idx int
+		for i := range options {
+			if options[i] == choice {
+				idx = i
+				break
+			}
+		}
+		act := actions[idx]
 
-		switch editOption {
-		case "method":
-			editMethod(expectation)
-		case "path":
-			editPath(expectation)
-		case "status":
-			editStatusCode(expectation)
-		case "body":
-			editResponseBody(expectation)
-		case "headers":
-			editResponseHeaders(expectation)
-		case "query":
-			editQueryParams(expectation)
-		case "view":
-			viewCurrentConfig(expectation)
-		case "priority":
-			editPriority(expectation)
-		case "times":
-			editTimes(expectation)
+		switch act.kind {
+		case "section":
+			sections[act.secIdx].Open = !sections[act.secIdx].Open
+			fmt.Print("\033[1A\033[2K\r")
+			continue
+		case "item":
+			it := sections[act.secIdx].Items[act.itemIdx]
+			// re-check visibility in case method changed
+			if it.Visible == nil || it.Visible(exp) {
+				it.Run(exp)
+			}
+			continue
 		case "done":
 			return nil
 		}
@@ -521,72 +606,154 @@ func editStatusCode(expectation *models.MockExpectation) {
 	}, &statusCode); err == nil {
 		var newStatus int
 		if _, err := fmt.Sscanf(statusCode, "%d", &newStatus); err == nil && newStatus >= 100 && newStatus <= 599 {
+
+			if (newStatus == 204 || newStatus == 304) && expectation.HttpResponse.Body != nil {
+				fmt.Println("⚠️ Response body is not allowed for status code 204 or 304.")
+				var confirm bool
+				survey.AskOne(&survey.Confirm{
+					Message: "Do you want to clear the existing response body?",
+					Default: true,
+				}, &confirm)
+				if confirm {
+					expectation.HttpResponse.Body = nil
+				} else {
+					fmt.Println("❌ Status code update cancelled.")
+					return
+				}
+			}
 			expectation.HttpResponse.StatusCode = newStatus
 			fmt.Printf("✅ Updated status code to %d\n", newStatus)
 		}
 	}
 }
 
-func editResponseBody(expectation *models.MockExpectation) {
+func getCurrentBody(body any) string {
 	currentBody := ""
-	if body, ok := expectation.HttpResponse.Body.(string); ok {
+	if body, ok := body.(string); ok {
 		currentBody = body
 	}
-	var editChoice string
+	if currentBody == "" {
+		var jsonData interface{}
+		if bodyMap, ok := body.(map[string]any); ok {
+			if jsonDataRaw, ok := bodyMap["json"]; ok {
+				jsonData = jsonDataRaw
+				currentBodyBytes, _ := json.MarshalIndent(jsonData, "", "  ")
+				currentBody = string(currentBodyBytes)
+			}
+			if regexBody, ok := bodyMap["regex"]; ok {
+				if regexStr, ok := regexBody.(string); ok {
+					currentBody = regexStr
+				}
+			}
+			if parametersBody, ok := bodyMap["parameters"]; ok {
+				jsonData = parametersBody
+				currentBodyBytes, _ := json.MarshalIndent(jsonData, "", "  ")
+				currentBody = string(currentBodyBytes)
+			}
+		}
+	}
+	return currentBody
+}
+
+func promtUserActionForBody(body any) (string, string) {
+	currentBody := getCurrentBody(body)
+	editOptions := []string{
+		"remove - Remove request body",
+		"change - Edit request body",
+		"view - View current body",
+	}
+	if currentBody == "" {
+		editOptions = []string{"add - Add request body"}
+	}
+	editOptions = append(editOptions, "done - Finish editing request body")
+	var editOption string
 	if err := survey.AskOne(&survey.Select{
-		Message: "How would you like to edit the response body?",
-		Options: []string{"json - Edit as JSON", "template - Use JSON template", "view - View current body"},
-	}, &editChoice); err == nil {
-		editChoice = strings.Split(editChoice, " ")[0]
-		switch editChoice {
+		Message: "What would you like to do?",
+		Options: editOptions,
+	}, &editOption); err != nil {
+		fmt.Println("❌ Edit cancelled.")
+		return "", currentBody
+	}
+
+	return strings.Split(editOption, " - ")[0], currentBody
+}
+
+func editRequestBody(expectation *models.MockExpectation) {
+	for {
+		editOption, currentBody := promtUserActionForBody(expectation.HttpRequest.Body)
+		switch editOption {
+		case "add", "change":
+			(&builders.MockConfigurator{}).EditRequestBody(expectation)
+		case "remove":
+			expectation.HttpRequest.Body = nil
+			fmt.Println("✅ Removed request body")
 		case "view":
-			fmt.Printf("\nCurrent response body:\n%s\n\n", currentBody)
-		case "json":
-			editBodyAsJSON(expectation, currentBody)
-		case "template":
-			if err := builders.GenerateResponseTemplate(expectation); err != nil {
-				fmt.Printf("❌ Failed to generate response template: %v\n", err)
+			fmt.Printf("\nCurrent request body:\n%s\n\n", currentBody)
+		case "done":
+			return
+		}
+	}
+}
+
+func editResponseBody(expectation *models.MockExpectation) {
+	if expectation.HttpResponse.StatusCode == 204 || expectation.HttpResponse.StatusCode == 304 {
+		fmt.Println("⚠️ Response body is not allowed for status code 204 or 304, skipping edit. Change the status code first.")
+		return
+	}
+	for {
+		currentBody := getCurrentBody(expectation.HttpResponse.Body)
+		var editChoice string
+		if err := survey.AskOne(&survey.Select{
+			Message: "How would you like to edit the response body?",
+			Options: []string{"json - Edit as JSON", "template - Use JSON template", "view - View current body", "done - Finish editing response body"},
+		}, &editChoice); err == nil {
+			editChoice = strings.Split(editChoice, " ")[0]
+			switch editChoice {
+			case "view":
+				fmt.Printf("\nCurrent response body:\n%s\n\n", currentBody)
+			case "json":
+				var jsonData interface{}
+				var newBody string
+				if err := survey.AskOne(&survey.Multiline{Message: "Enter JSON response body:"}, &newBody); err == nil {
+					if json.Unmarshal([]byte(newBody), &jsonData) == nil {
+						expectation.HttpResponse.Body = map[string]any{
+							"type": "JSON",
+							"json": jsonData,
+						}
+						fmt.Println("✅ Updated JSON response body")
+					} else {
+						fmt.Println("❌ Invalid JSON")
+					}
+				}
+				return
+			case "template":
+				if err := builders.GenerateResponseTemplate(expectation); err != nil {
+					fmt.Printf("❌ Failed to generate response template: %v\n", err)
+				} else {
+					fmt.Println("✅ Updated response body to use JSON template")
+				}
+				return
+			case "done":
+				return
 			}
 		}
 	}
 }
 
-func editBodyAsJSON(expectation *models.MockExpectation, currentBody string) {
-	prettyBody := currentBody
-	var jsonData interface{}
-	if json.Unmarshal([]byte(currentBody), &jsonData) == nil {
-		if prettyBytes, err := json.MarshalIndent(jsonData, "", "  "); err == nil {
-			prettyBody = string(prettyBytes)
-		}
-	}
-	var newBody string
-	if err := survey.AskOne(&survey.Multiline{Message: "Enter JSON response body:", Default: prettyBody}, &newBody); err == nil {
-		if json.Unmarshal([]byte(newBody), &jsonData) == nil {
-			expectation.HttpResponse.Body = map[string]any{
-				"type": "JSON",
-				"json": jsonData,
-			}
-			fmt.Println("✅ Updated JSON response body")
-		} else {
-			fmt.Println("❌ Invalid JSON")
-		}
-	}
-}
-
-// editResponseHeaders lets users add/view/edit/delete response headers when
-// HttpResponse.Headers is []NameValues.
-//
-// Assumptions:
-//   - addResponseHeader(*models.MockExpectation) appends or updates Headers.
-//   - viewResponseHeaders([]models.NameValues) pretty-prints current headers.
-//   - editResponseHeaderValue(*models.MockExpectation, name string) updates the
-//     Values for the first header with that name (case-insensitive).
 func editResponseHeaders(expectation *models.MockExpectation) {
 	// Initialize slice if nil
 	if expectation.HttpResponse.Headers == nil {
 		expectation.HttpResponse.Headers = []models.NameValues{}
 	}
 	editNameValuesList(&expectation.HttpResponse.Headers, "header")
+}
+
+func editRequestHeaders(expectation *models.MockExpectation) {
+	// Initialize slice if nil
+	if expectation.HttpRequest.Headers == nil {
+		expectation.HttpRequest.Headers = []models.NameValues{}
+	}
+	editNameValuesList(&expectation.HttpRequest.Headers, "header")
 }
 
 // helper: find header index by name (case-insensitive)

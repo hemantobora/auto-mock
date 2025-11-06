@@ -60,50 +60,7 @@ func NewParametersBody(params []NameValues) map[string]any {
 	}
 }
 
-// CollectRequestBody asks user what kind of matcher to use and stores a schema-valid body wrapper.
-func (mc *MockConfigurator) CollectRequestBody(exp *MockExpectation, existing string) error {
-	// If a body text was derived earlier, optionally reuse it exactly.
-	existing = strings.TrimSpace(existing)
-	if existing != "" {
-		var useBody bool
-		if err := survey.AskOne(&survey.Confirm{
-			Message: "Use existing request body text as EXACT match?\n" + existing,
-			Default: false,
-			Help:    "This matches the body as raw text (STRING).",
-		}, &useBody); err != nil {
-			return err
-		}
-		if useBody {
-			// Prefer JSON STRICT if 'existing' is valid JSON; otherwise fall back to exact STRING
-			trimmed := existing
-			if json.Valid([]byte(trimmed)) {
-				var v any
-				if err := json.Unmarshal([]byte(trimmed), &v); err == nil {
-					exp.HttpRequest.Body = NewJSONBody(v, MatchStrict)
-					return nil
-				}
-			}
-			// Fallback: exact STRING match (raw text)
-			exp.HttpRequest.Body = map[string]any{
-				"type":   "STRING",
-				"string": trimmed,
-			}
-			return nil
-		}
-	}
-
-	var needsBody bool
-	if err := survey.AskOne(&survey.Confirm{
-		Message: "Do you want to match the request body?",
-		Default: false,
-		Help:    "Choose ‘No’ to skip body matching.",
-	}, &needsBody); err != nil {
-		return err
-	}
-	if !needsBody {
-		return nil
-	}
-
+func (mc *MockConfigurator) EditRequestBody(exp *MockExpectation) error {
 	// Choose matcher type
 	var kind string
 	if err := survey.AskOne(&survey.Select{
@@ -225,6 +182,52 @@ func (mc *MockConfigurator) CollectRequestBody(exp *MockExpectation, existing st
 		}
 		return nil
 	}
+}
+
+// CollectRequestBody asks user what kind of matcher to use and stores a schema-valid body wrapper.
+func (mc *MockConfigurator) CollectRequestBody(exp *MockExpectation, existing string) error {
+	// If a body text was derived earlier, optionally reuse it exactly.
+	existing = strings.TrimSpace(existing)
+	if existing != "" {
+		var useBody bool
+		if err := survey.AskOne(&survey.Confirm{
+			Message: "Use existing request body text as EXACT match?\n" + existing,
+			Default: false,
+			Help:    "This matches the body as raw text (STRING).",
+		}, &useBody); err != nil {
+			return err
+		}
+		if useBody {
+			// Prefer JSON STRICT if 'existing' is valid JSON; otherwise fall back to exact STRING
+			trimmed := existing
+			if json.Valid([]byte(trimmed)) {
+				var v any
+				if err := json.Unmarshal([]byte(trimmed), &v); err == nil {
+					exp.HttpRequest.Body = NewJSONBody(v, MatchStrict)
+					return nil
+				}
+			}
+			// Fallback: exact STRING match (raw text)
+			exp.HttpRequest.Body = map[string]any{
+				"type":   "STRING",
+				"string": trimmed,
+			}
+			return nil
+		}
+	}
+
+	var needsBody bool
+	if err := survey.AskOne(&survey.Confirm{
+		Message: "Do you want to match a request body?",
+		Default: false,
+		Help:    "Choose ‘No’ to skip body matching.",
+	}, &needsBody); err != nil {
+		return err
+	}
+	if !needsBody {
+		return nil
+	}
+	return mc.EditRequestBody(exp)
 }
 
 func (mc *MockConfigurator) CollectQueryParameterMatching(exp *MockExpectation) error {
@@ -358,11 +361,10 @@ func (mc *MockConfigurator) CollectPathMatchingStrategy(exp *MockExpectation) er
 		}
 
 		if useRegex {
-			def := "^" + regexp.QuoteMeta(rawPath) + "$"
 			var pattern string
 			if err := survey.AskOne(&survey.Input{
 				Message: "Enter regex for path (as a string):",
-				Default: def,
+				Default: regexp.QuoteMeta(rawPath),
 			}, &pattern, survey.WithValidator(survey.Required)); err != nil {
 				return err
 			}
