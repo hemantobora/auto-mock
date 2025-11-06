@@ -31,7 +31,7 @@ brews:
   - name: automock
     tap:
       owner: hemantobora
-      name: auto-mock
+      name: tap
     commit_author:
       name: goreleaser
       email: hemantobora@gmail.com
@@ -39,5 +39,7 @@ brews:
     homepage: "https://github.com/hemantobora/auto-mock"
     description: "AutoMock CLI – generate & deploy MockServer infra"
     license: "MIT"
+    install: |
+      bin.install "automock"
     test: |
       system "#{bin}/automock", "--version"
