@@ -107,7 +107,7 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 	if err != nil {
 		return fmt.Errorf("failed to create expectation manager: %w", err)
 	}
-
+	deployer := repl.NewDeployment(project, m.profile, m.Provider)
 	var refreshConfig bool = false
 	for {
 		switch actionType {
@@ -158,10 +158,23 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 			if err := expManager.ReplaceExpectationsPrompt(); err != nil {
 				return fmt.Errorf("replace failed: %w", err)
 			}
-			m.generateMockConfiguration(cliContext)
+			if err := m.generateMockConfiguration(cliContext); err != nil {
+				return fmt.Errorf("failed to generate mock configuration: %w", err)
+			}
 			refreshConfig = true
 		case models.ActionExit:
 			fmt.Println("❌ Exiting auto-mock. Have a great day!")
+			return nil
+		case models.ActionDeploy:
+			fmt.Printf("🚀 Deploying infrastructure for project: %s\n", project)
+			deployed, _ := m.Provider.IsDeployed()
+			if deployed {
+				fmt.Println("✅ Infrastructure is already deployed.")
+			} else {
+				if err := deployer.DeployInfrastructureWithTerraform(false); err != nil {
+					return fmt.Errorf("deployment failed: %w", err)
+				}
+			}
 			return nil
 		default:
 			return fmt.Errorf("unsupported action type")

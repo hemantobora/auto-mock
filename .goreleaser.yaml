@@ -6,12 +6,13 @@ before:
 
 builds:
   - id: automock
-    main: ./cmd/automock
+    main: ./cmd/auto-mock
+    binary: automock
     env: [CGO_ENABLED=0]
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
     ldflags:
-      - -s -w
+      - -s -w -X main.version={{.Version}}
 archives:
   - id: default
     builds: [automock]
@@ -30,7 +31,7 @@ brews:
   - name: automock
     tap:
       owner: hemantobora
-      name: homebrew-tap
+      name: auto-mock
     commit_author:
       name: goreleaser
       email: hemantobora@gmail.com

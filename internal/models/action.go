@@ -16,4 +16,5 @@ const (
 	ActionExit     ActionType = "exit"
 	ActionLocal    ActionType = "local"
 	ActionSave     ActionType = "save"
+	ActionDeploy   ActionType = "deploy"
 )
