@@ -95,7 +95,27 @@ func GenerateLoadtestBundle(opts Options) error {
 		}
 	}
 	if opts.OutDir == "" {
-		opts.OutDir = "../loadtest"
+		defaultDir := filepath.Join(".", "loadtest")
+
+		if err := survey.AskOne(&survey.Input{
+			Message: "Output directory for load test bundle:",
+			Default: defaultDir,
+			Help:    "Provide a writable path where generated load test files will be stored.",
+		}, &opts.OutDir, survey.WithValidator(survey.Required)); err != nil {
+			return err
+		}
+
+		absPath, err := filepath.Abs(opts.OutDir)
+		if err != nil {
+			return fmt.Errorf("failed to resolve output directory: %w", err)
+		}
+		opts.OutDir = absPath
+
+		if err := os.MkdirAll(opts.OutDir, 0755); err != nil {
+			return fmt.Errorf("cannot create output directory %q: %w", opts.OutDir, err)
+		}
+
+		fmt.Printf("📁 Load test bundle will be generated at: %s\n", opts.OutDir)
 	}
 
 	processor, err := collections.NewCollectionProcessor("locust_loadtest", strings.ToLower(opts.CollectionType))
