@@ -235,10 +235,28 @@ def _do_auth(client, ctx: Optional[Dict[str, Any]] = None):
 def _on_test_start(environment, **_):
     global _SHARED_TOKEN
     if (AUTH.get("mode") or "none").lower() == "shared":
-        # Locust 2.16: HttpUser.client.verify is honored per session; here we create a local context.
-        ctx = environment.create_local_http_context(HOST_ENV or environment.host)
-        ctx.client.verify = VERIFY_TLS
-        _SHARED_TOKEN = _do_auth(ctx.client)
+        # Prefer newer API; fallback for older Locust versions
+        base_host = HOST_ENV or getattr(environment, "host", None)
+        client = None
+        try:
+            # Newer Locust provides a convenient context creator
+            ctx = environment.create_local_http_context(base_host)
+            client = ctx.client
+        except AttributeError:
+            # Fallback: create a temporary HttpUser bound to the environment
+            try:
+                tmp = AutoMockUser(environment)
+                if base_host:
+                    tmp.host = base_host
+                client = tmp.client
+            except Exception as e:
+                # As a last resort, skip shared auth initialization
+                print(f"[auth] Could not create a client for shared auth: {e}")
+                client = None
+
+        if client is not None:
+            client.verify = VERIFY_TLS
+            _SHARED_TOKEN = _do_auth(client)
         if _SHARED_TOKEN:
             print("🔐 Auth OK (shared token)")
 

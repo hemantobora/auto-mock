@@ -1968,10 +1968,12 @@ func (cp *CollectionProcessor) ExtractVariablesFromAPI(api *APIRequest, includeA
 
 	// Extract from headers
 	for k, v := range api.Headers {
-		if includeAuth || (strings.EqualFold(k, "Authorization") && strings.EqualFold(k, "authorization")) { // Skip Authorization header
-			for _, match := range cp.findPlaceholders(v) {
-				varSet[match] = true
-			}
+		// Skip Authorization header placeholders when includeAuth is false
+		if !includeAuth && strings.EqualFold(k, "Authorization") {
+			continue
+		}
+		for _, match := range cp.findPlaceholders(v) {
+			varSet[match] = true
 		}
 	}
 

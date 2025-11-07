@@ -29,15 +29,16 @@ changelog:
 
 brews:
   - name: automock
-    tap:
+    repository:
       owner: hemantobora
-      name: tap
+      name: homebrew-tap
     commit_author:
       name: goreleaser
       email: hemantobora@gmail.com
     directory: Formula
     homepage: "https://github.com/hemantobora/auto-mock"
     description: "AutoMock CLI – generate & deploy MockServer infra"
+    commit_msg_template: "chore(brew): update {{ .FormulaName }} to {{ .Tag }}"
     license: "MIT"
     install: |
       bin.install "automock"

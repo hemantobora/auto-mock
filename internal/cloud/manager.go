@@ -418,14 +418,8 @@ func (m *CloudManager) handleRemoveExpectations(expManager *expectations.Expecta
 func (m *CloudManager) handleEditExpectations(expManager *expectations.ExpectationManager, existingConfig *models.MockConfiguration) error {
 	fmt.Printf("🛠️ Starting expectation editor for project: %s\n", existingConfig.GetProjectID())
 
-	// Get current config from storage (manager handles storage)
-	config, err := m.getMockConfiguration()
-	if err != nil {
-		return fmt.Errorf("failed to load configuration: %w", err)
-	}
-
 	// Call expectations package for UI/editing (expectations handles UI)
-	modifiedConfig, err := expManager.EditExpectations(config)
+	modifiedConfig, err := expManager.EditExpectations(existingConfig)
 	if err != nil {
 		return fmt.Errorf("edit failed: %w", err)
 	}
@@ -445,6 +439,8 @@ func (m *CloudManager) handleEditExpectations(expManager *expectations.Expectati
 		return fmt.Errorf("failed to save changes: %w", err)
 	}
 	fmt.Printf("✅ Edit completed successfully!\n")
+	fmt.Println("📊 Configuration updated and saved to cloud storage.")
+	fmt.Println()
 	return nil
 }
 

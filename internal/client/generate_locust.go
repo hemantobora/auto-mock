@@ -497,11 +497,20 @@ func buildEndpointsFromAPIRequestsWithHost(reqs []collections.APIRequest, keep m
 			name = fmt.Sprintf("%s %s", method, path)
 		}
 
+		// Filter out Authorization header; it will be injected by locust at runtime
+		filteredHeaders := map[string]string{}
+		for hk, hv := range r.Headers {
+			if strings.EqualFold(hk, "Authorization") {
+				continue
+			}
+			filteredHeaders[hk] = hv
+		}
+
 		out = append(out, Endpoint{
 			Name:    name,
 			Method:  method,
 			Path:    path,
-			Headers: r.Headers,
+			Headers: filteredHeaders,
 			Body:    r.Body,
 			Weight:  1,
 		})
