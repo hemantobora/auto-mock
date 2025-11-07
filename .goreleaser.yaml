@@ -38,7 +38,7 @@ brews:
     directory: Formula
     homepage: "https://github.com/hemantobora/auto-mock"
     description: "AutoMock CLI – generate & deploy MockServer infra"
-    commit_msg_template: "chore(brew): update {{ .FormulaName }} to {{ .Tag }}"
+    commit_msg_template: "chore(brew): update {{ .ProjectName }} to {{ .Tag }}"
     license: "MIT"
     install: |
       bin.install "automock"
