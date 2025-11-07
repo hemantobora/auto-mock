@@ -33,13 +33,13 @@ You can install Automock via Homebrew (recommended), download prebuilt binaries 
 macOS or Linux with Homebrew:
 
 ```bash
-brew tap hemantobora/auto-mock
-brew install hemantobora/auto-mock/automock
+brew tap hemantobora/tap
+brew install automock
 # Verify
 automock --version
 ```
 
-Tip: You can also directly run `brew install hemantobora/auto-mock/automock` and Homebrew will auto-tap the repo.
+Tip: You can also directly run `brew install hemantobora/tap/automock` and Homebrew will auto-tap the repo.
 
 ### Option B — Download release binaries
 
