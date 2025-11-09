@@ -133,3 +133,58 @@ func NormalizeProjectID(projectID string) string {
 
 	return normalized
 }
+
+// ===== Load Test (Locust) Naming Helpers =====
+// These helpers generate stable S3 object keys for load test bundles, versions and metadata.
+// Layout (agreed):
+// configs/<project>-loadtest/current.json                -> active pointer to latest uploaded bundle version
+// configs/<project>-loadtest/versions/v<ts>.json         -> immutable pointer snapshot for a version
+// configs/<project>-loadtest/bundles/<bundleID>/...      -> bundle directory (locustfile.py, requirements.txt, user_data.yaml, manifest.json, etc.)
+// metadata/<project>-loadtest.json                      -> lightweight summary / index for load test (parallel to mock config metadata)
+//
+// projectID passed in may be either the raw project id or a storage name; we always normalize/extract first.
+
+// LoadTestProjectID returns the canonical load test project id with -loadtest suffix
+func (n *DefaultNaming) LoadTestProjectID(projectID string) string {
+	base := n.ExtractProjectID(projectID)
+	if strings.HasSuffix(base, "-loadtest") {
+		return base
+	}
+	return fmt.Sprintf("%s-loadtest", base)
+}
+
+// LoadTestCurrentKey returns the key for the active load test pointer file (current.json)
+func (n *DefaultNaming) LoadTestCurrentKey(projectID string) string {
+	lt := n.LoadTestProjectID(projectID)
+	return fmt.Sprintf("configs/%s/current.json", lt)
+}
+
+// LoadTestVersionKey returns the key for a specific version snapshot file
+func (n *DefaultNaming) LoadTestVersionKey(projectID, version string) string {
+	lt := n.LoadTestProjectID(projectID)
+	return fmt.Sprintf("configs/%s/versions/%s.json", lt, version)
+}
+
+// LoadTestBundlesPrefix returns the prefix under which bundle directories are stored
+func (n *DefaultNaming) LoadTestBundlesPrefix(projectID string) string {
+	lt := n.LoadTestProjectID(projectID)
+	return fmt.Sprintf("configs/%s/bundles/", lt)
+}
+
+// LoadTestBundleDir returns the directory prefix for a specific bundle ID
+func (n *DefaultNaming) LoadTestBundleDir(projectID, bundleID string) string {
+	lt := n.LoadTestProjectID(projectID)
+	return fmt.Sprintf("configs/%s/bundles/%s/", lt, bundleID)
+}
+
+// LoadTestBundleFileKey returns the full object key for a file inside a bundle directory
+func (n *DefaultNaming) LoadTestBundleFileKey(projectID, bundleID, fileName string) string {
+	lt := n.LoadTestProjectID(projectID)
+	return fmt.Sprintf("configs/%s/bundles/%s/%s", lt, bundleID, fileName)
+}
+
+// LoadTestMetadataKey returns the key for the load test metadata index file
+func (n *DefaultNaming) LoadTestMetadataKey(projectID string) string {
+	lt := n.LoadTestProjectID(projectID)
+	return fmt.Sprintf("metadata/%s.json", lt)
+}

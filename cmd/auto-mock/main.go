@@ -12,6 +12,7 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/hemantobora/auto-mock/internal/client"
 	"github.com/hemantobora/auto-mock/internal/cloud"
+	"github.com/hemantobora/auto-mock/internal/commands"
 	"github.com/hemantobora/auto-mock/internal/repl"
 	"github.com/hemantobora/auto-mock/internal/terraform"
 	"github.com/urfave/cli/v2"
@@ -123,8 +124,13 @@ func main() {
 			},
 			{
 				Name:  "locust",
-				Usage: "Generate Locust load testing bundle from API collection",
+				Usage: "Generate and optionally upload a Locust load testing bundle",
 				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "project", Usage: "Project name."},
+					&cli.BoolFlag{Name: "upload", Usage: "Upload bundle to cloud storage."},
+					&cli.BoolFlag{Name: "dry-run", Usage: "Simulate upload without persisting objects."},
+					&cli.BoolFlag{Name: "edit", Usage: "Download current active bundle for editing (interactive re-upload option)."},
+					&cli.BoolFlag{Name: "delete-pointer", Usage: "Delete current bundle pointer (current.json) only; keep versions/bundles."},
 					&cli.StringFlag{
 						Name:  "collection-file",
 						Usage: "Path to API collection file (Postman/Bruno/Insomnia)",
@@ -169,11 +175,15 @@ func main() {
 }
 
 func locustCommand(c *cli.Context) error {
+	project := c.String("project")
 	collectionType := c.String("collection-type")
 	collectionFile := c.String("collection-file")
 	outDir := c.String("dir")
 	headless := c.Bool("headless")
 	distributed := c.Bool("distributed")
+	upload := c.Bool("upload")
+	edit := c.Bool("edit")
+	deletePtr := c.Bool("delete-pointer")
 
 	options := &client.Options{
 		CollectionType:             collectionType,
@@ -183,7 +193,8 @@ func locustCommand(c *cli.Context) error {
 		GenerateDistributedHelpers: &distributed,
 	}
 
-	return client.GenerateLoadtestBundle(*options)
+	profile := c.String("profile")
+	return commands.RunLocust(profile, project, *options, upload, edit, deletePtr)
 }
 
 // deployCommand handles infrastructure deployment
@@ -399,16 +410,22 @@ Examples:
 	automock --profile sandbox status --project user-service --detailed
 
 %slocust — flags%s
-  --collection-file <path>         Path to API collection (Postman/Bruno/Insomnia)
-  --collection-type <postman|bruno|insomnia>
-                                   Required when using --collection-file
-  --dir <path>                     Output directory for generated Locust files
-  --headless                       Run Locust in headless mode (no UI)
-  --distributed                    Generate/run in distributed mode
+	--collection-file <path>         Path to API collection (Postman/Bruno/Insomnia)
+	--collection-type <postman|bruno|insomnia>
+																	 Required when using --collection-file
+	--dir <path>                     Output directory for generated Locust files
+	--headless                       Run Locust in headless mode (no UI)
+	--distributed                    Generate/run in distributed mode
+	--upload                         Upload generated bundle to cloud storage
+	--edit                           Download active bundle for local edits (interactive re-upload)
+	--delete-pointer                 Delete current bundle pointer only (keep versions)
 
 Examples:
   automock locust --collection-file api.postman.json --collection-type postman --dir ./load
   automock locust --collection-file api.postman.json --collection-type postman --headless
+	automock locust --project user-service --upload --dir ./load
+	automock locust --project user-service --edit
+	automock locust --project user-service --delete-pointer
 
 ENVIRONMENT
   AWS_PROFILE                      AWS profile to use (alternative to --profile)

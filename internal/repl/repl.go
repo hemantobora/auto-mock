@@ -6,13 +6,24 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/atotto/clipboard"
+	core "github.com/hemantobora/auto-mock/internal"
+	"github.com/hemantobora/auto-mock/internal/client"
 	"github.com/hemantobora/auto-mock/internal/mcp"
 	"github.com/hemantobora/auto-mock/internal/models"
+
+	// aws specific purge (best-effort) only if underlying concrete type is AWS provider
+	awsSDK "github.com/aws/aws-sdk-go-v2/aws"
+	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
+	awsprov "github.com/hemantobora/auto-mock/internal/cloud/aws"
 )
 
 const defaultBodyMatchType = "ONLY_MATCHING_FIELDS"
@@ -556,4 +567,379 @@ func ternary[T any](cond bool, a, b T) T {
 		return a
 	}
 	return b
+}
+
+// StartLoadTestREPL provides an interactive menu for managing Locust load test bundles.
+// It supports generating a bundle, uploading, editing the current bundle, deleting pointer, and viewing status.
+// If project is empty, it will prompt to select or create a project.
+func StartLoadTestREPL(provider core.Provider, project string) error {
+	ctx := context.Background()
+
+	// Ensure project context (select or create)
+	if strings.TrimSpace(project) == "" {
+		projects, _ := provider.ListProjects(ctx)
+		selected, err := ResolveProjectInteractively(projects)
+		if err != nil {
+			return err
+		}
+		if selected.ProjectID == "" {
+			// create new
+			var name string
+			if err := survey.AskOne(&survey.Input{Message: "Enter new project name:"}, &name, survey.WithValidator(survey.Required)); err != nil {
+				return err
+			}
+			if err := provider.InitProject(ctx, name); err != nil {
+				return fmt.Errorf("init project: %w", err)
+			}
+			project = name
+		} else {
+			project = selected.ProjectID
+		}
+	}
+
+	for {
+		// probe pointer
+		ptr, _ := provider.GetLoadTestPointer(ctx, project)
+		hasActive := ptr != nil && ptr.ActiveVersion != ""
+
+		// Build menu options with user-friendly labels & internal keys (first token before space)
+		options := []string{
+			"generate-local  – Generate a new bundle from a collection file",
+			"upload-local-dir – Upload an existing local bundle directory",
+			"view-status     – Show current pointer summary (if any)",
+		}
+		if hasActive {
+			options = append(options,
+				"edit-current    – Download & optionally re-upload active bundle",
+				"delete-pointer  – Remove current pointer (keep versions)",
+				"purge-bundle    – Delete active bundle files (destructive)",
+			)
+		}
+		options = append(options, "exit            – Leave LoadTest REPL")
+
+		fmt.Println("\nℹ️  Actions: generate → optional upload, upload-local-dir → direct cloud storage push, edit-current → modify & version bump.")
+		fmt.Println("    Dry-run prompts let you simulate uploads without persisting objects.")
+
+		var choice string
+		if err := survey.AskOne(&survey.Select{
+			Message: fmt.Sprintf("LoadTest REPL — project: %s", project),
+			Options: options,
+			Default: options[0],
+		}, &choice); err != nil {
+			return err
+		}
+
+		// Normalize to internal key (first token before space)
+		choice = strings.Split(strings.TrimSpace(choice), " ")[0]
+
+		switch choice {
+		case "generate-local":
+			// Ask for collection inputs and out dir
+			var answers struct {
+				CollectionFile string `survey:"collectionFile"`
+				CollectionType string `survey:"collectionType"`
+				OutDir         string `survey:"outDir"`
+			}
+			_ = survey.Ask([]*survey.Question{
+				{Name: "collectionFile", Prompt: &survey.Input{Message: "Collection file (Postman/Bruno/Insomnia path):"}},
+				{Name: "collectionType", Prompt: &survey.Select{Message: "Collection type:", Options: []string{"postman", "bruno", "insomnia"}, Default: "postman"}},
+				{Name: "outDir", Prompt: &survey.Input{Message: "Output directory:", Default: fmt.Sprintf("loadtest_%d", time.Now().Unix())}},
+			}, &answers)
+
+			// Build options; set safe defaults for pointer fields
+			headless := false
+			distributed := false
+			opts := client.Options{
+				CollectionType:             answers.CollectionType,
+				CollectionPath:             answers.CollectionFile,
+				OutDir:                     answers.OutDir,
+				Headless:                   &headless,
+				GenerateDistributedHelpers: &distributed,
+			}
+			if err := client.GenerateLoadtestBundle(opts); err != nil {
+				fmt.Printf("❌ Generation failed: %v\n", err)
+				break
+			}
+			fmt.Printf("✅ Bundle generated at: %s\n", answers.OutDir)
+
+			var doUpload bool
+			_ = survey.AskOne(&survey.Confirm{Message: "Upload this bundle now?", Default: false}, &doUpload)
+			if doUpload {
+				pointer, version, err := provider.UploadLoadTestBundle(ctx, project, answers.OutDir)
+				if err != nil {
+					fmt.Printf("❌ Upload failed: %v\n", err)
+					break
+				}
+				fmt.Println("✅ Uploaded:")
+				b, _ := json.MarshalIndent(struct {
+					Pointer *models.LoadTestPointer `json:"pointer"`
+					Version *models.LoadTestVersion `json:"version"`
+				}{pointer, version}, "", "  ")
+				fmt.Println(string(b))
+			}
+
+		case "upload-local-dir":
+			var dir string
+			_ = survey.AskOne(&survey.Input{Message: "Directory to upload:", Default: "./loadtest"}, &dir)
+			dir = strings.TrimSpace(dir)
+			if dir == "" {
+				break
+			}
+			if !filepath.IsAbs(dir) {
+				cwd, _ := os.Getwd()
+				dir = filepath.Join(cwd, dir)
+			}
+			pointer, version, err := provider.UploadLoadTestBundle(ctx, project, dir)
+			if err != nil {
+				fmt.Printf("❌ Upload failed: %v\n", err)
+				break
+			}
+			fmt.Println("✅ Uploaded:")
+			b, _ := json.MarshalIndent(struct {
+				Pointer *models.LoadTestPointer `json:"pointer"`
+				Version *models.LoadTestVersion `json:"version"`
+			}{pointer, version}, "", "  ")
+			fmt.Println(string(b))
+
+		case "edit-current":
+			if !hasActive {
+				fmt.Println("⚠️  No active bundle pointer found.")
+				break
+			}
+			workdir := fmt.Sprintf("loadtest_edit_%d", time.Now().Unix())
+			ptr, localDir, err := provider.DownloadLoadTestBundle(ctx, project, workdir)
+			if err != nil {
+				fmt.Printf("❌ Download failed: %v\n", err)
+				break
+			}
+			fmt.Printf("📦 Downloaded active bundle (version %s) to: %s\n", ptr.ActiveVersion, localDir)
+			var re bool
+			_ = survey.AskOne(&survey.Confirm{Message: "Re-upload now as a new version?", Default: false}, &re)
+			if re {
+				pointer, version, err := provider.UploadLoadTestBundle(ctx, project, localDir)
+				if err != nil {
+					fmt.Printf("❌ Re-upload failed: %v\n", err)
+					break
+				}
+				fmt.Println("✅ Re-uploaded:")
+				b, _ := json.MarshalIndent(struct {
+					Pointer *models.LoadTestPointer `json:"pointer"`
+					Version *models.LoadTestVersion `json:"version"`
+				}{pointer, version}, "", "  ")
+				fmt.Println(string(b))
+			}
+
+		case "delete-pointer":
+			if !hasActive {
+				fmt.Println("⚠️  No active pointer to delete.")
+				break
+			}
+			// Desired behavior: remove current pointer AND associated bundle; then roll back pointer to previous version if one exists.
+			// Implemented for AWS provider; others fall back to simple pointer delete.
+			if awsp, ok := provider.(interface{ GetProviderType() string }); ok && awsp.GetProviderType() == "aws" {
+				ap, ok2 := provider.(*awsprov.Provider)
+				if !ok2 {
+					fmt.Println("⚠️  AWS delete-pointer enhanced flow unavailable (type assertion failed)")
+					break
+				}
+				// Fetch current pointer to know active bundle/version
+				curPtr, err := provider.GetLoadTestPointer(ctx, project)
+				if err != nil || curPtr == nil || curPtr.ActiveVersion == "" {
+					fmt.Println("⚠️  No active pointer found or failed to load; deleting pointer only.")
+					_ = provider.DeleteLoadTestPointer(ctx, project)
+					break
+				}
+
+				// Confirm destructive action
+				var confirm bool
+				_ = survey.AskOne(&survey.Confirm{Message: fmt.Sprintf("Delete bundle %s and roll back pointer to previous version?", curPtr.BundleID), Default: false}, &confirm)
+				if !confirm {
+					break
+				}
+
+				// 1) Delete the active bundle directory
+				bundlePrefix := fmt.Sprintf("configs/%s-loadtest/bundles/%s/", curPtr.ProjectID, curPtr.BundleID)
+				deleted := 0
+				var token *string
+				for {
+					resp, err := ap.S3Client.ListObjectsV2(ctx, &s3sdk.ListObjectsV2Input{Bucket: awsSDK.String(ap.BucketName), Prefix: awsSDK.String(bundlePrefix), ContinuationToken: token})
+					if err != nil {
+						fmt.Printf("❌ List failed: %v\n", err)
+						break
+					}
+					if len(resp.Contents) == 0 {
+						break
+					}
+					for _, obj := range resp.Contents {
+						_, derr := ap.S3Client.DeleteObject(ctx, &s3sdk.DeleteObjectInput{Bucket: awsSDK.String(ap.BucketName), Key: obj.Key})
+						if derr == nil {
+							deleted++
+						} else {
+							fmt.Printf("⚠️  Failed delete %s: %v\n", awsSDK.ToString(obj.Key), derr)
+						}
+					}
+					if (resp.IsTruncated != nil && *resp.IsTruncated) && resp.NextContinuationToken != nil {
+						token = resp.NextContinuationToken
+						continue
+					}
+					break
+				}
+
+				// 2) Find previous version (precursor)
+				versionsPrefix := fmt.Sprintf("configs/%s-loadtest/versions/", curPtr.ProjectID)
+				var versions []string
+				token = nil
+				for {
+					resp, err := ap.S3Client.ListObjectsV2(ctx, &s3sdk.ListObjectsV2Input{Bucket: awsSDK.String(ap.BucketName), Prefix: awsSDK.String(versionsPrefix), ContinuationToken: token})
+					if err != nil {
+						fmt.Printf("❌ List versions failed: %v\n", err)
+						break
+					}
+					for _, obj := range resp.Contents {
+						versions = append(versions, awsSDK.ToString(obj.Key))
+					}
+					if (resp.IsTruncated != nil && *resp.IsTruncated) && resp.NextContinuationToken != nil {
+						token = resp.NextContinuationToken
+						continue
+					}
+					break
+				}
+				// Sort by version timestamp descending (keys are .../v<ts>.json)
+				sort.Slice(versions, func(i, j int) bool { return versions[i] > versions[j] })
+				currentKey := fmt.Sprintf("%s%s.json", versionsPrefix, curPtr.ActiveVersion)
+				var prevKey string
+				for _, k := range versions {
+					if k < currentKey { // lexicographic works for v<unix>
+						prevKey = k
+						break
+					}
+				}
+
+				if prevKey == "" {
+					// No previous version: delete pointer entirely
+					if err := provider.DeleteLoadTestPointer(ctx, project); err != nil {
+						fmt.Printf("⚠️  Deleted bundle (%d objects) but failed to remove pointer: %v\n", deleted, err)
+					} else {
+						fmt.Printf("✅ Deleted bundle (%d objects) and removed pointer (no previous version).\n", deleted)
+					}
+					break
+				}
+
+				// 3) Load previous version snapshot to get BundleID, then rewrite pointer
+				prevObj, err := ap.S3Client.GetObject(ctx, &s3sdk.GetObjectInput{Bucket: awsSDK.String(ap.BucketName), Key: awsSDK.String(prevKey)})
+				if err != nil {
+					fmt.Printf("❌ Failed to read previous version: %v\n", err)
+					break
+				}
+				prevData, _ := io.ReadAll(prevObj.Body)
+				prevObj.Body.Close()
+				var prevVer models.LoadTestVersion
+				if err := json.Unmarshal(prevData, &prevVer); err != nil {
+					fmt.Printf("❌ Failed to parse previous version: %v\n", err)
+					break
+				}
+				// Rebuild pointer for previous bundle
+				files := map[string]string{
+					"locustfile":   fmt.Sprintf("configs/%s-loadtest/bundles/%s/locustfile.py", prevVer.ProjectID, prevVer.BundleID),
+					"requirements": fmt.Sprintf("configs/%s-loadtest/bundles/%s/requirements.txt", prevVer.ProjectID, prevVer.BundleID),
+					"endpoints":    fmt.Sprintf("configs/%s-loadtest/bundles/%s/locust_endpoints.json", prevVer.ProjectID, prevVer.BundleID),
+					"user_data":    fmt.Sprintf("configs/%s-loadtest/bundles/%s/user_data.yaml", prevVer.ProjectID, prevVer.BundleID),
+					"manifest":     fmt.Sprintf("configs/%s-loadtest/bundles/%s/manifest.json", prevVer.ProjectID, prevVer.BundleID),
+				}
+				newPtr := models.NewDefaultLoadTestPointer(prevVer.ProjectID, prevVer.Version, prevVer.BundleID, files, &models.LoadTestSummary{Tasks: prevVer.Metrics["tasks"], Endpoints: prevVer.Metrics["endpoints"], HasHost: prevVer.Validation != nil && prevVer.Validation.HostDefined})
+				b, _ := json.MarshalIndent(newPtr, "", "  ")
+				pointerKey := fmt.Sprintf("configs/%s-loadtest/current.json", prevVer.ProjectID)
+				_, err = ap.S3Client.PutObject(ctx, &s3sdk.PutObjectInput{Bucket: awsSDK.String(ap.BucketName), Key: awsSDK.String(pointerKey), Body: bytes.NewReader(b), ContentType: awsSDK.String("application/json")})
+				if err != nil {
+					fmt.Printf("❌ Failed to update pointer: %v\n", err)
+					break
+				}
+				fmt.Printf("✅ Deleted bundle (%d objects) and rolled back pointer to %s (%s)\n", deleted, prevVer.Version, prevVer.BundleID)
+			} else {
+				// Fallback: original behavior
+				var sure bool
+				_ = survey.AskOne(&survey.Confirm{Message: "Delete current pointer only? (versions remain)", Default: false}, &sure)
+				if !sure {
+					break
+				}
+				if err := provider.DeleteLoadTestPointer(ctx, project); err != nil {
+					fmt.Printf("❌ Delete failed: %v\n", err)
+					break
+				}
+				fmt.Println("✅ Deleted current pointer.")
+			}
+
+		case "purge-bundle":
+			if !hasActive {
+				fmt.Println("⚠️  No active bundle to purge.")
+				break
+			}
+			// New behavior: delete ALL load test artifacts for this project (current pointer, versions, bundles, metadata)
+			if awsp, ok := provider.(interface{ GetProviderType() string }); ok && awsp.GetProviderType() == "aws" {
+				ap, ok2 := provider.(*awsprov.Provider)
+				if !ok2 {
+					fmt.Println("⚠️  AWS purge not available (type assertion failed)")
+					break
+				}
+				fullID := fmt.Sprintf("%s-loadtest", ptr.ProjectID)
+				var confirm bool
+				_ = survey.AskOne(&survey.Confirm{Message: "This will delete ALL artifacts for loadtest. Continue?", Default: false}, &confirm)
+				if !confirm {
+					break
+				}
+				var typed string
+				_ = survey.AskOne(&survey.Input{Message: "Type 'permanently delete' to confirm:"}, &typed)
+				if strings.TrimSpace(typed) != "permanently delete" {
+					fmt.Println("❌ Confirmation mismatch.")
+					break
+				}
+				prefixes := []string{fmt.Sprintf("configs/%s/", fullID)}
+				totalDeleted := 0
+				for _, prefix := range prefixes {
+					var token *string
+					for {
+						resp, err := ap.S3Client.ListObjectsV2(ctx, &s3sdk.ListObjectsV2Input{Bucket: awsSDK.String(ap.BucketName), Prefix: awsSDK.String(prefix), ContinuationToken: token})
+						if err != nil {
+							fmt.Printf("❌ List failed for %s: %v\n", prefix, err)
+							break
+						}
+						if len(resp.Contents) == 0 {
+							break
+						}
+						for _, obj := range resp.Contents {
+							_, derr := ap.S3Client.DeleteObject(ctx, &s3sdk.DeleteObjectInput{Bucket: awsSDK.String(ap.BucketName), Key: obj.Key})
+							if derr == nil {
+								totalDeleted++
+							} else {
+								fmt.Printf("⚠️  Failed delete %s: %v\n", awsSDK.ToString(obj.Key), derr)
+							}
+						}
+						if (resp.IsTruncated != nil && *resp.IsTruncated) && resp.NextContinuationToken != nil {
+							token = resp.NextContinuationToken
+							continue
+						}
+						break
+					}
+				}
+				// Delete metadata file best-effort
+				metaKey := fmt.Sprintf("metadata/%s.json", fullID)
+				_, _ = ap.S3Client.DeleteObject(ctx, &s3sdk.DeleteObjectInput{Bucket: awsSDK.String(ap.BucketName), Key: awsSDK.String(metaKey)})
+				fmt.Printf("✅ Purged load test artifacts. Deleted ~%d objects; metadata removed (best-effort).\n", totalDeleted)
+			} else {
+				fmt.Println("⚠️  Purge not implemented for this provider.")
+			}
+
+		case "view-status":
+			ptr, err := provider.GetLoadTestPointer(ctx, project)
+			if err != nil || ptr == nil {
+				fmt.Println("ℹ️  No active pointer.")
+				break
+			}
+			b, _ := json.MarshalIndent(ptr, "", "  ")
+			fmt.Println(string(b))
+
+		case "exit":
+			return nil
+		}
+	}
 }

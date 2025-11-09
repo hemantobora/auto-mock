@@ -49,6 +49,12 @@ type Provider interface {
 	CreateDeploymentConfiguration() *models.DeploymentOptions
 	DisplayCostEstimate(options *models.DeploymentOptions)
 	CreateDefaultDeploymentConfiguration() *models.DeploymentOptions
+
+	// Load test bundle management
+	UploadLoadTestBundle(ctx context.Context, projectID, bundleDir string) (*models.LoadTestPointer, *models.LoadTestVersion, error)
+	GetLoadTestPointer(ctx context.Context, projectID string) (*models.LoadTestPointer, error)
+	DownloadLoadTestBundle(ctx context.Context, projectID, destDir string) (*models.LoadTestPointer, string, error)
+	DeleteLoadTestPointer(ctx context.Context, projectID string) error
 }
 
 // NamingStrategy defines how project names are converted to storage names
@@ -69,4 +75,13 @@ type NamingStrategy interface {
 
 	// GetPrefix returns the naming prefix (e.g., "auto-mock")
 	GetPrefix() string
+
+	// Load test (locust) helpers for segregated storage paths
+	LoadTestProjectID(projectID string) string
+	LoadTestCurrentKey(projectID string) string
+	LoadTestVersionKey(projectID, version string) string
+	LoadTestBundlesPrefix(projectID string) string
+	LoadTestBundleDir(projectID, bundleID string) string
+	LoadTestBundleFileKey(projectID, bundleID, fileName string) string
+	LoadTestMetadataKey(projectID string) string
 }
