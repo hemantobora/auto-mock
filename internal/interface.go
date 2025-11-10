@@ -55,6 +55,11 @@ type Provider interface {
 	GetLoadTestPointer(ctx context.Context, projectID string) (*models.LoadTestPointer, error)
 	DownloadLoadTestBundle(ctx context.Context, projectID, destDir string) (*models.LoadTestPointer, string, error)
 	DeleteLoadTestPointer(ctx context.Context, projectID string) error
+
+	// Load test (Locust) deployment metadata management
+	SaveLoadTestDeploymentMetadata(metadata *models.LoadTestDeploymentOutputs) error
+	GetLoadTestDeploymentMetadata() (*models.LoadTestDeploymentMetadata, error)
+	DeleteLoadTestDeploymentMetadata() error
 }
 
 // NamingStrategy defines how project names are converted to storage names

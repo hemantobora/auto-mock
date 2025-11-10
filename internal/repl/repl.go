@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,10 +20,13 @@ import (
 	"github.com/hemantobora/auto-mock/internal/client"
 	"github.com/hemantobora/auto-mock/internal/mcp"
 	"github.com/hemantobora/auto-mock/internal/models"
+	"github.com/hemantobora/auto-mock/internal/terraform"
 
 	// aws specific purge (best-effort) only if underlying concrete type is AWS provider
+
 	awsSDK "github.com/aws/aws-sdk-go-v2/aws"
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	awsprov "github.com/hemantobora/auto-mock/internal/cloud/aws"
 )
 
@@ -615,6 +619,13 @@ func StartLoadTestREPL(provider core.Provider, project string) error {
 				"purge-bundle    – Delete active bundle files (destructive)",
 			)
 		}
+		// Loadtest infra lifecycle actions
+		options = append(options,
+			"deploy-loadtest – Deploy Locust infrastructure",
+			"destroy-loadtest – Destroy Locust infrastructure",
+			"scale-workers   – Update desired worker count (terraform)",
+			"show-deploy     – Show current Locust deployment metadata",
+		)
 		options = append(options, "exit            – Leave LoadTest REPL")
 
 		fmt.Println("\nℹ️  Actions: generate → optional upload, upload-local-dir → direct cloud storage push, edit-current → modify & version bump.")
@@ -874,7 +885,7 @@ func StartLoadTestREPL(provider core.Provider, project string) error {
 				fmt.Println("⚠️  No active bundle to purge.")
 				break
 			}
-			// New behavior: delete ALL load test artifacts for this project (current pointer, versions, bundles, metadata)
+			// Delete ONLY loadtest-related objects. If nothing else (loadtest or mock) remains, delete the bucket.
 			if awsp, ok := provider.(interface{ GetProviderType() string }); ok && awsp.GetProviderType() == "aws" {
 				ap, ok2 := provider.(*awsprov.Provider)
 				if !ok2 {
@@ -883,7 +894,7 @@ func StartLoadTestREPL(provider core.Provider, project string) error {
 				}
 				fullID := fmt.Sprintf("%s-loadtest", ptr.ProjectID)
 				var confirm bool
-				_ = survey.AskOne(&survey.Confirm{Message: "This will delete ALL artifacts for loadtest. Continue?", Default: false}, &confirm)
+				_ = survey.AskOne(&survey.Confirm{Message: "This will delete all loadtest bundles, versions, pointer, and index. Continue?", Default: false}, &confirm)
 				if !confirm {
 					break
 				}
@@ -893,38 +904,110 @@ func StartLoadTestREPL(provider core.Provider, project string) error {
 					fmt.Println("❌ Confirmation mismatch.")
 					break
 				}
-				prefixes := []string{fmt.Sprintf("configs/%s/", fullID)}
-				totalDeleted := 0
-				for _, prefix := range prefixes {
-					var token *string
-					for {
-						resp, err := ap.S3Client.ListObjectsV2(ctx, &s3sdk.ListObjectsV2Input{Bucket: awsSDK.String(ap.BucketName), Prefix: awsSDK.String(prefix), ContinuationToken: token})
-						if err != nil {
-							fmt.Printf("❌ List failed for %s: %v\n", prefix, err)
-							break
+
+				// Helpers to delete all versions for a prefix and a single key
+				deleteAllVersionsWithPrefix := func(prefix string) int {
+					deleted := 0
+					pager := s3sdk.NewListObjectVersionsPaginator(ap.S3Client, &s3sdk.ListObjectVersionsInput{
+						Bucket: awsSDK.String(ap.BucketName),
+						Prefix: awsSDK.String(prefix),
+					})
+					for pager.HasMorePages() {
+						page, _ := pager.NextPage(ctx)
+						var objs []s3types.ObjectIdentifier
+						for _, v := range page.Versions {
+							objs = append(objs, s3types.ObjectIdentifier{Key: v.Key, VersionId: v.VersionId})
 						}
-						if len(resp.Contents) == 0 {
-							break
+						for _, m := range page.DeleteMarkers {
+							objs = append(objs, s3types.ObjectIdentifier{Key: m.Key, VersionId: m.VersionId})
 						}
-						for _, obj := range resp.Contents {
-							_, derr := ap.S3Client.DeleteObject(ctx, &s3sdk.DeleteObjectInput{Bucket: awsSDK.String(ap.BucketName), Key: obj.Key})
-							if derr == nil {
-								totalDeleted++
-							} else {
-								fmt.Printf("⚠️  Failed delete %s: %v\n", awsSDK.ToString(obj.Key), derr)
+						if len(objs) > 0 {
+							if _, err := ap.S3Client.DeleteObjects(ctx, &s3sdk.DeleteObjectsInput{
+								Bucket: awsSDK.String(ap.BucketName),
+								Delete: &s3types.Delete{Objects: objs, Quiet: awsSDK.Bool(true)},
+							}); err == nil {
+								deleted += len(objs)
 							}
 						}
-						if (resp.IsTruncated != nil && *resp.IsTruncated) && resp.NextContinuationToken != nil {
-							token = resp.NextContinuationToken
-							continue
+					}
+					return deleted
+				}
+				deleteAllVersionsForKey := func(key string) int {
+					deleted := 0
+					pager := s3sdk.NewListObjectVersionsPaginator(ap.S3Client, &s3sdk.ListObjectVersionsInput{
+						Bucket: awsSDK.String(ap.BucketName),
+						Prefix: awsSDK.String(key),
+					})
+					for pager.HasMorePages() {
+						page, _ := pager.NextPage(ctx)
+						var objs []s3types.ObjectIdentifier
+						for _, v := range page.Versions {
+							if v.Key != nil && awsSDK.ToString(v.Key) == key {
+								objs = append(objs, s3types.ObjectIdentifier{Key: v.Key, VersionId: v.VersionId})
+							}
 						}
+						for _, m := range page.DeleteMarkers {
+							if m.Key != nil && awsSDK.ToString(m.Key) == key {
+								objs = append(objs, s3types.ObjectIdentifier{Key: m.Key, VersionId: m.VersionId})
+							}
+						}
+						if len(objs) > 0 {
+							if _, err := ap.S3Client.DeleteObjects(ctx, &s3sdk.DeleteObjectsInput{
+								Bucket: awsSDK.String(ap.BucketName),
+								Delete: &s3types.Delete{Objects: objs, Quiet: awsSDK.Bool(true)},
+							}); err == nil {
+								deleted += len(objs)
+							}
+						}
+					}
+					return deleted
+				}
+
+				totalDeleted := 0
+				// Delete configs/<project>-loadtest/* (bundles, versions, current.json)
+				totalDeleted += deleteAllVersionsWithPrefix(fmt.Sprintf("configs/%s/", fullID))
+				// Delete metadata/<project>-loadtest.json
+				totalDeleted += deleteAllVersionsForKey(fmt.Sprintf("metadata/%s.json", fullID))
+
+				// Evaluate whether we can delete the project bucket
+				// 1) No remaining mockserver objects?
+				mockExists := false
+				{
+					// configs/<project>/ exists?
+					mk := int32(1)
+					if list, _ := ap.S3Client.ListObjectsV2(ctx, &s3sdk.ListObjectsV2Input{
+						Bucket:  awsSDK.String(ap.BucketName),
+						Prefix:  awsSDK.String(fmt.Sprintf("configs/%s/", ptr.ProjectID)),
+						MaxKeys: &mk,
+					}); list != nil && len(list.Contents) > 0 {
+						mockExists = true
+					}
+					// metadata/<project>.json exists?
+					if !mockExists {
+						if _, err := ap.S3Client.HeadObject(ctx, &s3sdk.HeadObjectInput{
+							Bucket: awsSDK.String(ap.BucketName),
+							Key:    awsSDK.String(fmt.Sprintf("metadata/%s.json", ptr.ProjectID)),
+						}); err == nil {
+							mockExists = true
+						}
+					}
+				}
+				// 2) Bucket empty?
+				bucketEmpty := false
+				{
+					mk := int32(1)
+					if rem, _ := ap.S3Client.ListObjectsV2(ctx, &s3sdk.ListObjectsV2Input{Bucket: awsSDK.String(ap.BucketName), MaxKeys: &mk}); rem != nil && len(rem.Contents) == 0 {
+						bucketEmpty = true
+					}
+				}
+
+				if !mockExists && bucketEmpty {
+					if _, err := ap.S3Client.DeleteBucket(ctx, &s3sdk.DeleteBucketInput{Bucket: awsSDK.String(ap.BucketName)}); err == nil {
+						fmt.Printf("✅ Purged load test artifacts. Deleted ~%d versions; project bucket removed (no remaining mock or other objects).\n", totalDeleted)
 						break
 					}
 				}
-				// Delete metadata file best-effort
-				metaKey := fmt.Sprintf("metadata/%s.json", fullID)
-				_, _ = ap.S3Client.DeleteObject(ctx, &s3sdk.DeleteObjectInput{Bucket: awsSDK.String(ap.BucketName), Key: awsSDK.String(metaKey)})
-				fmt.Printf("✅ Purged load test artifacts. Deleted ~%d objects; metadata removed (best-effort).\n", totalDeleted)
+				fmt.Printf("✅ Purged load test artifacts. Deleted ~%d object versions; bucket retained.\n", totalDeleted)
 			} else {
 				fmt.Println("⚠️  Purge not implemented for this provider.")
 			}
@@ -938,8 +1021,98 @@ func StartLoadTestREPL(provider core.Provider, project string) error {
 			b, _ := json.MarshalIndent(ptr, "", "  ")
 			fmt.Println(string(b))
 
+		case "deploy-loadtest":
+			if err := handleLoadTestDeploy(ctx, provider, project); err != nil {
+				fmt.Printf("❌ Deploy failed: %v\n", err)
+			}
+		case "destroy-loadtest":
+			if err := handleLoadTestDestroy(ctx, provider, project); err != nil {
+				fmt.Printf("❌ Destroy failed: %v\n", err)
+			}
+		case "scale-workers":
+			if err := handleLoadTestScaleWorkers(ctx, provider, project); err != nil {
+				fmt.Printf("❌ Scale failed: %v\n", err)
+			}
+		case "show-deploy":
+			if err := handleLoadTestShowDeployment(ctx, provider, project); err != nil {
+				fmt.Printf("❌ Show failed: %v\n", err)
+			}
 		case "exit":
 			return nil
 		}
 	}
+}
+
+// === Loadtest infra handlers ===
+func handleLoadTestDeploy(ctx context.Context, provider core.Provider, projectName string) error {
+	fmt.Println("🚀 Deploying Locust infrastructure...")
+	if md, err := provider.GetLoadTestDeploymentMetadata(); err == nil && md != nil && md.DeploymentStatus == "deployed" {
+		fmt.Println("ℹ️  Locust infra already deployed. Use scale-workers or destroy.")
+		return nil
+	}
+	opts := &models.LoadTestDeploymentOptions{WorkerDesiredCount: 0}
+	mgr, err := terraform.NewLoadTestManager(projectName, "", provider)
+	if err != nil {
+		return err
+	}
+	out, err := mgr.Deploy(opts)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("✅ Locust deployed: ALB=%s MasterFQDN=%s Workers=%d\n", out.ALBDNSName, out.CloudMapMasterFQDN, out.WorkerDesiredCount)
+	return nil
+}
+
+func handleLoadTestDestroy(ctx context.Context, provider core.Provider, projectName string) error {
+	fmt.Println("💥 Destroying Locust infrastructure...")
+	mgr, err := terraform.NewLoadTestManager(projectName, "", provider)
+	if err != nil {
+		return err
+	}
+	if err := mgr.Destroy(); err != nil {
+		return err
+	}
+	fmt.Println("✅ Locust infrastructure destroyed")
+	return nil
+}
+
+func handleLoadTestScaleWorkers(ctx context.Context, provider core.Provider, projectName string) error {
+	md, err := provider.GetLoadTestDeploymentMetadata()
+	if err != nil || md == nil || md.DeploymentStatus != "deployed" {
+		return fmt.Errorf("Locust infrastructure not deployed")
+	}
+	var desiredStr string
+	_ = survey.AskOne(&survey.Input{Message: "Enter desired worker count:"}, &desiredStr)
+	desiredStr = strings.TrimSpace(desiredStr)
+	if desiredStr == "" {
+		return fmt.Errorf("no worker count provided")
+	}
+	// Try automated scaling via LoadTestManager
+	mgr, err := terraform.NewLoadTestManager(projectName, "", provider)
+	if err != nil {
+		return err
+	}
+	n, convErr := strconv.Atoi(desiredStr)
+	if convErr != nil {
+		return fmt.Errorf("invalid worker count: %s", desiredStr)
+	}
+	if err := mgr.ScaleWorkers(n); err != nil {
+		return fmt.Errorf("scale via terraform failed: %w", err)
+	}
+	fmt.Println("✅ Scaled workers to:", n)
+	return nil
+}
+
+func handleLoadTestShowDeployment(ctx context.Context, provider core.Provider, projectName string) error {
+	md, err := provider.GetLoadTestDeploymentMetadata()
+	if err != nil {
+		return fmt.Errorf("fetch metadata: %w", err)
+	}
+	if md == nil {
+		fmt.Println("No Locust deployment metadata found.")
+		return nil
+	}
+	b, _ := json.MarshalIndent(md, "", "  ")
+	fmt.Println(string(b))
+	return nil
 }

@@ -319,6 +319,50 @@ cd load-tests
 
 ---
 
+### ☁️ Managed Locust on AWS (beta)
+
+Provision a dedicated, production-ready Locust cluster on AWS using Terraform under the hood. This deploys an ALB (HTTP/HTTPS with a self-signed cert), an ECS Fargate cluster, and optional workers for distributed tests.
+
+Deploy via the interactive REPL:
+
+```bash
+./automock repl
+# In the menu:
+# → Deploy Locust infrastructure
+#   • Choose a project name (e.g., perf-demo)
+#   • Confirm AWS region and sizing
+# → Show Locust deployment details
+```
+
+Scale workers up or down (Terraform-based, drift-free):
+
+```bash
+# From REPL menu:
+# → Scale Locust workers
+#   • Enter new desired worker count (e.g., 5)
+```
+
+Tear down when done:
+
+```bash
+# From REPL menu:
+# → Destroy Locust infrastructure
+```
+
+What you get:
+- Public ALB with HTTP/HTTPS access to the Locust master UI
+- Private Cloud Map namespace for service discovery within ECS
+- ECS task definitions for master and workers
+- CloudWatch log groups with configurable retention
+- Security groups with least-privileged rules
+
+Outputs shown by the REPL include:
+- ALB DNS name (UI URL)
+- Cloud Map FQDN for Locust master
+- ECS cluster and service names
+
+Note on TLS: the stack uses a self-signed certificate imported into ACM for HTTPS. For production, replace with a proper ACM certificate and Route53-managed domain.
+
 ## 📂 Project Structure
 
 ```
