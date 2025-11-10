@@ -78,6 +78,7 @@ func AutoDetectAndInit(profile string, cliContext *CLIContext) error {
 }
 
 func (m *CloudManager) AutoDetectProvider(profile string) error {
+	// Lightweight spinner to improve perceived responsiveness during provider detection.
 	ctx := context.Background()
 	provider, err := m.factory.AutoDetectProvider(ctx, profile)
 	if err != nil {
@@ -86,6 +87,10 @@ func (m *CloudManager) AutoDetectProvider(profile string) error {
 	m.Provider = provider
 	return nil
 }
+
+// startSpinner prints an animated spinner with a message until the returned stop function is called.
+// Keeps dependencies minimal (no external libs). Falls back gracefully on non-TTY environments.
+// spinner removed per user preference
 
 // Initialize runs the complete initialization workflow
 func (m *CloudManager) Initialize(cliContext *CLIContext) error {

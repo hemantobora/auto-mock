@@ -55,3 +55,84 @@ variable "log_retention_days" {
   description = "CloudWatch log retention for ECS containers"
   default     = 7
 }
+
+# BYO networking toggles (align with mockserver root variables)
+variable "use_existing_vpc" {
+  type        = bool
+  description = "If true, use an existing VPC instead of creating a new one."
+  default     = false
+}
+
+variable "vpc_id" {
+  type        = string
+  description = "Existing VPC ID when use_existing_vpc = true."
+  default     = ""
+}
+
+variable "use_existing_subnets" {
+  type        = bool
+  description = "If true, use existing subnets instead of creating new ones."
+  default     = false
+}
+
+variable "public_subnet_ids" {
+  type        = list(string)
+  description = "Existing public subnet IDs when use_existing_subnets = true."
+  default     = []
+}
+
+variable "use_existing_igw" {
+  type        = bool
+  description = "If true, use an existing Internet Gateway (skip creating one)."
+  default     = false
+}
+
+variable "internet_gateway_id" {
+  type        = string
+  description = "Existing Internet Gateway ID when use_existing_igw = true."
+  default     = ""
+}
+
+# Arbitrary environment variables to inject into Locust ECS task containers.
+variable "extra_environment" {
+  type        = map(string)
+  description = "Map of KEY => VALUE environment variables added to both master and worker containers. Values are stored in task definition (not encrypted). Avoid putting long-lived secrets here."
+  default     = {}
+}
+
+# BYO IAM roles for load test stack
+variable "use_existing_iam_roles" {
+  type        = bool
+  description = "If true, use provided IAM role ARNs for ECS tasks instead of creating them."
+  default     = false
+}
+
+variable "execution_role_arn" {
+  type        = string
+  description = "Existing ECS task execution role ARN when use_existing_iam_roles = true"
+  default     = ""
+}
+
+variable "task_role_arn" {
+  type        = string
+  description = "Existing ECS task role ARN when use_existing_iam_roles = true"
+  default     = ""
+}
+
+variable "use_existing_security_groups" {
+  type        = bool
+  description = "If true, use existing ALB & ECS security groups instead of creating them."
+  default     = false
+}
+
+variable "alb_security_group_id" {
+  type        = string
+  description = "Existing ALB security group ID when use_existing_security_groups = true"
+  default     = ""
+}
+
+variable "ecs_security_group_id" {
+  type        = string
+  description = "Existing ECS tasks security group ID when use_existing_security_groups = true"
+  default     = ""
+}

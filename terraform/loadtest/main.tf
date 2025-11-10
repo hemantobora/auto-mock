@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.5.0"
+  required_version = ">= 1.0"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -24,4 +24,19 @@ module "aws_locust" {
   master_port          = var.master_port
   log_retention_days   = var.log_retention_days
   locust_container_image = var.locust_container_image
+
+  # BYO networking passthrough
+  use_existing_vpc       = var.use_existing_vpc
+  vpc_id                 = var.vpc_id
+  use_existing_subnets   = var.use_existing_subnets
+  public_subnet_ids      = var.public_subnet_ids
+  use_existing_igw       = var.use_existing_igw
+  internet_gateway_id    = var.internet_gateway_id
+  extra_environment      = var.extra_environment
+  use_existing_iam_roles = var.use_existing_iam_roles
+  execution_role_arn     = var.execution_role_arn
+  task_role_arn          = var.task_role_arn
+  use_existing_security_groups = var.use_existing_security_groups
+  alb_security_group_id        = var.alb_security_group_id
+  ecs_security_group_id        = var.ecs_security_group_id
 }

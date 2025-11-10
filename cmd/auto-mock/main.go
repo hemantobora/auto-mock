@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/hemantobora/auto-mock/internal/client"
 	"github.com/hemantobora/auto-mock/internal/cloud"
 	"github.com/hemantobora/auto-mock/internal/commands"
+	"github.com/hemantobora/auto-mock/internal/models"
 	"github.com/hemantobora/auto-mock/internal/repl"
 	"github.com/hemantobora/auto-mock/internal/terraform"
 	"github.com/urfave/cli/v2"
@@ -206,12 +208,253 @@ func deployCommand(c *cli.Context) error {
 	fmt.Println(strings.Repeat("=", 80))
 
 	manager := cloud.NewCloudManager(profile)
-	// Step 1: Validate cloud provider credentials
 	if err := manager.AutoDetectProvider(profile); err != nil {
 		return err
 	}
-	deployer := repl.NewDeployment(projectName, profile, manager.Provider)
-	return deployer.DeployInfrastructureWithTerraform(c.Bool("skip-confirmation"))
+	ctx := context.Background()
+	// 1. Check project existence
+	exists, _ := manager.Provider.ProjectExists(ctx, projectName)
+	if !exists {
+		fmt.Printf("❌ Project '%s' does not exist. Run 'automock init' (for mocks) or 'automock locust' (for load tests) first.\n", projectName)
+		return nil
+	}
+
+	// 2. Detect pointers/config presence
+	mockConfig, mockErr := manager.Provider.GetConfig(ctx, projectName)
+	var hasMock bool = mockErr == nil && mockConfig != nil
+	loadPtr, loadPtrErr := manager.Provider.GetLoadTestPointer(ctx, projectName)
+	var hasLoad bool = loadPtrErr == nil && loadPtr != nil && loadPtr.ActiveVersion != ""
+
+	if !hasMock && !hasLoad {
+		fmt.Println("ℹ️  No mock configuration or load test bundle found.")
+		fmt.Println("👉 Generate mocks: 'automock init' or upload a load test bundle: 'automock locust'.")
+		return nil
+	}
+
+	// 3. Fetch deployment metadata
+	mockMeta, _ := manager.Provider.GetDeploymentMetadata()
+	loadMeta, _ := manager.Provider.GetLoadTestDeploymentMetadata()
+	mockDeployed := mockMeta != nil && mockMeta.DeploymentStatus == "deployed"
+	loadDeployed := loadMeta != nil && loadMeta.DeploymentStatus == "deployed"
+
+	// Helper lambdas
+	deployMocks := func() error {
+		deployer := repl.NewDeployment(projectName, profile, manager.Provider)
+		return deployer.DeployInfrastructureWithTerraform(c.Bool("skip-confirmation"))
+	}
+	deployLoad := func() error {
+		fmt.Println("🚀 Deploying Locust infrastructure...")
+		opts := &models.LoadTestDeploymentOptions{WorkerDesiredCount: 0}
+
+		// Collect BYO networking like mockserver (VPC/Subnets)
+		useBYO := false
+		_ = survey.AskOne(&survey.Confirm{Message: "Bring your own networking and IAM (BYO)?", Default: false}, &useBYO)
+		if useBYO {
+			opts.UseExistingVPC = true
+			opts.UseExistingSubnets = true
+			var vpcID string
+			_ = survey.AskOne(&survey.Input{Message: "Network ID (e.g., AWS VPC ID vpc-xxxx):"}, &vpcID)
+			vpcID = strings.TrimSpace(vpcID)
+			if vpcID == "" {
+				return fmt.Errorf("VPC ID is required when using BYO networking")
+			}
+			opts.VpcID = vpcID
+			var subnetsCSV string
+			_ = survey.AskOne(&survey.Input{Message: "Public subnet IDs (comma-separated):", Help: "e.g., AWS: subnet-aaaa,subnet-bbbb"}, &subnetsCSV)
+			subnetsCSV = strings.TrimSpace(subnetsCSV)
+			if subnetsCSV == "" {
+				return fmt.Errorf("At least one subnet ID is required when using BYO networking")
+			}
+			parts := strings.Split(subnetsCSV, ",")
+			var subs []string
+			for _, p := range parts {
+				pp := strings.TrimSpace(p)
+				if pp != "" {
+					subs = append(subs, pp)
+				}
+			}
+			if len(subs) == 0 {
+				return fmt.Errorf("No valid subnet IDs provided")
+			}
+			opts.PublicSubnetIDs = subs
+
+			// Optionally BYO IAM roles
+			useIAM := false
+			_ = survey.AskOne(&survey.Confirm{Message: "Use existing IAM roles for ECS (execution & task)?", Default: false}, &useIAM)
+			if useIAM {
+				opts.UseExistingIAMRoles = true
+				var execArn, taskArn string
+				_ = survey.AskOne(&survey.Input{Message: "Execution role (ARN on AWS):"}, &execArn)
+				_ = survey.AskOne(&survey.Input{Message: "Task role (ARN on AWS; press Enter to reuse execution role):"}, &taskArn)
+				execArn = strings.TrimSpace(execArn)
+				taskArn = strings.TrimSpace(taskArn)
+				if execArn == "" {
+					return fmt.Errorf("Execution Role ARN is required when using existing IAM roles")
+				}
+				if taskArn == "" {
+					taskArn = execArn
+				}
+				opts.ExecutionRoleARN = execArn
+				opts.TaskRoleARN = taskArn
+			}
+
+			// Optionally BYO Security Groups
+			useSG := false
+			_ = survey.AskOne(&survey.Confirm{Message: "Use existing Security Groups (ALB & ECS)?", Default: false}, &useSG)
+			if useSG {
+				opts.UseExistingSecurityGroups = true
+				var albSG, ecsSG string
+				_ = survey.AskOne(&survey.Input{Message: "ALB Security Group ID:"}, &albSG)
+				_ = survey.AskOne(&survey.Input{Message: "ECS Tasks Security Group ID:"}, &ecsSG)
+				albSG = strings.TrimSpace(albSG)
+				ecsSG = strings.TrimSpace(ecsSG)
+				if albSG == "" || ecsSG == "" {
+					return fmt.Errorf("Both ALB and ECS security group IDs are required when using existing security groups")
+				}
+				opts.ALBSecurityGroupID = albSG
+				opts.ECSSecurityGroupID = ecsSG
+			}
+		}
+
+		// Prompt for worker count
+		var workerStr string
+		_ = survey.AskOne(&survey.Input{Message: "Desired worker count (0 for none):", Default: "0"}, &workerStr)
+		workerStr = strings.TrimSpace(workerStr)
+		if workerStr != "" {
+			if n, err := strconv.Atoi(workerStr); err == nil && n >= 0 {
+				opts.WorkerDesiredCount = n
+			} else {
+				return fmt.Errorf("invalid worker count: %s", workerStr)
+			}
+		}
+		mgr, err := terraform.NewLoadTestManager(projectName, profile, manager.Provider)
+		if err != nil {
+			return err
+		}
+		out, err := mgr.Deploy(opts)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("✅ Locust deployed: ALB=%s MasterFQDN=%s Workers=%d\n", out.ALBDNSName, out.CloudMapMasterFQDN, out.WorkerDesiredCount)
+		return nil
+	}
+	scaleWorkers := func() error {
+		if !loadDeployed {
+			fmt.Println("⚠️  Load test infra not deployed; cannot scale.")
+			return nil
+		}
+		mgr, err := terraform.NewLoadTestManager(projectName, profile, manager.Provider)
+		if err != nil {
+			return err
+		}
+		var desiredStr string
+		_ = survey.AskOne(&survey.Input{Message: "Enter desired worker count:"}, &desiredStr)
+		desiredStr = strings.TrimSpace(desiredStr)
+		if desiredStr == "" {
+			return fmt.Errorf("no worker count provided")
+		}
+		n, convErr := strconv.Atoi(desiredStr)
+		if convErr != nil {
+			return fmt.Errorf("invalid worker count: %s", desiredStr)
+		}
+		if err := mgr.ScaleWorkers(n); err != nil {
+			return err
+		}
+		fmt.Println("✅ Scaled workers to:", n)
+		return nil
+	}
+
+	// 4. Decision matrix
+	// Case: both pointers present
+	if hasMock && hasLoad {
+		switch {
+		case mockDeployed && loadDeployed:
+			// Offer scale workers or exit
+			choice := ""
+			_ = survey.AskOne(&survey.Select{Message: "Both mock & loadtest deployed. Action:", Options: []string{"scale-workers", "redeploy-mocks", "redeploy-loadtest", "exit"}, Default: "scale-workers"}, &choice)
+			if choice == "scale-workers" {
+				return scaleWorkers()
+			}
+			if choice == "redeploy-mocks" {
+				return deployMocks()
+			}
+			if choice == "redeploy-loadtest" {
+				return deployLoad()
+			}
+			fmt.Println("✅ Nothing done.")
+			return nil
+		case loadDeployed && !mockDeployed:
+			choice := ""
+			_ = survey.AskOne(&survey.Select{Message: "Loadtest deployed; mocks not deployed. Action:", Options: []string{"deploy-mocks", "scale-workers", "exit"}, Default: "deploy-mocks"}, &choice)
+			if choice == "deploy-mocks" {
+				return deployMocks()
+			}
+			if choice == "scale-workers" {
+				return scaleWorkers()
+			}
+			fmt.Println("✅ Nothing done.")
+			return nil
+		case mockDeployed && !loadDeployed:
+			var proceed bool
+			_ = survey.AskOne(&survey.Confirm{Message: "Mock infra deployed; deploy loadtest now?", Default: true}, &proceed)
+			if proceed {
+				return deployLoad()
+			}
+			fmt.Println("✅ Skipped loadtest deployment.")
+			return nil
+		default: // neither deployed but both bundles/config exist
+			choice := ""
+			_ = survey.AskOne(&survey.Select{Message: "Mocks & loadtest artifacts found. Deploy:", Options: []string{"both", "only-mocks", "only-loadtest", "exit"}, Default: "both"}, &choice)
+			if choice == "both" {
+				if err := deployMocks(); err != nil {
+					return err
+				}
+				return deployLoad()
+			}
+			if choice == "only-mocks" {
+				return deployMocks()
+			}
+			if choice == "only-loadtest" {
+				return deployLoad()
+			}
+			fmt.Println("✅ Nothing done.")
+			return nil
+		}
+	}
+
+	// Case: only mocks
+	if hasMock && !hasLoad {
+		if mockDeployed {
+			choice := ""
+			_ = survey.AskOne(&survey.Select{Message: "Mock infra already deployed. Action:", Options: []string{"redeploy-mocks", "exit"}, Default: "exit"}, &choice)
+			if choice == "redeploy-mocks" {
+				return deployMocks()
+			}
+			fmt.Println("✅ Nothing done.")
+			return nil
+		}
+		return deployMocks()
+	}
+
+	// Case: only loadtest
+	if hasLoad && !hasMock {
+		if loadDeployed {
+			choice := ""
+			_ = survey.AskOne(&survey.Select{Message: "Loadtest infra deployed. Action:", Options: []string{"scale-workers", "redeploy-loadtest", "exit"}, Default: "scale-workers"}, &choice)
+			if choice == "scale-workers" {
+				return scaleWorkers()
+			}
+			if choice == "redeploy-loadtest" {
+				return deployLoad()
+			}
+			fmt.Println("✅ Nothing done.")
+			return nil
+		}
+		return deployLoad()
+	}
+
+	fmt.Println("⚠️  Unexpected state; nothing done.")
+	return nil
 }
 
 // destroyCommand handles infrastructure teardown
@@ -257,24 +500,76 @@ func destroyCommand(c *cli.Context) error {
 	}
 
 	manager := cloud.NewCloudManager(profile)
-	// Step 1: Validate cloud provider credentials
 	if err := manager.AutoDetectProvider(profile); err != nil {
 		return err
 	}
+	ctx := context.Background()
 
-	// Create Terraform manager
-	destroyer, err := terraform.NewManager(projectName, profile, manager.Provider)
-	if err != nil {
-		return fmt.Errorf("failed to create terraform manager: %w", err)
+	// Discover presence
+	hasMock := false
+	if _, e := manager.Provider.GetConfig(ctx, projectName); e == nil {
+		hasMock = true
+	}
+	hasLoad := false
+	if p, e := manager.Provider.GetLoadTestPointer(ctx, projectName); e == nil && p != nil && p.ActiveVersion != "" {
+		hasLoad = true
 	}
 
-	// Destroy infrastructure
-	fmt.Println("\nDestroying infrastructure...")
-	err = destroyer.Destroy()
+	if !hasMock && !hasLoad {
+		fmt.Println("ℹ️  Nothing to destroy: no mock config or loadtest bundle found.")
+		return nil
+	}
 
-	terraform.DisplayDestroyResults(projectName, err == nil)
+	// Ask what to destroy
+	choice := ""
+	options := []string{}
+	if hasMock {
+		options = append(options, "mocks")
+	}
+	if hasLoad {
+		options = append(options, "loadtest")
+	}
+	if hasMock && hasLoad {
+		options = append(options, "both")
+	}
+	options = append(options, "exit")
+	_ = survey.AskOne(&survey.Select{Message: "Select what to destroy:", Options: options, Default: options[0]}, &choice)
+	if choice == "exit" {
+		fmt.Println("✅ Skipped destroy")
+		return nil
+	}
 
-	return err
+	// Destroy mocks
+	if choice == "mocks" || choice == "both" {
+		destroyer, err := terraform.NewManager(projectName, profile, manager.Provider)
+		if err != nil {
+			return fmt.Errorf("failed to create terraform manager: %w", err)
+		}
+		fmt.Println("\nDestroying mock infrastructure...")
+		if err := destroyer.Destroy(); err != nil {
+			return err
+		}
+		_ = manager.Provider.DeleteDeploymentMetadata()
+		fmt.Println("✅ Mock infra destroyed")
+		if choice != "both" {
+			return nil
+		}
+	}
+
+	// Destroy loadtest
+	if choice == "loadtest" || choice == "both" {
+		lt, err := terraform.NewLoadTestManager(projectName, profile, manager.Provider)
+		if err != nil {
+			return err
+		}
+		fmt.Println("\nDestroying load test infrastructure...")
+		if err := lt.Destroy(); err != nil {
+			return err
+		}
+		_ = manager.Provider.DeleteLoadTestDeploymentMetadata()
+		fmt.Println("✅ Load test infra destroyed")
+	}
+	return nil
 }
 
 // statusCommand shows current infrastructure status

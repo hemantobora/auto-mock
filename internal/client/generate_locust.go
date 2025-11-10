@@ -12,7 +12,6 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/hemantobora/auto-mock/internal/collections"
-	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 /* =========================
@@ -282,72 +281,20 @@ func replaceVariables(text string, variables map[string]string) string {
 
 // resolveVariables performs the 5-step variable resolution process
 func resolveVariables(neededVars []string, variables map[string]string) error {
+	// Non-interactive for loadtest generation: use previous or environment values only.
+	// Unresolved variables will remain as placeholders and be substituted at runtime.
 	for _, varName := range neededVars {
-		// Check if already resolved
 		if _, exists := variables[varName]; exists {
 			fmt.Printf("✅ %s (from previous setting)\n", varName)
 			continue
 		}
-
-		// Step 2: Check environment
 		if envVal := os.Getenv(varName); envVal != "" {
 			variables[varName] = envVal
 			fmt.Printf("✅ %s (from environment)\n", varName)
 			continue
 		}
-
-		// Step 5: Ask user and confirm
-		fmt.Printf("\n⚠️  Variable '%s' not found in environment\n", varName)
-		var value string
-		if err := survey.AskOne(&survey.Input{
-			Message: fmt.Sprintf("Enter value for '%s':", varName),
-			Help:    "This variable is needed to build the API. Enter the value or press Ctrl+C to cancel.",
-		}, &value); err != nil {
-			return &models.VariableResolutionError{
-				VariableName: varName,
-				Source:       "user-input",
-				Cause:        err,
-			}
-		}
-
-		if value == "" {
-			return &models.VariableResolutionError{
-				VariableName: varName,
-				Source:       "user-input",
-				Cause:        fmt.Errorf("no value provided for required variable '%s'", varName),
-			}
-		}
-
-		// Confirm the value (without printing it)
-		var confirm bool
-		if err := survey.AskOne(&survey.Confirm{
-			Message: fmt.Sprintf("Use provided value for '%s'?", varName),
-			Default: true,
-		}, &confirm); err != nil {
-			return &models.VariableResolutionError{
-				VariableName: varName,
-				Source:       "user-input",
-				Cause:        err,
-			}
-		}
-
-		if !confirm {
-			// Ask again
-			if err := survey.AskOne(&survey.Input{
-				Message: fmt.Sprintf("Re-enter value for '%s':", varName),
-			}, &value); err != nil {
-				return &models.VariableResolutionError{
-					VariableName: varName,
-					Source:       "user-input",
-					Cause:        err,
-				}
-			}
-		}
-
-		variables[varName] = value
-		fmt.Printf("✅ %s (user input)\n", varName)
+		fmt.Printf("ℹ️  Skipping '%s' (no env); leaving placeholder for runtime.\n", varName)
 	}
-
 	return nil
 }
 

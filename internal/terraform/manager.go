@@ -48,9 +48,9 @@ func NewManager(cleanProject, profile string, provider internal.Provider) (*Mana
 	projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(execPath)))
 
 	// Use embedded terraform directory or fallback to project terraform dir
-	terraformDir := filepath.Join(projectRoot, "terraform")
+	terraformDir := filepath.Join(projectRoot, "terraform", "mock")
 	if _, err := os.Stat(terraformDir); os.IsNotExist(err) {
-		terraformDir = "./terraform"
+		terraformDir = filepath.Join("terraform", "mock")
 	}
 
 	// Create a unique working directory for this deployment

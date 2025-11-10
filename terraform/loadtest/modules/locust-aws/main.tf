@@ -12,11 +12,19 @@ locals {
   worker_svc_name    = "${local.cluster_name}-worker"
   namespace_name     = "${local.normalized_project}.local"
   container_name     = "master"
+  # Resolved IDs for BYO vs Create
+  vpc_id_resolved = var.use_existing_vpc ? var.vpc_id : aws_vpc.lt[0].id
+  public_subnet_ids_resolved = var.use_existing_subnets ? var.public_subnet_ids : [aws_subnet.public_a[0].id, aws_subnet.public_b[0].id]
+  exec_role_arn_resolved = var.use_existing_iam_roles ? var.execution_role_arn : aws_iam_role.task_execution[0].arn
+  task_role_arn_resolved = var.use_existing_iam_roles ? var.task_role_arn      : aws_iam_role.task_execution[0].arn
+  alb_sg_id_resolved  = var.use_existing_security_groups ? var.alb_security_group_id : aws_security_group.alb[0].id
+  ecs_sg_id_resolved  = var.use_existing_security_groups ? var.ecs_security_group_id : aws_security_group.ecs[0].id
 }
 
 data "aws_availability_zones" "available" {}
 
 resource "aws_vpc" "lt" {
+  count                = var.use_existing_vpc ? 0 : 1
   cidr_block           = "10.0.0.0/16"
   enable_dns_support   = true
   enable_dns_hostnames = true
@@ -24,12 +32,14 @@ resource "aws_vpc" "lt" {
 }
 
 resource "aws_internet_gateway" "lt" {
-  vpc_id = aws_vpc.lt.id
+  count = var.use_existing_vpc || var.use_existing_igw ? 0 : 1
+  vpc_id = aws_vpc.lt[0].id
   tags   = { Name = "${local.cluster_name}-igw" }
 }
 
 resource "aws_subnet" "public_a" {
-  vpc_id                  = aws_vpc.lt.id
+  count                   = var.use_existing_subnets ? 0 : 1
+  vpc_id                  = aws_vpc.lt[0].id
   cidr_block              = "10.0.1.0/24"
   availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = true
@@ -37,7 +47,8 @@ resource "aws_subnet" "public_a" {
 }
 
 resource "aws_subnet" "public_b" {
-  vpc_id                  = aws_vpc.lt.id
+  count                   = var.use_existing_subnets ? 0 : 1
+  vpc_id                  = aws_vpc.lt[0].id
   cidr_block              = "10.0.2.0/24"
   availability_zone       = data.aws_availability_zones.available.names[1]
   map_public_ip_on_launch = true
@@ -45,28 +56,58 @@ resource "aws_subnet" "public_b" {
 }
 
 resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.lt.id
+  count = var.use_existing_subnets ? 0 : 1
+  vpc_id = aws_vpc.lt[0].id
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.lt.id
+    gateway_id = aws_internet_gateway.lt[0].id
   }
   tags = { Name = "${local.cluster_name}-public-rt" }
 }
 
 resource "aws_route_table_association" "a" {
-  subnet_id      = aws_subnet.public_a.id
-  route_table_id = aws_route_table.public.id
+  count          = var.use_existing_subnets ? 0 : 1
+  subnet_id      = aws_subnet.public_a[0].id
+  route_table_id = aws_route_table.public[0].id
 }
 
 resource "aws_route_table_association" "b" {
-  subnet_id      = aws_subnet.public_b.id
-  route_table_id = aws_route_table.public.id
+  count          = var.use_existing_subnets ? 0 : 1
+  subnet_id      = aws_subnet.public_b[0].id
+  route_table_id = aws_route_table.public[0].id
+}
+
+# BYO: ensure public subnets have an associated route table; if none, associate main RT
+data "aws_vpc" "byo" {
+  count = var.use_existing_vpc ? 1 : 0
+  id    = var.vpc_id
+}
+
+data "aws_route_tables" "by_subnet" {
+  for_each = var.use_existing_subnets ? toset(var.public_subnet_ids) : []
+  filter {
+    name   = "association.subnet-id"
+    values = [each.value]
+  }
+}
+
+locals {
+  byo_subnets_missing_rt = var.use_existing_subnets ? [
+    for s in var.public_subnet_ids : s if length(try(data.aws_route_tables.by_subnet[s].ids, [])) == 0
+  ] : []
+}
+
+resource "aws_route_table_association" "byo_assoc" {
+  for_each      = toset(local.byo_subnets_missing_rt)
+  subnet_id     = each.value
+  route_table_id = data.aws_vpc.byo[0].main_route_table_id
 }
 
 resource "aws_security_group" "alb" {
+  count       = var.use_existing_security_groups ? 0 : 1
   name        = "${local.cluster_name}-alb-sg"
   description = "ALB SG"
-  vpc_id      = aws_vpc.lt.id
+  vpc_id      = local.vpc_id_resolved
   ingress {
     from_port   = 80
     to_port     = 80
@@ -89,14 +130,15 @@ resource "aws_security_group" "alb" {
 }
 
 resource "aws_security_group" "ecs" {
+  count       = var.use_existing_security_groups ? 0 : 1
   name        = "${local.cluster_name}-ecs-sg"
   description = "ECS tasks SG"
-  vpc_id      = aws_vpc.lt.id
+  vpc_id      = local.vpc_id_resolved
   ingress {
     from_port       = var.master_port
     to_port         = var.master_port
     protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
+    security_groups = [local.alb_sg_id_resolved]
   }
   ingress {
     from_port = 5557
@@ -117,15 +159,15 @@ resource "aws_lb" "this" {
   name               = "${local.cluster_name}-alb"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
-  subnets            = [aws_subnet.public_a.id, aws_subnet.public_b.id]
+  security_groups    = [local.alb_sg_id_resolved]
+  subnets            = local.public_subnet_ids_resolved
 }
 
 resource "aws_lb_target_group" "master" {
   name        = "${substr(local.cluster_name,0,20)}-tg"
   port        = var.master_port
   protocol    = "HTTP"
-  vpc_id      = aws_vpc.lt.id
+  vpc_id      = local.vpc_id_resolved
   target_type = "ip"
   health_check {
     path                = "/"
@@ -189,12 +231,14 @@ data "aws_iam_policy_document" "ecs_task_assume" {
 }
 
 resource "aws_iam_role" "task_execution" {
+  count              = var.use_existing_iam_roles ? 0 : 1
   name               = "${local.cluster_name}-exec"
   assume_role_policy = data.aws_iam_policy_document.ecs_task_assume.json
 }
 
 resource "aws_iam_role_policy_attachment" "exec_policy" {
-  role       = aws_iam_role.task_execution.name
+  count      = var.use_existing_iam_roles ? 0 : 1
+  role       = aws_iam_role.task_execution[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
@@ -209,7 +253,7 @@ resource "aws_ecs_cluster" "this" {
 
 resource "aws_service_discovery_private_dns_namespace" "this" {
   name = local.namespace_name
-  vpc  = aws_vpc.lt.id
+  vpc  = local.vpc_id_resolved
 }
 
 resource "aws_service_discovery_service" "master" {
@@ -229,8 +273,8 @@ resource "aws_ecs_task_definition" "master" {
   requires_compatibilities = ["FARGATE"]
   cpu                      = tostring(var.cpu_units)
   memory                   = tostring(var.memory_units)
-  execution_role_arn       = aws_iam_role.task_execution.arn
-  task_role_arn            = aws_iam_role.task_execution.arn
+  execution_role_arn       = local.exec_role_arn_resolved
+  task_role_arn            = local.task_role_arn_resolved
   runtime_platform {
     operating_system_family = "LINUX"
     cpu_architecture        = "X86_64"
@@ -241,6 +285,7 @@ resource "aws_ecs_task_definition" "master" {
       image     = var.locust_container_image
       essential = true
       portMappings = [{ containerPort = var.master_port, protocol = "tcp" }]
+      environment  = [for k, v in var.extra_environment : { name = k, value = v }]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -259,8 +304,8 @@ resource "aws_ecs_task_definition" "worker" {
   requires_compatibilities = ["FARGATE"]
   cpu                      = tostring(var.cpu_units)
   memory                   = tostring(var.memory_units)
-  execution_role_arn       = aws_iam_role.task_execution.arn
-  task_role_arn            = aws_iam_role.task_execution.arn
+  execution_role_arn       = local.exec_role_arn_resolved
+  task_role_arn            = local.task_role_arn_resolved
   runtime_platform {
     operating_system_family = "LINUX"
     cpu_architecture        = "X86_64"
@@ -270,6 +315,7 @@ resource "aws_ecs_task_definition" "worker" {
       name      = "worker"
       image     = var.locust_container_image
       essential = true
+      environment  = [for k, v in var.extra_environment : { name = k, value = v }]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -289,8 +335,8 @@ resource "aws_ecs_service" "master" {
   desired_count   = 1
   launch_type     = "FARGATE"
   network_configuration {
-    subnets         = [aws_subnet.public_a.id, aws_subnet.public_b.id]
-    security_groups = [aws_security_group.ecs.id]
+    subnets         = local.public_subnet_ids_resolved
+    security_groups = [local.ecs_sg_id_resolved]
     assign_public_ip = true
   }
   load_balancer {
@@ -309,8 +355,8 @@ resource "aws_ecs_service" "worker" {
   desired_count   = var.worker_desired_count
   launch_type     = "FARGATE"
   network_configuration {
-    subnets         = [aws_subnet.public_a.id, aws_subnet.public_b.id]
-    security_groups = [aws_security_group.ecs.id]
+    subnets         = local.public_subnet_ids_resolved
+    security_groups = [local.ecs_sg_id_resolved]
     assign_public_ip = true
   }
 }
