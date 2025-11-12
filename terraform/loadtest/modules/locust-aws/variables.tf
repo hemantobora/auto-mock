@@ -1,11 +1,17 @@
 variable "project_name" { type = string }
 variable "aws_region" { type = string }
+variable "existing_bucket_name" { type = string }
 variable "cpu_units" { type = number }
 variable "memory_units" { type = number }
 variable "worker_desired_count" { type = number }
 variable "master_port" { type = number }
 variable "log_retention_days" { type = number }
 variable "locust_container_image" { type = string }
+
+variable "init_container_image" {
+	type    = string
+	default = "python:3.11-slim"
+}
 
 # BYO networking toggles (align with mockserver module)
 variable "use_existing_vpc" {

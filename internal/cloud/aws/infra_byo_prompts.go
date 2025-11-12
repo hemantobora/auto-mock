@@ -471,7 +471,7 @@ func promptInputsForMissingSurvey(cap Capability) (Inputs, error) {
 
 	if !cap.IAM.Roles {
 		// Require both ARNs
-		PrintIAMPolicies()
+		PrintECSIAMPolicies()
 		fmt.Println("Make sure the roles are created and attach the necessary policies shown above before proceeding.")
 		if err := survey.AskOne(&survey.Input{
 			Message: "Existing ECS Execution Role ARN (required)",
@@ -485,6 +485,7 @@ func promptInputsForMissingSurvey(cap Capability) (Inputs, error) {
 			return in, err
 		}
 
+		PrintECSRoleIAMPolicies()
 		if err := survey.AskOne(&survey.Input{
 			Message: "Existing ECS Task Role ARN (required)",
 		}, &in.TaskRoleARN, survey.WithValidator(func(ans interface{}) error {

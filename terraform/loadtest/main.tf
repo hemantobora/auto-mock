@@ -18,12 +18,14 @@ module "aws_locust" {
 
   project_name         = var.project_name
   aws_region           = var.aws_region
+  existing_bucket_name = var.existing_bucket_name
   cpu_units            = var.cpu_units
   memory_units         = var.memory_units
   worker_desired_count = var.worker_desired_count
   master_port          = var.master_port
   log_retention_days   = var.log_retention_days
   locust_container_image = var.locust_container_image
+  init_container_image   = var.init_container_image
 
   # BYO networking passthrough
   use_existing_vpc       = var.use_existing_vpc

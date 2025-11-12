@@ -242,6 +242,39 @@ resource "aws_iam_role_policy_attachment" "exec_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# Minimal S3 read permissions for init sidecar to fetch the active bundle
+data "aws_iam_policy_document" "s3_read" {
+  statement {
+    sid     = "AllowGetObject"
+    actions = ["s3:GetObject"]
+    resources = [
+      "arn:aws:s3:::${var.existing_bucket_name}/*",
+    ]
+  }
+  statement {
+    sid       = "AllowListBucket"
+    actions   = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::${var.existing_bucket_name}"]
+  }
+  statement {
+    sid       = "AllowBucketDecryption"
+    actions   = ["kms:Decrypt","kms:DescribeKey"]
+    resources = ["arn:aws:kms:*:*:key/*","arn:aws:kms:*:*:alias/auto-mock-*"]
+  }  
+}
+
+resource "aws_iam_policy" "s3_read" {
+  count  = var.use_existing_iam_roles ? 0 : 1
+  name   = "${local.cluster_name}-s3-read"
+  policy = data.aws_iam_policy_document.s3_read.json
+}
+
+resource "aws_iam_role_policy_attachment" "s3_read_attach" {
+  count      = var.use_existing_iam_roles ? 0 : 1
+  role       = aws_iam_role.task_execution[0].name
+  policy_arn = aws_iam_policy.s3_read[0].arn
+}
+
 resource "aws_cloudwatch_log_group" "this" {
   name              = "/ecs/${local.cluster_name}"
   retention_in_days = var.log_retention_days
@@ -249,6 +282,89 @@ resource "aws_cloudwatch_log_group" "this" {
 
 resource "aws_ecs_cluster" "this" {
   name = local.cluster_name
+}
+
+locals {
+  # Shell snippet used by the init sidecar to install boto3 and download the active bundle into /workspace
+  init_bootstrap_shell = <<-EOT
+  set -e
+  pip install --no-cache-dir -q boto3
+  python - <<'PY'
+import os, sys, json
+from typing import Optional
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
+
+bucket = os.environ.get("BUNDLE_BUCKET")
+project = os.environ.get("PROJECT_NAME")
+if not bucket or not project:
+  print("[bootstrap] Missing BUNDLE_BUCKET or PROJECT_NAME env vars", file=sys.stderr)
+  sys.exit(0)
+
+pointer_key = f"configs/{project}-loadtest/current.json"
+bundle_prefix_base = f"configs/{project}-loadtest/bundles"
+workspace = "/workspace"
+os.makedirs(workspace, exist_ok=True)
+
+try:
+  s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION"))
+except Exception as e:
+  print(f"[bootstrap] Failed to create S3 client: {e}", file=sys.stderr)
+  sys.exit(0)
+
+def get_pointer() -> Optional[dict]:
+  try:
+    s3.download_file(bucket, pointer_key, os.path.join(workspace, "current.json"))
+    with open(os.path.join(workspace, "current.json"), "r", encoding="utf-8") as f:
+      return json.load(f)
+  except ClientError as e:
+    if e.response.get("Error", {}).get("Code") == "NoSuchKey":
+      print("[bootstrap] current.json not found; skipping.")
+      return None
+    print(f"[bootstrap] Error downloading pointer: {e}")
+    return None
+  except Exception as e:
+    print(f"[bootstrap] Unexpected pointer error: {e}")
+    return None
+
+ptr = get_pointer()
+if not ptr:
+  sys.exit(0)
+
+bundle_id = ptr.get("bundle_id") or ptr.get("BundleID")
+if not bundle_id:
+  print("[bootstrap] Pointer missing bundle_id; exiting.")
+  sys.exit(0)
+
+bundle_prefix = f"{bundle_prefix_base}/{bundle_id}/"
+print(f"[bootstrap] bundle_id={bundle_id} prefix={bundle_prefix}")
+
+paginator = s3.get_paginator("list_objects_v2")
+count = 0
+try:
+  for page in paginator.paginate(Bucket=bucket, Prefix=bundle_prefix):
+    for obj in page.get("Contents", []):
+      key = obj["Key"]
+      name = key.split("/")[-1]
+      target = os.path.join(workspace, name)
+      try:
+        s3.download_file(bucket, key, target)
+        count += 1
+        print(f"[bootstrap] fetched {key} -> {target}")
+      except (BotoCoreError, ClientError) as e:
+        print(f"[bootstrap] failed {key}: {e}")
+except Exception as e:
+  print(f"[bootstrap] Unexpected list error: {e}")
+
+print(f"[bootstrap] downloaded {count} bundle objects")
+sys.exit(0)
+PY
+  # Install Python dependencies from the bundle into a shared path if present
+  if [ -f /workspace/requirements.txt ]; then
+    echo "[bootstrap] installing Python deps from requirements.txt into /workspace/.deps"
+    python -m pip install --no-cache-dir --disable-pip-version-check --root-user-action=ignore -r /workspace/requirements.txt --target /workspace/.deps
+  fi
+  EOT
 }
 
 resource "aws_service_discovery_private_dns_namespace" "this" {
@@ -279,13 +395,47 @@ resource "aws_ecs_task_definition" "master" {
     operating_system_family = "LINUX"
     cpu_architecture        = "X86_64"
   }
+  # Shared ephemeral volume for init<->master container to exchange bundle files
+  volume { name = "workspace" }
+  # Two containers:
+  # 1. init sidecar that downloads current.json & bundle files from S3
+  # 2. locust master container started after files are in place
   container_definitions = jsonencode([
+    {
+      name      = "init"
+      image     = var.init_container_image
+      essential = false
+      mountPoints = [{ sourceVolume = "workspace", containerPath = "/workspace" }]
+      command = ["sh","-lc", local.init_bootstrap_shell]
+      environment = concat([
+        { name = "AWS_REGION",    value = var.aws_region },
+        { name = "BUNDLE_BUCKET", value = var.existing_bucket_name },
+        { name = "PROJECT_NAME",  value = var.project_name }
+      ], [for k, v in var.extra_environment : { name = k, value = v }])
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.this.name
+          awslogs-region        = var.aws_region
+          awslogs-stream-prefix = "init-master"
+        }
+      }
+    },
     {
       name      = local.container_name
       image     = var.locust_container_image
       essential = true
+      mountPoints = [{ sourceVolume = "workspace", containerPath = "/workspace" }]
+      workingDirectory = "/workspace"
+      dependsOn = [{ containerName = "init", condition = "SUCCESS" }]
       portMappings = [{ containerPort = var.master_port, protocol = "tcp" }]
-      environment  = [for k, v in var.extra_environment : { name = k, value = v }]
+      # Since the Locust image has ENTRYPOINT ["locust"], command provides only arguments
+  command = ["-f","/workspace/locustfile.py","--master","--web-host","0.0.0.0","--web-port",tostring(var.master_port),"--loglevel","INFO"]
+      environment = concat([
+        { name = "LOCUST_MODE", value = "master" },
+        { name = "LOCUST_LOGLEVEL", value = "INFO" },
+        { name = "PYTHONPATH", value = "/workspace/.deps" }
+      ], [for k, v in var.extra_environment : { name = k, value = v }])
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -310,12 +460,43 @@ resource "aws_ecs_task_definition" "worker" {
     operating_system_family = "LINUX"
     cpu_architecture        = "X86_64"
   }
+  # Shared ephemeral volume for init<->worker
+  volume { name = "workspace" }
   container_definitions = jsonencode([
+    {
+      name      = "init"
+      image     = var.init_container_image
+      essential = false
+      mountPoints = [{ sourceVolume = "workspace", containerPath = "/workspace" }]
+      command = ["sh","-lc", local.init_bootstrap_shell]
+      environment = concat([
+        { name = "AWS_REGION",    value = var.aws_region },
+        { name = "BUNDLE_BUCKET", value = var.existing_bucket_name },
+        { name = "PROJECT_NAME",  value = var.project_name }
+      ], [for k, v in var.extra_environment : { name = k, value = v }])
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.this.name
+          awslogs-region        = var.aws_region
+          awslogs-stream-prefix = "init-worker"
+        }
+      }
+    },
     {
       name      = "worker"
       image     = var.locust_container_image
       essential = true
-      environment  = [for k, v in var.extra_environment : { name = k, value = v }]
+      mountPoints = [{ sourceVolume = "workspace", containerPath = "/workspace" }]
+      workingDirectory = "/workspace"
+      dependsOn = [{ containerName = "init", condition = "SUCCESS" }]
+      # Arguments only; ENTRYPOINT is locust
+  command = ["-f","/workspace/locustfile.py","--worker","--master-host","master.${local.namespace_name}"]
+      environment = concat([
+        { name = "LOCUST_MODE", value = "worker" },
+        { name = "LOCUST_MASTER_HOST", value = "master.${local.namespace_name}" },
+        { name = "PYTHONPATH", value = "/workspace/.deps" }
+      ], [for k, v in var.extra_environment : { name = k, value = v }])
       logConfiguration = {
         logDriver = "awslogs"
         options = {

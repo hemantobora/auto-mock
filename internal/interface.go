@@ -56,6 +56,16 @@ type Provider interface {
 	DownloadLoadTestBundle(ctx context.Context, projectID, destDir string) (*models.LoadTestPointer, string, error)
 	DeleteLoadTestPointer(ctx context.Context, projectID string) error
 
+	// Advanced load test artifact lifecycle
+	// DeleteActiveLoadTestBundleAndRollback deletes the bundle referenced by the current pointer
+	// and attempts to roll back the pointer to the previous version (if any). It returns the
+	// new pointer (nil if none) and the count of deleted bundle objects.
+	DeleteActiveLoadTestBundleAndRollback(ctx context.Context, projectID string) (*models.LoadTestPointer, int, error)
+	// PurgeLoadTestArtifacts removes ALL load test related objects (bundles, versions, pointer, metadata)
+	// for the given project. It returns the count of deleted object versions and a flag indicating
+	// whether the underlying storage bucket/container was also deleted as a consequence.
+	PurgeLoadTestArtifacts(ctx context.Context, projectID string) (int, bool, error)
+
 	// Load test (Locust) deployment metadata management
 	SaveLoadTestDeploymentMetadata(metadata *models.LoadTestDeploymentOutputs) error
 	GetLoadTestDeploymentMetadata() (*models.LoadTestDeploymentMetadata, error)

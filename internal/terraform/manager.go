@@ -3,7 +3,6 @@ package terraform
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,12 +36,6 @@ func DefaultDeploymentOptions() *models.DeploymentOptions {
 
 // NewManager creates a new Terraform manager
 func NewManager(cleanProject, profile string, provider internal.Provider) (*Manager, error) {
-
-	exists, err := provider.ProjectExists(context.Background(), cleanProject)
-	if !exists || err != nil {
-		return nil, fmt.Errorf("project %s does not exist", cleanProject)
-	}
-
 	// Get the project root directory
 	execPath, _ := os.Executable()
 	projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(execPath)))

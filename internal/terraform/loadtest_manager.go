@@ -3,7 +3,6 @@ package terraform
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,14 +30,6 @@ type LoadTestManager struct {
 
 // NewLoadTestManager creates a new manager for the loadtest stack
 func NewLoadTestManager(cleanProject, profile string, provider core.Provider) (*LoadTestManager, error) {
-	exists, err := provider.ProjectExists(context.Background(), cleanProject)
-	if err != nil {
-		return nil, fmt.Errorf("project existence check failed: %w", err)
-	}
-	if !exists {
-		return nil, fmt.Errorf("project %s does not exist (init first)", cleanProject)
-	}
-
 	exe, _ := os.Executable()
 	root := filepath.Dir(filepath.Dir(filepath.Dir(exe)))
 	terraformDir := filepath.Join(root, "terraform", "loadtest")
@@ -128,6 +119,18 @@ func (m *LoadTestManager) Destroy() error {
 	if err := m.createBackendConfigWithKey("terraform/loadtest/state/terraform.tfstate"); err != nil {
 		return err
 	}
+	// Provide required variables to avoid interactive prompts during destroy
+	if err := m.createLoadTestVars(&models.LoadTestDeploymentOptions{
+		ProjectName:        m.ProjectName,
+		Region:             m.Region,
+		BucketName:         m.BucketName,
+		Provider:           m.Provider.GetProviderType(),
+		CPUUnits:           256,
+		MemoryUnits:        512,
+		WorkerDesiredCount: 0,
+	}); err != nil {
+		return err
+	}
 	if err := m.initTerraform(); err != nil {
 		return err
 	}
@@ -141,6 +144,9 @@ func (m *LoadTestManager) Destroy() error {
 // ===================== internals (delegate to existing helpers) =====================
 
 func (m *LoadTestManager) prepareWorkspace() error {
+	l := models.NewLoader(os.Stdout, "Preparing workspace")
+	l.Start()
+	defer l.Stop()
 	if err := os.MkdirAll(m.WorkingDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}

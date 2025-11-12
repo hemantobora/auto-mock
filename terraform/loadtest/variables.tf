@@ -40,8 +40,15 @@ variable "worker_desired_count" {
 variable "locust_container_image" {
   type        = string
   description = "Container image to run in ECS tasks (placeholder demo by default)"
-  # Using a tiny demo image by default; replace with a Locust image and bootstrap if needed
-  default     = "nginxdemos/hello:plain-text"
+  # Default to official Locust image to avoid custom builds for easy adoption
+  default     = "locustio/locust:2.31.2"
+}
+
+variable "init_container_image" {
+  type        = string
+  description = "Image for the init sidecar that fetches the active bundle (should have Python/pip)."
+  # Use public Python image so no custom build is required by default
+  default     = "python:3.11-slim"
 }
 
 variable "master_port" {
