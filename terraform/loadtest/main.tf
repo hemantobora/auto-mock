@@ -14,13 +14,17 @@ provider "aws" {
 
 # Root wraps a versioned module so it can later be replaced with a remote source
 module "aws_locust" {
-  source = "./modules/locust-aws"
+  # source = "./modules/locust-aws"
+  source = "git::https://github.com/hemantobora/automock-terraform.git//modules/locust-aws"
 
   project_name         = var.project_name
   aws_region           = var.aws_region
   existing_bucket_name = var.existing_bucket_name
-  cpu_units            = var.cpu_units
-  memory_units         = var.memory_units
+  # Sizing: master defaults to 1 vCPU/2GB, workers default to cpu_units/memory_units
+  master_cpu_units     = var.master_cpu_units
+  master_memory_units  = var.master_memory_units
+  worker_cpu_units     = var.cpu_units
+  worker_memory_units  = var.memory_units
   worker_desired_count = var.worker_desired_count
   master_port          = var.master_port
   log_retention_days   = var.log_retention_days

@@ -15,13 +15,14 @@ func applyPriority() FeatureFunc {
 
 		fmt.Println("\n💡 Priority Explanation:")
 		fmt.Println("   • Lower numbers = higher priority (0 is highest)")
-		fmt.Println("   • Higher priority expectations are matched first")
+		fmt.Println("   • Lower-numbered (higher priority) expectations are matched first")
 		fmt.Println("   • Use this to resolve conflicts between overlapping expectations")
 		fmt.Println("   • Example: Specific /users/123 before generic /users/{id}")
+		fmt.Println("   • No hard maximum; 0..100 is just a suggested range")
 
 		var pStr string
 		if err := survey.AskOne(&survey.Input{
-			Message: "Priority (higher wins). Suggest 0..100:",
+			Message: "Priority (lower wins). Suggest 0..100 (0 = highest; no hard max):",
 			Default: "10",
 		}, &pStr, survey.WithValidator(survey.Required)); err != nil {
 			return err

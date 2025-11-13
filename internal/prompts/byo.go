@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/hemantobora/auto-mock/internal/cloud/aws"
 	"github.com/hemantobora/auto-mock/internal/models"
 )
 
@@ -186,10 +187,12 @@ func PromptBYOIAM(opts *models.LoadTestDeploymentOptions) error {
 
 	opts.UseExistingIAMRoles = true
 
+	aws.PrintECSIAMPolicies()
 	var execArn, taskArn string
 	_ = survey.AskOne(&survey.Input{
 		Message: "Execution role (ARN on AWS):",
 	}, &execArn)
+	aws.PrintECSRoleIAMPolicies()
 	_ = survey.AskOne(&survey.Input{
 		Message: "Task role (ARN on AWS; press Enter to reuse execution role, Make sure role has s3 and kms access):",
 	}, &taskArn)

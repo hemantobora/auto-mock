@@ -12,9 +12,9 @@ This folder contains a ready-to-run Locust bundle.
 
 ## Data parameterization
 
-Placeholders in `locust_endpoints.json` are expanded at runtime:
+Placeholders in `locust_endpoints.json` are expanded at runtime and work in path, headers, query params, and body:
 
-- `${data.<field>}` — Use a field from the current user’s data row (from `user_data.yaml`/`csv`/`json`).
+- `${data.<field>}` — Use a field from the current user’s data row (from `user_data.yaml`/`csv`/`json`). Works in `path` too, e.g. `/v2/auth/${data.accountNumber}`.
 - `${user.id}` / `${user.index}` — This user’s index (0-based).
 - `${env.VAR}` — Environment variables.
 
@@ -52,8 +52,8 @@ Example (in `locust_endpoints.json`):
 
 ## Auth
 
-- `auth.mode: shared` — One login at test start; shared token for all users (no user-data expansion in auth).
-- `auth.mode: per_user` — Each user logs in once; you can use `${data.username}` and `${data.password}` in login headers/body.
+- `auth.mode: shared` — One login at test start; shared token for all users. `${env.*}` expands in auth; `${data.*}` is not available in shared auth.
+- `auth.mode: per_user` — Each user logs in once; you can use `${data.username}` and `${data.password}` in login `path`/headers/body.
 
 ## User data file
 

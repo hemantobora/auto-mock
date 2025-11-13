@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 
 	core "github.com/hemantobora/auto-mock/internal"
@@ -93,6 +92,10 @@ func (m *LoadTestManager) Deploy(opts *models.LoadTestDeploymentOptions) (*model
 	if err := m.createLoadTestVars(opts); err != nil {
 		return nil, err
 	}
+	// Capture the exact tfvars used so future operations (e.g., scale) can reuse them
+	tfvarsPath := filepath.Join(m.WorkingDir, "terraform.tfvars")
+	tfvarsBytes, _ := os.ReadFile(tfvarsPath)
+
 	if err := m.planTerraform(); err != nil {
 		return nil, err
 	}
@@ -103,6 +106,12 @@ func (m *LoadTestManager) Deploy(opts *models.LoadTestDeploymentOptions) (*model
 	out, err := m.getLoadTestOutputs()
 	if err != nil {
 		return nil, err
+	}
+	if len(tfvarsBytes) > 0 {
+		if out.Extras == nil {
+			out.Extras = map[string]string{}
+		}
+		out.Extras["tfvars"] = string(tfvarsBytes)
 	}
 	if err := m.Provider.SaveLoadTestDeploymentMetadata(out); err != nil {
 		return nil, fmt.Errorf("save loadtest metadata: %w", err)
@@ -207,18 +216,43 @@ func (m *LoadTestManager) runTerraform(args ...string) error {
 }
 func (m *LoadTestManager) initTerraform() error {
 	fmt.Println("🔧 terraform init (loadtest)...")
-	return m.runTerraform("init")
+	l := models.NewLoader(os.Stdout, "Initializing Terraform")
+	l.Start()
+	defer l.Stop()
+	cmd := exec.Command("terraform", "init")
+	cmd.Dir = m.WorkingDir
+	cmd.Env = m.terraformEnv()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// Ensure loader line cleared, then print error output
+		l.StopWithMessage("")
+		return fmt.Errorf("terraform init failed: %w\n%s", err, string(out))
+	}
+	return nil
 }
 func (m *LoadTestManager) planTerraform() error {
 	fmt.Println("📋 terraform plan (loadtest)...")
-	return m.runTerraform("plan", "-out=tfplan")
+	l := models.NewLoader(os.Stdout, "Planning changes")
+	l.Start()
+	defer l.Stop()
+	cmd := exec.Command("terraform", "plan", "-out=tfplan")
+	cmd.Dir = m.WorkingDir
+	cmd.Env = m.terraformEnv()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		l.StopWithMessage("")
+		return fmt.Errorf("terraform plan failed: %w\n%s", err, string(out))
+	}
+	return nil
 }
 func (m *LoadTestManager) applyTerraform() error {
 	fmt.Println("🏗️ terraform apply (loadtest)...")
+	// Stream output for apply so users see progress details
 	return m.runTerraform("apply", "-auto-approve", "tfplan")
 }
 func (m *LoadTestManager) destroyTerraform() error {
 	fmt.Println("💥 terraform destroy (loadtest)...")
+	// Stream output for destroy as well
 	return m.runTerraform("destroy", "-auto-approve")
 }
 
@@ -311,16 +345,51 @@ func streamLines(r io.Reader, isErr bool) {
 
 // ScaleWorkers updates worker_desired_count in terraform.tfvars and reapplies
 func (m *LoadTestManager) ScaleWorkers(desired int) error {
+	// Always use an ephemeral workspace for scaling; restore tfvars from metadata to avoid drift
+	if err := m.prepareWorkspace(); err != nil {
+		return err
+	}
+	defer m.cleanup()
+	if err := m.createBackendConfigWithKey("terraform/loadtest/state/terraform.tfstate"); err != nil {
+		return err
+	}
+	if err := m.initTerraform(); err != nil {
+		return err
+	}
+
 	tfvars := filepath.Join(m.WorkingDir, "terraform.tfvars")
+	if _, statErr := os.Stat(tfvars); os.IsNotExist(statErr) {
+		// Restore exact variables from saved deployment metadata (preferred)
+		md, mdErr := m.Provider.GetLoadTestDeploymentMetadata()
+		if mdErr != nil || md == nil || md.Details == nil || md.Details.Extras == nil {
+			return fmt.Errorf("cannot scale safely: missing saved tfvars in deployment metadata; run 'automock deploy --project %s' once to capture variables, then retry scaling", m.ProjectName)
+		}
+		tfv, ok := md.Details.Extras["tfvars"]
+		if !ok || strings.TrimSpace(tfv) == "" {
+			return fmt.Errorf("cannot scale safely: no tfvars found in metadata; run 'automock deploy --project %s' to refresh metadata, then retry", m.ProjectName)
+		}
+		if err := os.WriteFile(tfvars, []byte(tfv), 0644); err != nil {
+			return fmt.Errorf("restore tfvars: %w", err)
+		}
+	}
+
 	data, err := os.ReadFile(tfvars)
 	if err != nil {
 		return fmt.Errorf("read tfvars: %w", err)
 	}
-	re := regexp.MustCompile(`(?m)^worker_desired_count\s*=\s*\d+`)
-	updated := re.ReplaceAllString(string(data), fmt.Sprintf("worker_desired_count = %d", desired))
-	if updated == string(data) {
-		updated += fmt.Sprintf("\nworker_desired_count = %d\n", desired)
+	// Remove any existing worker_desired_count lines (with optional leading whitespace)
+	reLine := regexp.MustCompile(`(?m)^\s*worker_desired_count\s*=.*$`)
+	cleaned := reLine.ReplaceAllString(string(data), "")
+	// Normalize multiple blank lines possibly introduced by removals
+	var outLines []string
+	for _, ln := range strings.Split(cleaned, "\n") {
+		if strings.TrimSpace(ln) == "" {
+			continue
+		}
+		outLines = append(outLines, ln)
 	}
+	outLines = append(outLines, fmt.Sprintf("worker_desired_count = %d", desired))
+	updated := strings.Join(outLines, "\n") + "\n"
 	if err := os.WriteFile(tfvars, []byte(updated), 0644); err != nil {
 		return fmt.Errorf("write tfvars: %w", err)
 	}
@@ -331,9 +400,14 @@ func (m *LoadTestManager) ScaleWorkers(desired int) error {
 		return err
 	}
 	if out, err := m.getLoadTestOutputs(); err == nil {
+		// Persist the updated tfvars alongside outputs to keep future scales drift-free
+		if b, rerr := os.ReadFile(tfvars); rerr == nil {
+			if out.Extras == nil {
+				out.Extras = map[string]string{}
+			}
+			out.Extras["tfvars"] = string(b)
+		}
 		_ = m.Provider.SaveLoadTestDeploymentMetadata(out)
 	}
 	return nil
 }
-
-func parseWorkerCount(s string) (int, error) { return strconv.Atoi(strings.TrimSpace(s)) }

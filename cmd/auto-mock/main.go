@@ -112,14 +112,14 @@ func main() {
 				},
 			},
 			{
-				Name:  "locust",
-				Usage: "Generate and optionally upload a Locust load testing bundle",
+				Name:  "load",
+				Usage: "Generate and manage load-test bundles (Locust)",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "project", Usage: "Project name."},
 					&cli.BoolFlag{Name: "upload", Usage: "Upload bundle to cloud storage."},
-					&cli.BoolFlag{Name: "dry-run", Usage: "Simulate upload without persisting objects."},
-					&cli.BoolFlag{Name: "edit", Usage: "Download current active bundle for editing (interactive re-upload option)."},
-					&cli.BoolFlag{Name: "delete-pointer", Usage: "Delete current bundle pointer (current.json) only; keep versions/bundles."},
+					&cli.BoolFlag{Name: "download", Usage: "Download current active bundle for editing."},
+					&cli.BoolFlag{Name: "delete-pointer", Usage: "Delete current pointer and bundle."},
+					&cli.BoolFlag{Name: "purge-all", Usage: "Purge all resources associated with the load test."},
 					&cli.StringFlag{
 						Name:  "collection-file",
 						Usage: "Path to API collection file (Postman/Bruno/Insomnia)",
@@ -130,7 +130,7 @@ func main() {
 					},
 					&cli.StringFlag{
 						Name:  "dir",
-						Usage: "Output directory for the generated Locust files",
+						Usage: "Output directory for generated load-test files",
 					},
 					&cli.BoolFlag{
 						Name:  "headless",

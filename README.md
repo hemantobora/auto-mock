@@ -295,7 +295,7 @@ Manage expectations throughout their lifecycle:
 Generate Locust load testing bundles from collections:
 
 ```bash
-./automock locust \
+./automock load \
   --collection-file api.json \
   --collection-type postman \
   --dir ./load-tests \
@@ -316,6 +316,11 @@ cd load-tests
 - `run_locust_headless.sh` - Run without UI
 - `run_locust_master.sh` - Distributed master
 - `run_locust_worker.sh` - Distributed worker
+
+Variable substitution in Locust
+- `${env.VAR}` is expanded at load-time across the spec.
+- `${data.<field>}` and `${user.id|index}` are expanded at runtime in path, headers, params, and body.
+- Auth nuance: in `auth.mode: shared`, only `${env.*}` expands; in `auth.mode: per_user`, `${data.*}` and `${user.*}` also expand in the login path/headers/body.
 
 ---
 
@@ -368,13 +373,13 @@ Could not find '/workspace/locustfile.py'. Ensure your locustfile ends with '.py
 ```
 
 It means no active bundle was downloaded. Common causes:
-1. No load test bundle uploaded yet (run `automock locust --upload` for your project).
+1. No load test bundle uploaded yet (run `automock load --upload` for your project).
 2. Pointer file `current.json` missing or deleted (re-upload a bundle to recreate it).
 3. Bundle directory did not contain `locustfile.py` at upload time (upload validation should catch this).
 4. IAM permissions missing for S3 GetObject/ListBucket on the bundle paths.
 
 Recovery steps:
-- Upload a new bundle: `automock locust --project <name> --upload --dir ./loadtest`
+- Upload a new bundle: `automock load --project <name> --upload --dir ./loadtest`
 - Confirm pointer exists: check S3 key `configs/<project>-loadtest/current.json`
 - Verify bundle objects under `configs/<project>-loadtest/bundles/<bundle_id>/`
 - Re-deploy after fixing.
@@ -522,7 +527,7 @@ Test against external APIs without rate limits or costs:
 ### 4. Performance Testing
 Validate system behavior under load:
 ```bash
-./automock locust \
+./automock load \
   --collection-file prod-api.json \
   --collection-type postman \
   --dir ./load-tests

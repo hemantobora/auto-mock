@@ -31,6 +31,19 @@ variable "memory_units" {
   default     = 512
 }
 
+# Master sizing (defaults to 1 vCPU / 2 GB)
+variable "master_cpu_units" {
+  type        = number
+  description = "CPU units for master task (Fargate units: 256=0.25 vCPU, 1024=1 vCPU, etc.)"
+  default     = 1024
+}
+
+variable "master_memory_units" {
+  type        = number
+  description = "Memory (MiB) for master task"
+  default     = 2048
+}
+
 variable "worker_desired_count" {
   type        = number
   description = "Desired number of worker tasks"
@@ -54,7 +67,7 @@ variable "init_container_image" {
 variable "master_port" {
   type        = number
   description = "Port exposed by master UI container"
-  default     = 80
+  default     = 8089
 }
 
 variable "log_retention_days" {
