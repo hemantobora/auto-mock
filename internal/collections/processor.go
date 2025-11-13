@@ -265,27 +265,17 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 				}
 
 				// Let the user choose STRICT vs ONLY_MATCHING_FIELDS vs REGEX (full-body)
-				var mode string
-				if err := survey.AskOne(&survey.Select{
-					Message: "GraphQL POST body match mode:",
-					Options: []string{"ONLY_MATCHING_FIELDS", "STRICT"},
-					Default: "ONLY_MATCHING_FIELDS",
-				}, &mode); err != nil {
-					mode = "ONLY_MATCHING_FIELDS"
-				}
-
-				switch {
-				case mode == "STRICT":
+				var needsBody bool
+				_ = survey.AskOne(&survey.Confirm{
+					Message: "For GraphQL, Only STRICT or No match mode is allowed. Do you want to match the request body?",
+					Default: false,
+					Help:    "Choose ‘No’ to skip body matching.",
+				}, &needsBody)
+				if needsBody {
 					expectation.HttpRequest.Body = map[string]any{
 						"type":      "JSON",
 						"json":      envelope,
 						"matchType": "STRICT",
-					}
-				default: // ONLY_MATCHING_FIELDS
-					expectation.HttpRequest.Body = map[string]any{
-						"type":      "JSON",
-						"json":      envelope,
-						"matchType": "ONLY_MATCHING_FIELDS",
 					}
 				}
 			}
