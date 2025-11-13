@@ -88,3 +88,55 @@ func (p *Provider) IsDeployed() (bool, error) {
 
 	return metadata.DeploymentStatus == "deployed", nil
 }
+
+// ==== Load Test Deployment Metadata (Locust) ====
+
+const loadTestMetadataKey = "deployment-metadata-loadtest.json"
+
+// SaveLoadTestDeploymentMetadata persists load test deployment metadata (Locust infra)
+func (p *Provider) SaveLoadTestDeploymentMetadata(output *models.LoadTestDeploymentOutputs) error {
+	md := &models.LoadTestDeploymentMetadata{
+		ProjectName:      p.projectID,
+		DeploymentStatus: "deployed",
+		DeployedAt:       time.Now().UTC(),
+		Details:          output,
+	}
+	data, err := json.MarshalIndent(md, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal loadtest metadata: %w", err)
+	}
+	if err := p.putObject(context.Background(), loadTestMetadataKey, data, "application/json"); err != nil {
+		return fmt.Errorf("upload loadtest metadata: %w", err)
+	}
+	return nil
+}
+
+// GetLoadTestDeploymentMetadata fetches load test deployment metadata if present
+func (p *Provider) GetLoadTestDeploymentMetadata() (*models.LoadTestDeploymentMetadata, error) {
+	result, err := p.S3Client.GetObject(context.Background(), &s3.GetObjectInput{
+		Bucket: aws.String(p.BucketName),
+		Key:    aws.String(loadTestMetadataKey),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get loadtest metadata: %w", err)
+	}
+	defer result.Body.Close()
+	data, err := io.ReadAll(result.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read loadtest metadata: %w", err)
+	}
+	var md models.LoadTestDeploymentMetadata
+	if err := json.Unmarshal(data, &md); err != nil {
+		return nil, fmt.Errorf("unmarshal loadtest metadata: %w", err)
+	}
+	return &md, nil
+}
+
+// DeleteLoadTestDeploymentMetadata removes Locust deployment metadata
+func (p *Provider) DeleteLoadTestDeploymentMetadata() error {
+	_, err := p.S3Client.DeleteObject(context.Background(), &s3.DeleteObjectInput{
+		Bucket: aws.String(p.BucketName),
+		Key:    aws.String(loadTestMetadataKey),
+	})
+	return err
+}

@@ -5,6 +5,17 @@ set -euo pipefail
 : "${WEB_PORT:=8089}"
 # Optional: AM_HOST for master to set target host centrally
 
+# Optional: load environment variables from a local .env file
+if [ -f ".env" ]; then
+	# shellcheck disable=SC1091
+	set +u
+	set -a
+	. ./.env
+	set +a
+	set -u
+	echo "Loaded environment variables from .env"
+fi
+
 python3 -m venv .venv
 # shellcheck disable=SC1091
 source .venv/bin/activate

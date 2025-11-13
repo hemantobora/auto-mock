@@ -12,11 +12,28 @@ This folder contains a ready-to-run Locust bundle.
 
 ## Data parameterization
 
-Placeholders in `locust_endpoints.json` are expanded at runtime:
+Placeholders in `locust_endpoints.json` are expanded at runtime and work in path, headers, query params, and body:
 
-- `${data.<field>}` — Use a field from the current user’s data row (from `user_data.yaml`/`csv`/`json`).
+- `${data.<field>}` — Use a field from the current user’s data row (from `user_data.yaml`/`csv`/`json`). Works in `path` too, e.g. `/v2/auth/${data.accountNumber}`.
 - `${user.id}` / `${user.index}` — This user’s index (0-based).
 - `${env.VAR}` — Environment variables.
+
+Environment variables can be provided in two ways:
+
+1) Local runs (UI/headless/master/worker scripts):
+  - Create a `.env` file alongside the scripts with lines like:
+     
+    ```dotenv
+    API_TOKEN=abcd1234
+    BASE_URL=https://api.example.com
+    ```
+  - The provided run scripts auto-load `.env` if present. You can also export variables in your shell (macOS/Linux) or set `$Env:VAR` in PowerShell.
+  - In `locust_endpoints.json`, reference with `${env.API_TOKEN}` or `${env.BASE_URL}`.
+
+2) Cloud deploy (ECS/Fargate):
+  - During `deploy-loadtest` in the REPL, you will be prompted to load a `.env` file or enter KEY=VALUE pairs.
+  - These are injected as ECS task environment variables for both master and workers.
+  - Note: values are stored in task definitions in plain text. For sensitive, long-lived secrets, consider using a secrets manager in a future iteration.
 
 Example (in `locust_endpoints.json`):
 ```json
@@ -35,8 +52,8 @@ Example (in `locust_endpoints.json`):
 
 ## Auth
 
-- `auth.mode: shared` — One login at test start; shared token for all users (no user-data expansion in auth).
-- `auth.mode: per_user` — Each user logs in once; you can use `${data.username}` and `${data.password}` in login headers/body.
+- `auth.mode: shared` — One login at test start; shared token for all users. `${env.*}` expands in auth; `${data.*}` is not available in shared auth.
+- `auth.mode: per_user` — Each user logs in once; you can use `${data.username}` and `${data.password}` in login `path`/headers/body.
 
 ## User data file
 

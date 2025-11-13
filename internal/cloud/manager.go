@@ -78,6 +78,7 @@ func AutoDetectAndInit(profile string, cliContext *CLIContext) error {
 }
 
 func (m *CloudManager) AutoDetectProvider(profile string) error {
+	// Lightweight spinner to improve perceived responsiveness during provider detection.
 	ctx := context.Background()
 	provider, err := m.factory.AutoDetectProvider(ctx, profile)
 	if err != nil {
@@ -86,6 +87,10 @@ func (m *CloudManager) AutoDetectProvider(profile string) error {
 	m.Provider = provider
 	return nil
 }
+
+// startSpinner prints an animated spinner with a message until the returned stop function is called.
+// Keeps dependencies minimal (no external libs). Falls back gracefully on non-TTY environments.
+// spinner removed per user preference
 
 // Initialize runs the complete initialization workflow
 func (m *CloudManager) Initialize(cliContext *CLIContext) error {
@@ -508,9 +513,9 @@ func (m *CloudManager) saveToFile(mockServerJSON string) error {
 	mockConfig.Metadata.CreatedAt = time.Now()
 	mockConfig.Metadata.UpdatedAt = time.Now()
 
-	// Save to S3
+	// Persist via provider (cloud storage abstraction)
 	if err := m.Provider.SaveConfig(ctx, mockConfig); err != nil {
-		return fmt.Errorf("failed to save to S3: %w", err)
+		return fmt.Errorf("failed to persist configuration to cloud storage: %w", err)
 	}
 
 	fmt.Printf("\n✅ MockServer configuration saved to cloud storage!\n")

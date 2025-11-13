@@ -198,6 +198,7 @@ def _do_auth(client, ctx: Optional[Dict[str, Any]] = None):
     if ctx is not None:
         headers = _expand_runtime(headers, ctx)
         body    = _expand_runtime(body, ctx)
+        path    = _expand_runtime(path, ctx)
 
     kwargs = {"headers": headers, "timeout": REQUEST_TIMEOUT, "verify": VERIFY_TLS}
     if body is not None:
@@ -341,6 +342,7 @@ class AutoMockUser(HttpUser):
 
         # Runtime parameterization: ${data.field} and ${user.id|index}
         ctx = {"data": self._data or {}, "user": {"id": self._user_index, "index": self._user_index}}
+        path   = _expand_runtime(path, ctx)
         headers = _expand_runtime(headers, ctx)
         params  = _expand_runtime(params, ctx)
         body    = _expand_runtime(body, ctx)

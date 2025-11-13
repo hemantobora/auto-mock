@@ -7,58 +7,10 @@ import (
 	"github.com/hemantobora/auto-mock/internal/models"
 )
 
-// PrintIAMPolicies prints clear step-by-step guidance and the minimal JSON policies
-func PrintIAMPolicies() {
+func PrintECSRoleIAMPolicies() {
 	fmt.Println("\n───────────────────────────────")
-	fmt.Println("📜 Minimal IAM Policies for ECS")
+	fmt.Println("📜 ECS TASK ROLE:")
 	fmt.Println("───────────────────────────────")
-
-	fmt.Println("ECS EXECUTION ROLE:")
-	fmt.Println(`Use the following trust policy when creating this role.
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Sid": "",
-            "Effect": "Allow",
-            "Principal": {
-                "Service": "ecs.amazonaws.com"
-            },
-            "Action": "sts:AssumeRole"
-        },
-        {
-            "Sid": "",
-            "Effect": "Allow",
-            "Principal": {
-                "Service": "ecs-tasks.amazonaws.com"
-            },
-            "Action": "sts:AssumeRole"
-        },
-        {
-            "Sid": "",
-            "Effect": "Allow",
-            "Principal": {
-                "Service": "events.amazonaws.com"
-            },
-            "Action": "sts:AssumeRole"
-        }
-    ]
-}
-
-How to create: https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_execution_IAM_role.html
-Steps:
-  1. Go to IAM → "Create Role"
-  2. Select "AWS Service" → choose "Elastic Container Service"
-  3. Select "Task Execution Role for Elastic Container Service"
-  4. Click "Next" twice → name the role (e.g., auto-mock-ecs-execution-role)
-  5. Click "Create Role"`)
-
-	fmt.Println("\nAttach the managed policy:")
-	fmt.Println("  • AmazonECSTaskExecutionRolePolicy")
-	fmt.Println()
-	fmt.Println()
-
-	fmt.Println("ECS TASK ROLE:")
 	fmt.Println(`Use the following trust policy when creating this role.
 {
     "Version": "2012-10-17",
@@ -68,14 +20,6 @@ Steps:
             "Effect": "Allow",
             "Principal": {
                 "Service": "ecs-tasks.amazonaws.com"
-            },
-            "Action": "sts:AssumeRole"
-        },
-        {
-            "Sid": "",
-            "Effect": "Allow",
-            "Principal": {
-                "Service": "events.amazonaws.com"
             },
             "Action": "sts:AssumeRole"
         }
@@ -100,6 +44,11 @@ Steps:
     },
     {
       "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::auto-mock-*"
+    },
+    {
+      "Effect": "Allow",
       "Action": ["kms:Decrypt","kms:DescribeKey"],
       "Resource": [
         "arn:aws:kms:*:*:key/*",
@@ -108,8 +57,43 @@ Steps:
     }
   ]
 }`)
+	fmt.Println()
+	fmt.Println()
+}
 
-	fmt.Println("\n💡 After creating both roles, provide their ARNs when prompted.")
+// PrintIAMPolicies prints clear step-by-step guidance and the minimal JSON policies
+func PrintECSIAMPolicies() {
+	fmt.Println("\n───────────────────────────────")
+	fmt.Println("📜 ECS EXECUTION ROLE:")
+	fmt.Println("───────────────────────────────")
+
+	fmt.Println(`Use the following trust policy when creating this role.
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "",
+            "Effect": "Allow",
+            "Principal": {
+                "Service": "ecs-tasks.amazonaws.com"
+            },
+            "Action": "sts:AssumeRole"
+        }
+    ]
+}
+
+How to create: https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_execution_IAM_role.html
+Steps:
+  1. Go to IAM → "Create Role"
+  2. Select "AWS Service" → choose "Elastic Container Service"
+  3. Select "Task Execution Role for Elastic Container Service"
+  4. Click "Next" twice → name the role (e.g., auto-mock-ecs-execution-role)
+  5. Click "Create Role"`)
+
+	fmt.Println("\nAttach the managed policy:")
+	fmt.Println("  • AmazonECSTaskExecutionRolePolicy")
+	fmt.Println()
+	fmt.Println()
 }
 
 func (p *Provider) CreateDeploymentConfiguration() *models.DeploymentOptions {

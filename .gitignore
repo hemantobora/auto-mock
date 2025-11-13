@@ -10,7 +10,7 @@
 /build/
 /dist/
 /out/
-/auto-mock
+/**/auto-mock
 
 # IDE/editor files
 .vscode/
@@ -36,6 +36,10 @@ Thumbs.db
 # Ignore by name
 AWSCLIV2.pkg
 
-# Ignore build files
-auto-mock
-automock
+# Ignore build binaries at repo root (not source under cmd/)
+/auto-mock
+/automock
+
+# Ensure we DO track CLI sources under cmd/auto-mock
+!/cmd/auto-mock/
+!/cmd/auto-mock/**

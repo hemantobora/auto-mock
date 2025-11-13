@@ -12,7 +12,6 @@ import (
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/hemantobora/auto-mock/internal/collections"
-	"github.com/hemantobora/auto-mock/internal/models"
 )
 
 /* =========================
@@ -207,62 +206,48 @@ func GenerateLoadtestBundle(opts Options) error {
 		}
 	}
 
-	// OS-aware runner scripts — ONLY write what makes sense for the host OS
-	switch runtime.GOOS {
-	case "windows":
-		if *opts.Headless {
-			if err := os.WriteFile(filepath.Join(opts.OutDir, "run_locust_headless.ps1"), runHeadlessPs1, 0o644); err != nil {
-				return err
-			}
-		} else {
-			if err := os.WriteFile(filepath.Join(opts.OutDir, "run_locust_ui.ps1"), runUIPs1, 0o644); err != nil {
-				return err
-			}
+	// Runner scripts — write both headless and UI scripts for portability
+	// Always include both POSIX (.sh) and Windows (.ps1) variants so the bundle can be shared across machines.
+	// POSIX scripts marked executable; PowerShell scripts are regular files.
+	// Base runners
+	if opts.Headless != nil && *opts.Headless {
+		if err := os.WriteFile(filepath.Join(opts.OutDir, "run_locust_headless.sh"), runHeadlessSh, 0o755); err != nil {
+			return err
 		}
-		if *opts.GenerateDistributedHelpers {
-			if err := os.WriteFile(filepath.Join(opts.OutDir, "run_locust_master.ps1"), runMasterPs1, 0o644); err != nil {
-				return err
-			}
-			if err := os.WriteFile(filepath.Join(opts.OutDir, "run_locust_worker.ps1"), runWorkerPs1, 0o644); err != nil {
-				return err
-			}
+		if err := os.WriteFile(filepath.Join(opts.OutDir, "run_locust_headless.ps1"), runHeadlessPs1, 0o644); err != nil {
+			return err
 		}
-	default: // darwin, linux, etc.
-		if *opts.Headless {
-			if err := os.WriteFile(filepath.Join(opts.OutDir, "run_locust_headless.sh"), runHeadlessSh, 0o755); err != nil {
-				return err
-			}
-		} else {
-			if err := os.WriteFile(filepath.Join(opts.OutDir, "run_locust_ui.sh"), runUISh, 0o755); err != nil {
-				return err
-			}
+	} else {
+		if err := os.WriteFile(filepath.Join(opts.OutDir, "run_locust_ui.sh"), runUISh, 0o755); err != nil {
+			return err
 		}
-		if *opts.GenerateDistributedHelpers {
-			if err := os.WriteFile(filepath.Join(opts.OutDir, "run_locust_master.sh"), runMasterSh, 0o755); err != nil {
-				return err
-			}
-			if err := os.WriteFile(filepath.Join(opts.OutDir, "run_locust_worker.sh"), runWorkerSh, 0o755); err != nil {
-				return err
-			}
+		if err := os.WriteFile(filepath.Join(opts.OutDir, "run_locust_ui.ps1"), runUIPs1, 0o644); err != nil {
+			return err
+		}
+	}
+
+	// Distributed helpers if requested
+	if *opts.GenerateDistributedHelpers {
+		if err := os.WriteFile(filepath.Join(opts.OutDir, "run_locust_master.sh"), runMasterSh, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(opts.OutDir, "run_locust_worker.sh"), runWorkerSh, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(opts.OutDir, "run_locust_master.ps1"), runMasterPs1, 0o644); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(opts.OutDir, "run_locust_worker.ps1"), runWorkerPs1, 0o644); err != nil {
+			return err
 		}
 	}
 
 	// Friendly next-steps
 	fmt.Printf("✅ Locust bundle written to %s\n", opts.OutDir)
 	if *opts.Headless {
-		switch runtime.GOOS {
-		case "windows":
-			fmt.Printf("Next:\n  cd %s\n  .\\run_locust_headless.ps1  # set host via --host or AM_HOST\n", opts.OutDir)
-		default:
-			fmt.Printf("Next:\n  cd %s\n  ./run_locust_headless.sh    # set host via --host or AM_HOST\n", opts.OutDir)
-		}
+		fmt.Printf("Next:\n  cd %s\n  ./run_locust_headless.sh    # or use .\\run_locust_headless.ps1 on Windows\n", opts.OutDir)
 	} else {
-		switch runtime.GOOS {
-		case "windows":
-			fmt.Printf("Next:\n  cd %s\n  .\\run_locust_ui.ps1        # open web UI and set host there\n", opts.OutDir)
-		default:
-			fmt.Printf("Next:\n  cd %s\n  ./run_locust_ui.sh          # open web UI and set host there\n", opts.OutDir)
-		}
+		fmt.Printf("Next:\n  cd %s\n  ./run_locust_ui.sh          # or use .\\run_locust_ui.ps1 on Windows\n", opts.OutDir)
 	}
 	if *opts.GenerateDistributedHelpers {
 		fmt.Println("Distributed mode:")
@@ -296,72 +281,20 @@ func replaceVariables(text string, variables map[string]string) string {
 
 // resolveVariables performs the 5-step variable resolution process
 func resolveVariables(neededVars []string, variables map[string]string) error {
+	// Non-interactive for loadtest generation: use previous or environment values only.
+	// Unresolved variables will remain as placeholders and be substituted at runtime.
 	for _, varName := range neededVars {
-		// Check if already resolved
 		if _, exists := variables[varName]; exists {
 			fmt.Printf("✅ %s (from previous setting)\n", varName)
 			continue
 		}
-
-		// Step 2: Check environment
 		if envVal := os.Getenv(varName); envVal != "" {
 			variables[varName] = envVal
 			fmt.Printf("✅ %s (from environment)\n", varName)
 			continue
 		}
-
-		// Step 5: Ask user and confirm
-		fmt.Printf("\n⚠️  Variable '%s' not found in environment\n", varName)
-		var value string
-		if err := survey.AskOne(&survey.Input{
-			Message: fmt.Sprintf("Enter value for '%s':", varName),
-			Help:    "This variable is needed to build the API. Enter the value or press Ctrl+C to cancel.",
-		}, &value); err != nil {
-			return &models.VariableResolutionError{
-				VariableName: varName,
-				Source:       "user-input",
-				Cause:        err,
-			}
-		}
-
-		if value == "" {
-			return &models.VariableResolutionError{
-				VariableName: varName,
-				Source:       "user-input",
-				Cause:        fmt.Errorf("no value provided for required variable '%s'", varName),
-			}
-		}
-
-		// Confirm the value (without printing it)
-		var confirm bool
-		if err := survey.AskOne(&survey.Confirm{
-			Message: fmt.Sprintf("Use provided value for '%s'?", varName),
-			Default: true,
-		}, &confirm); err != nil {
-			return &models.VariableResolutionError{
-				VariableName: varName,
-				Source:       "user-input",
-				Cause:        err,
-			}
-		}
-
-		if !confirm {
-			// Ask again
-			if err := survey.AskOne(&survey.Input{
-				Message: fmt.Sprintf("Re-enter value for '%s':", varName),
-			}, &value); err != nil {
-				return &models.VariableResolutionError{
-					VariableName: varName,
-					Source:       "user-input",
-					Cause:        err,
-				}
-			}
-		}
-
-		variables[varName] = value
-		fmt.Printf("✅ %s (user input)\n", varName)
+		fmt.Printf("ℹ️  Skipping '%s' (no env); leaving placeholder for runtime.\n", varName)
 	}
-
 	return nil
 }
 

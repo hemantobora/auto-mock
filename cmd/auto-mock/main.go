@@ -1,19 +1,10 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
-	"log"
 	"os"
-	"strings"
-	"time"
 
-	"github.com/AlecAivazis/survey/v2"
-	"github.com/hemantobora/auto-mock/internal/client"
 	"github.com/hemantobora/auto-mock/internal/cloud"
-	"github.com/hemantobora/auto-mock/internal/repl"
-	"github.com/hemantobora/auto-mock/internal/terraform"
 	"github.com/urfave/cli/v2"
 )
 
@@ -75,7 +66,6 @@ func main() {
 						Usage:    "Project name to deploy",
 						Required: true,
 					},
-					// === Other Options ===
 					&cli.BoolFlag{
 						Name:  "skip-confirmation",
 						Usage: "Skip deployment confirmation prompt",
@@ -122,9 +112,14 @@ func main() {
 				},
 			},
 			{
-				Name:  "locust",
-				Usage: "Generate Locust load testing bundle from API collection",
+				Name:  "load",
+				Usage: "Generate and manage load-test bundles (Locust)",
 				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "project", Usage: "Project name."},
+					&cli.BoolFlag{Name: "upload", Usage: "Upload bundle to cloud storage."},
+					&cli.BoolFlag{Name: "download", Usage: "Download current active bundle for editing."},
+					&cli.BoolFlag{Name: "delete-pointer", Usage: "Delete current pointer and bundle."},
+					&cli.BoolFlag{Name: "purge-all", Usage: "Purge all resources associated with the load test."},
 					&cli.StringFlag{
 						Name:  "collection-file",
 						Usage: "Path to API collection file (Postman/Bruno/Insomnia)",
@@ -135,289 +130,31 @@ func main() {
 					},
 					&cli.StringFlag{
 						Name:  "dir",
-						Usage: "Output directory for the generated Locust files",
+						Usage: "Output directory for generated load-test files",
 					},
 					&cli.BoolFlag{
 						Name:  "headless",
 						Usage: "Run Locust in headless mode (without UI)",
-						Value: false,
 					},
 					&cli.BoolFlag{
 						Name:  "distributed",
-						Usage: "Run Locust in distributed mode",
-						Value: false,
+						Usage: "Generate distributed mode helpers (master/worker scripts)",
 					},
 				},
-				Action: func(c *cli.Context) error {
-					return locustCommand(c)
-				},
+				Action: locustCommand,
 			},
 			{
-				Name:   "help",
-				Usage:  "Show detailed help and supported features",
-				Action: showDetailedHelp,
+				Name:  "help",
+				Usage: "Show detailed help",
+				Action: func(c *cli.Context) error {
+					return showDetailedHelp(c)
+				},
 			},
-		},
-		Action: func(c *cli.Context) error {
-			return cli.ShowAppHelp(c)
 		},
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		log.Fatal(err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
 	}
-}
-
-func locustCommand(c *cli.Context) error {
-	collectionType := c.String("collection-type")
-	collectionFile := c.String("collection-file")
-	outDir := c.String("dir")
-	headless := c.Bool("headless")
-	distributed := c.Bool("distributed")
-
-	options := &client.Options{
-		CollectionType:             collectionType,
-		CollectionPath:             collectionFile,
-		OutDir:                     outDir,
-		Headless:                   &headless,
-		GenerateDistributedHelpers: &distributed,
-	}
-
-	return client.GenerateLoadtestBundle(*options)
-}
-
-// deployCommand handles infrastructure deployment
-func deployCommand(c *cli.Context) error {
-	profile := c.String("profile")
-	projectName := c.String("project")
-
-	fmt.Println("\nChecking Infrastructure Prerequisites")
-	fmt.Println(strings.Repeat("=", 80))
-
-	manager := cloud.NewCloudManager(profile)
-	// Step 1: Validate cloud provider credentials
-	if err := manager.AutoDetectProvider(profile); err != nil {
-		return err
-	}
-	deployer := repl.NewDeployment(projectName, profile, manager.Provider)
-	return deployer.DeployInfrastructureWithTerraform(c.Bool("skip-confirmation"))
-}
-
-// destroyCommand handles infrastructure teardown
-func destroyCommand(c *cli.Context) error {
-	profile := c.String("profile")
-	projectName := c.String("project")
-	force := c.Bool("force")
-
-	// Show confirmation unless --force
-	if !force {
-		terraform.DisplayDestroyConfirmation(projectName)
-
-		// First confirmation
-		var confirmed bool
-		prompt := &survey.Confirm{
-			Message: fmt.Sprintf("Are you sure? Project '%s' will be destroyed. This action cannot be undone.", projectName),
-		}
-
-		// Ask for project name confirmation
-		var inputName string
-		namePrompt := &survey.Input{
-			Message: "Enter project name:",
-		}
-
-		if err := survey.AskOne(namePrompt, &inputName); err != nil {
-			return err
-		}
-
-		if inputName != projectName {
-			fmt.Println("\nProject name does not match. Deletion cancelled.")
-			return nil
-		}
-
-		// Final confirmation
-		if err := survey.AskOne(prompt, &confirmed); err != nil {
-			return err
-		}
-
-		if !confirmed {
-			fmt.Println("\nDeletion cancelled")
-			return nil
-		}
-	}
-
-	manager := cloud.NewCloudManager(profile)
-	// Step 1: Validate cloud provider credentials
-	if err := manager.AutoDetectProvider(profile); err != nil {
-		return err
-	}
-
-	// Create Terraform manager
-	destroyer, err := terraform.NewManager(projectName, profile, manager.Provider)
-	if err != nil {
-		return fmt.Errorf("failed to create terraform manager: %w", err)
-	}
-
-	// Destroy infrastructure
-	fmt.Println("\nDestroying infrastructure...")
-	err = destroyer.Destroy()
-
-	terraform.DisplayDestroyResults(projectName, err == nil)
-
-	return err
-}
-
-// statusCommand shows current infrastructure status
-func statusCommand(c *cli.Context) error {
-	profile := c.String("profile")
-	projectName := c.String("project")
-	detailed := c.Bool("detailed")
-
-	fmt.Printf("\n🛰️  Checking infrastructure status for: %s\n", projectName)
-	fmt.Println(strings.Repeat("━", 80))
-
-	manager := cloud.NewCloudManager(profile)
-
-	// Step 1: Validate cloud provider credentials
-	if err := manager.AutoDetectProvider(profile); err != nil {
-		return err
-	}
-
-	exists, _ := manager.Provider.ProjectExists(context.Background(), projectName)
-	if !exists {
-		fmt.Printf("❌ No project found with name: %s\n", projectName)
-		fmt.Println("💡 Run 'automock init' to create a new project.")
-		return nil
-	}
-
-	metadata, err := manager.Provider.GetDeploymentMetadata()
-	if err != nil {
-		fmt.Printf("⚠️  %v\n", err)
-		fmt.Println("❌ No infrastructure found for this project.")
-		fmt.Printf("💡 Run 'automock deploy --project %s' to create it if expectations exist.\n", projectName)
-		fmt.Println("💡 Otherwise, run 'automock init' first.")
-		return nil
-	}
-
-	fmt.Println("\n✅ Infrastructure is deployed with the following details:")
-
-	deployedAt := metadata.DeployedAt.UTC()
-	deployedLocal := deployedAt.Local()
-	uptime := time.Since(deployedAt).Hours()
-
-	fmt.Printf("🕓 Deployed At (Local): %s\n", deployedLocal.Format("2006-01-02 15:04:05 MST"))
-	fmt.Printf("⏱️  Uptime: %.2f hours\n", uptime)
-	fmt.Println()
-
-	if !detailed {
-		fmt.Println("📊 Summary Status:")
-		metadata.Details = nil // hide the nested infra outputs
-	} else {
-		fmt.Println("🧾 Detailed Status:")
-	}
-
-	jsonBytes, err := json.MarshalIndent(metadata, "", "  ")
-	if err != nil {
-		fmt.Printf("❌ Failed to marshal metadata: %v\n", err)
-		return err
-	}
-
-	fmt.Println(string(jsonBytes))
-	return nil
-}
-
-func showDetailedHelp(c *cli.Context) error {
-	const (
-		h1    = "\033[36m" // cyan
-		h2    = "\033[33m" // yellow
-		reset = "\033[0m"
-	)
-
-	version := c.App.Version
-	if version == "" {
-		version = "beta"
-	}
-
-	help := fmt.Sprintf(`
-%sAutoMock — Mock API generator & infra helper%s
-Version: %s
-
-%sUSAGE%s
-	automock [global flags] <command> [command flags]
-	Note: Global flags must come before the command (urfa ve/cli v2)
-	      e.g. automock --profile sandbox deploy --project myproj
-
-%sGLOBAL FLAG%s
-  --profile <name>                 Credential profile name (e.g., dev, prod)
-				   You can also set AWS_PROFILE instead of --profile
-
-%sCOMMANDS%s
-  init                             Initialize a project and initiate expectation generation
-  deploy                           Deploy infrastructure for an existing project expectations
-  destroy                          Destroy infrastructure for a project
-  status                           Show infrastructure status for a project
-  locust                           Generate a Locust load-testing bundle from an API collection
-  help                             Show this help
-
-%sinit — flags%s
-  --project <name>                 Project name (bypasses interactive project selection)
-  --provider <anthropic|openai>
-                                   LLM provider; bypasses provider selection
-  --collection-file <path>         Path to API collection (Postman/Bruno/Insomnia)
-  --collection-type <postman|bruno|insomnia>
-                                   Required when using --collection-file
-
-Examples:
-	automock --profile sandbox init
-	automock --profile sandbox init --project user-service
-	automock --profile sandbox init --provider anthropic
-	automock --profile sandbox init --collection-file api.postman.json --collection-type postman
-	AWS_PROFILE=sandbox automock init
-
-%sdeploy — flags%s
-  --project <name>                 (required)
-  --skip-confirmation              Skip deployment confirmation prompt
-
-Examples:
-	automock --profile sandbox deploy --project user-service
-	automock --profile sandbox deploy --project user-service --skip-confirmation
-	AWS_PROFILE=sandbox automock deploy --project user-service
-
-%sdestroy — flags%s
-  --project <name>                 (required)
-  --force                          Skip confirmation prompts
-
-Examples:
-	automock --profile sandbox destroy --project user-service
-	automock --profile sandbox destroy --project user-service --force
-
-%sstatus — flags%s
-  --project <name>                 (required)
-  --detailed                       Show detailed information including metrics
-
-Examples:
-	automock --profile sandbox status --project user-service
-	automock --profile sandbox status --project user-service --detailed
-
-%slocust — flags%s
-  --collection-file <path>         Path to API collection (Postman/Bruno/Insomnia)
-  --collection-type <postman|bruno|insomnia>
-                                   Required when using --collection-file
-  --dir <path>                     Output directory for generated Locust files
-  --headless                       Run Locust in headless mode (no UI)
-  --distributed                    Generate/run in distributed mode
-
-Examples:
-  automock locust --collection-file api.postman.json --collection-type postman --dir ./load
-  automock locust --collection-file api.postman.json --collection-type postman --headless
-
-ENVIRONMENT
-  AWS_PROFILE                      AWS profile to use (alternative to --profile)
-  ANTHROPIC_API_KEY                Used when --provider anthropic
-  ANTHROPIC_MODEL                  Used to select Anthropic model (default: claude-sonnet-4-5)
-  OPENAI_API_KEY                   Used when --provider openai
-  OPENAI_MODEL                     Used to select OpenAI model (default: gpt-5-mini)
-`, h1, reset, version, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset, h2, reset)
-
-	fmt.Print(help)
-	return nil
 }

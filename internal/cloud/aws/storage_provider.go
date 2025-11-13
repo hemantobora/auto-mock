@@ -105,43 +105,120 @@ func (p *Provider) UpdateConfig(ctx context.Context, config *models.MockConfigur
 	return p.SaveConfig(ctx, config)
 }
 
-// DeleteConfig removes a configuration and all its versions
+// DeleteProject removes ONLY mockserver objects for the given project from the shared bucket.
+// If no loadtest-related files exist after cleanup, it attempts to delete the bucket as well.
 func (p *Provider) DeleteProject(projectID string) error {
 	cleanProjectID := p.naming.ExtractProjectID(projectID)
-
-	pager := s3.NewListObjectVersionsPaginator(p.S3Client, &s3.ListObjectVersionsInput{
-		Bucket: aws.String(p.BucketName),
-	})
-
 	ctx := context.Background()
 
-	for pager.HasMorePages() {
-		page, _ := pager.NextPage(ctx)
-		var objs []s3types.ObjectIdentifier
-		for _, v := range page.Versions {
-			objs = append(objs, s3types.ObjectIdentifier{Key: v.Key, VersionId: v.VersionId})
+	// Helpers
+	deleteAllVersionsWithPrefix := func(prefix string) error {
+		pager := s3.NewListObjectVersionsPaginator(p.S3Client, &s3.ListObjectVersionsInput{
+			Bucket: aws.String(p.BucketName),
+			Prefix: aws.String(prefix),
+		})
+		for pager.HasMorePages() {
+			page, _ := pager.NextPage(ctx)
+			var objs []s3types.ObjectIdentifier
+			for _, v := range page.Versions {
+				// Defensive: only those within prefix are returned already, but keep as-is
+				objs = append(objs, s3types.ObjectIdentifier{Key: v.Key, VersionId: v.VersionId})
+			}
+			for _, m := range page.DeleteMarkers {
+				objs = append(objs, s3types.ObjectIdentifier{Key: m.Key, VersionId: m.VersionId})
+			}
+			if len(objs) > 0 {
+				_, _ = p.S3Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+					Bucket: aws.String(p.BucketName),
+					Delete: &s3types.Delete{Objects: objs, Quiet: aws.Bool(true)},
+				})
+			}
 		}
-		for _, m := range page.DeleteMarkers {
-			objs = append(objs, s3types.ObjectIdentifier{Key: m.Key, VersionId: m.VersionId})
+		return nil
+	}
+	deleteAllVersionsForKey := func(key string) error {
+		pager := s3.NewListObjectVersionsPaginator(p.S3Client, &s3.ListObjectVersionsInput{
+			Bucket: aws.String(p.BucketName),
+			Prefix: aws.String(key),
+		})
+		for pager.HasMorePages() {
+			page, _ := pager.NextPage(ctx)
+			var objs []s3types.ObjectIdentifier
+			for _, v := range page.Versions {
+				if v.Key != nil && aws.ToString(v.Key) == key {
+					objs = append(objs, s3types.ObjectIdentifier{Key: v.Key, VersionId: v.VersionId})
+				}
+			}
+			for _, m := range page.DeleteMarkers {
+				if m.Key != nil && aws.ToString(m.Key) == key {
+					objs = append(objs, s3types.ObjectIdentifier{Key: m.Key, VersionId: m.VersionId})
+				}
+			}
+			if len(objs) > 0 {
+				_, _ = p.S3Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+					Bucket: aws.String(p.BucketName),
+					Delete: &s3types.Delete{Objects: objs, Quiet: aws.Bool(true)},
+				})
+			}
 		}
-		if len(objs) > 0 {
-			_, _ = p.S3Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
-				Bucket: aws.String(p.BucketName),
-				Delete: &s3types.Delete{Objects: objs, Quiet: aws.Bool(true)},
-			})
+		return nil
+	}
+
+	// 1) Delete mockserver keys only
+	mockPrefix := fmt.Sprintf("configs/%s/", cleanProjectID)
+	_ = deleteAllVersionsWithPrefix(mockPrefix)
+
+	// mock metadata file (not loadtest)
+	mockMetaKey := fmt.Sprintf("metadata/%s.json", cleanProjectID)
+	_ = deleteAllVersionsForKey(mockMetaKey)
+
+	// mock infra deployment metadata (does NOT include loadtest)
+	_ = deleteAllVersionsForKey("deployment-metadata.json")
+
+	// 2) Check for any loadtest-related files
+	ltConfigPrefix := p.naming.LoadTestBundlesPrefix(cleanProjectID)
+	ltConfigsExist := false
+	// Check any object under configs/<project>-loadtest/
+	{
+		mk := int32(1)
+		list, _ := p.S3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:  aws.String(p.BucketName),
+			Prefix:  aws.String(strings.TrimSuffix(ltConfigPrefix, "bundles/")), // cover all loadtest configs/*
+			MaxKeys: &mk,
+		})
+		if list != nil && len(list.Contents) > 0 {
+			ltConfigsExist = true
+		}
+	}
+	// metadata/<project>-loadtest.json
+	if !ltConfigsExist {
+		ltMetaKey := p.naming.LoadTestMetadataKey(cleanProjectID)
+		if _, err := p.S3Client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(p.BucketName), Key: aws.String(ltMetaKey)}); err == nil {
+			ltConfigsExist = true
+		}
+	}
+	// deployment-metadata-loadtest.json (global per bucket)
+	if !ltConfigsExist {
+		if _, err := p.S3Client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(p.BucketName), Key: aws.String("deployment-metadata-loadtest.json")}); err == nil {
+			ltConfigsExist = true
 		}
 	}
 
-	// 3️⃣ Finally, delete the bucket itself (optional)
-	_, err := p.S3Client.DeleteBucket(ctx, &s3.DeleteBucketInput{
-		Bucket: aws.String(p.BucketName),
-	})
-	if err != nil {
-		return fmt.Errorf("delete bucket: %w", err)
+	// 3) If no loadtest exists, try deleting the bucket but only if empty after mock cleanup
+	if !ltConfigsExist {
+		// Verify bucket is empty (avoid deleting any non-mock content inadvertently)
+		mk := int32(1)
+		remaining, _ := p.S3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(p.BucketName), MaxKeys: &mk})
+		if remaining != nil && len(remaining.Contents) == 0 {
+			if _, err := p.S3Client.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(p.BucketName)}); err != nil {
+				return fmt.Errorf("delete bucket: %w", err)
+			}
+			fmt.Printf("✅ Project %q deleted (bucket removed)\n", cleanProjectID)
+			return nil
+		}
 	}
 
-	fmt.Printf("✅ Project %q deleted successfully\n", cleanProjectID)
-
+	fmt.Printf("✅ Project %q mock data deleted (bucket retained due to loadtest or remaining objects)\n", cleanProjectID)
 	return nil
 }
 

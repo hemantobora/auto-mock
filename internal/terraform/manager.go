@@ -3,7 +3,6 @@ package terraform
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,20 +36,14 @@ func DefaultDeploymentOptions() *models.DeploymentOptions {
 
 // NewManager creates a new Terraform manager
 func NewManager(cleanProject, profile string, provider internal.Provider) (*Manager, error) {
-
-	exists, err := provider.ProjectExists(context.Background(), cleanProject)
-	if !exists || err != nil {
-		return nil, fmt.Errorf("project %s does not exist", cleanProject)
-	}
-
 	// Get the project root directory
 	execPath, _ := os.Executable()
 	projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(execPath)))
 
 	// Use embedded terraform directory or fallback to project terraform dir
-	terraformDir := filepath.Join(projectRoot, "terraform")
+	terraformDir := filepath.Join(projectRoot, "terraform", "mock")
 	if _, err := os.Stat(terraformDir); os.IsNotExist(err) {
-		terraformDir = "./terraform"
+		terraformDir = filepath.Join("terraform", "mock")
 	}
 
 	// Create a unique working directory for this deployment

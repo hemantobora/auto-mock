@@ -49,6 +49,27 @@ type Provider interface {
 	CreateDeploymentConfiguration() *models.DeploymentOptions
 	DisplayCostEstimate(options *models.DeploymentOptions)
 	CreateDefaultDeploymentConfiguration() *models.DeploymentOptions
+
+	// Load test bundle management
+	UploadLoadTestBundle(ctx context.Context, projectID, bundleDir string) (*models.LoadTestPointer, *models.LoadTestVersion, error)
+	GetLoadTestPointer(ctx context.Context, projectID string) (*models.LoadTestPointer, error)
+	DownloadLoadTestBundle(ctx context.Context, projectID, destDir string) (*models.LoadTestPointer, string, error)
+	DeleteLoadTestPointer(ctx context.Context, projectID string) error
+
+	// Advanced load test artifact lifecycle
+	// DeleteActiveLoadTestBundleAndRollback deletes the bundle referenced by the current pointer
+	// and attempts to roll back the pointer to the previous version (if any). It returns the
+	// new pointer (nil if none) and the count of deleted bundle objects.
+	DeleteActiveLoadTestBundleAndRollback(ctx context.Context, projectID string) (*models.LoadTestPointer, int, error)
+	// PurgeLoadTestArtifacts removes ALL load test related objects (bundles, versions, pointer, metadata)
+	// for the given project. It returns the count of deleted object versions and a flag indicating
+	// whether the underlying storage bucket/container was also deleted as a consequence.
+	PurgeLoadTestArtifacts(ctx context.Context, projectID string) (int, bool, error)
+
+	// Load test (Locust) deployment metadata management
+	SaveLoadTestDeploymentMetadata(metadata *models.LoadTestDeploymentOutputs) error
+	GetLoadTestDeploymentMetadata() (*models.LoadTestDeploymentMetadata, error)
+	DeleteLoadTestDeploymentMetadata() error
 }
 
 // NamingStrategy defines how project names are converted to storage names
@@ -69,4 +90,13 @@ type NamingStrategy interface {
 
 	// GetPrefix returns the naming prefix (e.g., "auto-mock")
 	GetPrefix() string
+
+	// Load test (locust) helpers for segregated storage paths
+	LoadTestProjectID(projectID string) string
+	LoadTestCurrentKey(projectID string) string
+	LoadTestVersionKey(projectID, version string) string
+	LoadTestBundlesPrefix(projectID string) string
+	LoadTestBundleDir(projectID, bundleID string) string
+	LoadTestBundleFileKey(projectID, bundleID, fileName string) string
+	LoadTestMetadataKey(projectID string) string
 }

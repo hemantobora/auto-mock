@@ -159,6 +159,20 @@ func (p *Provider) InitProject(ctx context.Context, projectID string) error {
 		// Bucket exists
 		p.projectID = projectID
 		p.BucketName = bucketName
+		// Detect and align region to avoid 301 PermanentRedirect on PutObject
+		if loc, lerr := p.S3Client.GetBucketLocation(ctx, &s3.GetBucketLocationInput{Bucket: aws.String(bucketName)}); lerr == nil {
+			resolved := string(loc.LocationConstraint)
+			if resolved == "" { // us-east-1 returns empty per API
+				resolved = "us-east-1"
+			}
+			if resolved != "" && resolved != p.region {
+				p.region = resolved
+				// Rebuild S3 client bound to correct region to prevent redirects
+				cfg := p.AWSConfig
+				cfg.Region = resolved
+				p.S3Client = s3.NewFromConfig(cfg)
+			}
+		}
 		fmt.Printf("✅ Project already initialized: %s\n", projectID)
 		return nil
 	}

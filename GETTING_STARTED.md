@@ -425,7 +425,7 @@ Create expectations for GraphQL endpoints with:
 ### Load Testing with Locust
 Generate load testing scripts from collections:
 ```bash
-./automock locust \
+./automock load \
   --collection-file api.json \
   --collection-type postman \
   --dir ./load-tests

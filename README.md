@@ -295,7 +295,7 @@ Manage expectations throughout their lifecycle:
 Generate Locust load testing bundles from collections:
 
 ```bash
-./automock locust \
+./automock load \
   --collection-file api.json \
   --collection-type postman \
   --dir ./load-tests \
@@ -317,7 +317,151 @@ cd load-tests
 - `run_locust_master.sh` - Distributed master
 - `run_locust_worker.sh` - Distributed worker
 
+Variable substitution in Locust
+- `${env.VAR}` is expanded at load-time across the spec.
+- `${data.<field>}` and `${user.id|index}` are expanded at runtime in path, headers, params, and body.
+- Auth nuance: in `auth.mode: shared`, only `${env.*}` expands; in `auth.mode: per_user`, `${data.*}` and `${user.*}` also expand in the login path/headers/body.
+
 ---
+
+### ☁️ Managed Locust on AWS (beta)
+#### Optional: Custom Runtime Image (Locust + Boto3)
+
+By default, no custom image is required. The module uses public images:
+
+- Locust: `locustio/locust:2.31.2`
+- Init sidecar: `python:3.11-slim` (installs boto3 at startup and downloads the bundle)
+
+If you prefer faster cold-starts or no runtime installs, you can optionally build a tiny derived image that already contains Locust + boto3 and your bootstrap script:
+
+- Locust CLI
+- Python + `boto3` (for S3 downloads)
+
+Build the reference image:
+
+```
+# Example: build your own derived image (optional)
+docker build -t <your-account>.dkr.ecr.<region>.amazonaws.com/automock-locust:latest <path-to-your-dockerfile>
+```
+
+Push to ECR (example):
+
+```
+aws ecr create-repository --repository-name automock-locust || true
+aws ecr get-login-password --region <region> | docker login --username AWS --password-stdin <your-account>.dkr.ecr.<region>.amazonaws.com
+docker push <your-account>.dkr.ecr.<region>.amazonaws.com/automock-locust:latest
+```
+
+Then set Terraform variable `locust_container_image` to that ECR URI before deploying (optional):
+
+```
+locust_container_image = "<your-account>.dkr.ecr.<region>.amazonaws.com/automock-locust:latest"
+```
+
+Sidecar environment variables used:
+
+- `BUNDLE_BUCKET`: S3 bucket name
+- `PROJECT_NAME`: Base project ID (without suffix)
+- `AWS_REGION`: Region (optional but passed)
+
+When using the default configuration, the init sidecar runs a small inline Python script to:
+
+If you see an error like:
+
+```
+Could not find '/workspace/locustfile.py'. Ensure your locustfile ends with '.py' or is a directory with locustfiles.
+```
+
+It means no active bundle was downloaded. Common causes:
+1. No load test bundle uploaded yet (run `automock load --upload` for your project).
+2. Pointer file `current.json` missing or deleted (re-upload a bundle to recreate it).
+3. Bundle directory did not contain `locustfile.py` at upload time (upload validation should catch this).
+4. IAM permissions missing for S3 GetObject/ListBucket on the bundle paths.
+
+Recovery steps:
+- Upload a new bundle: `automock load --project <name> --upload --dir ./loadtest`
+- Confirm pointer exists: check S3 key `configs/<project>-loadtest/current.json`
+- Verify bundle objects under `configs/<project>-loadtest/bundles/<bundle_id>/`
+- Re-deploy after fixing.
+
+The master task will start even if the bundle is missing; Locust falls back to the error above. This is intentional to keep deployments responsive. Add a health check to force restart if desired:
+
+```
+healthCheck = {
+  command = ["CMD-SHELL", "test -f /workspace/locustfile.py || exit 1"],
+  interval = 30,
+  timeout  = 5,
+  retries  = 3,
+  startPeriod = 20
+}
+```
+1. Fetch `configs/<project>-loadtest/current.json`
+2. Read `bundle_id` (or `BundleID` fallback)
+3. Download all files under `bundles/<project>-loadtest/<bundle_id>/` into `/workspace`
+4. Exit 0 even if missing (so main Locust container still starts)
+
+IAM policy requirements for the task role:
+```
+Action: ["s3:GetObject", "s3:ListBucket"]
+Resource:
+  arn:aws:s3:::<bucket>
+  arn:aws:s3:::<bucket>/configs/*
+  arn:aws:s3:::<bucket>/bundles/*
+```
+
+Health check recommendation (add to container definition):
+```
+healthCheck = {
+  command = ["CMD-SHELL", "test -f /workspace/locustfile.py || exit 1"],
+  interval = 30,
+  timeout  = 5,
+  retries  = 3,
+  startPeriod = 15
+}
+```
+
+
+Provision a dedicated, production-ready Locust cluster on AWS using Terraform under the hood. This deploys an ALB (HTTP/HTTPS with a self-signed cert), an ECS Fargate cluster, and optional workers for distributed tests.
+
+Deploy via the interactive REPL:
+
+```bash
+./automock repl
+# In the menu:
+# → Deploy Locust infrastructure
+#   • Choose a project name (e.g., perf-demo)
+#   • Confirm AWS region and sizing
+# → Show Locust deployment details
+```
+
+Scale workers up or down (Terraform-based, drift-free):
+
+```bash
+# From REPL menu:
+# → Scale Locust workers
+#   • Enter new desired worker count (e.g., 5)
+```
+
+Tear down when done:
+
+```bash
+# From REPL menu:
+# → Destroy Locust infrastructure
+```
+
+What you get:
+- Public ALB with HTTP/HTTPS access to the Locust master UI
+- Private Cloud Map namespace for service discovery within ECS
+- ECS task definitions for master and workers
+- CloudWatch log groups with configurable retention
+- Security groups with least-privileged rules
+
+Outputs shown by the REPL include:
+- ALB DNS name (UI URL)
+- Cloud Map FQDN for Locust master
+- ECS cluster and service names
+
+Note on TLS: the stack uses a self-signed certificate imported into ACM for HTTPS. For production, replace with a proper ACM certificate and Route53-managed domain.
 
 ## 📂 Project Structure
 
@@ -383,7 +527,7 @@ Test against external APIs without rate limits or costs:
 ### 4. Performance Testing
 Validate system behavior under load:
 ```bash
-./automock locust \
+./automock load \
   --collection-file prod-api.json \
   --collection-type postman \
   --dir ./load-tests

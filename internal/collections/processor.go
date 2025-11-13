@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -1683,8 +1684,8 @@ func (cp *CollectionProcessor) extractInsomniaHeaders(headers []interface{}) map
 func (cp *CollectionProcessor) executeAPI(api APIRequest, variables map[string]string) (*APIResponse, error) {
 	start := time.Now()
 
-	// Replace variables in URL
-	url := cp.replaceVariables(api.URL, variables)
+	// Replace variables in URL (avoid shadowing net/url import by not naming this 'url')
+	requestURL := cp.replaceVariables(api.URL, variables)
 
 	// Create HTTP request
 	var body io.Reader
@@ -1693,7 +1694,7 @@ func (cp *CollectionProcessor) executeAPI(api APIRequest, variables map[string]s
 		body = strings.NewReader(bodyContent)
 	}
 
-	req, err := http.NewRequest(api.Method, url, body)
+	req, err := http.NewRequest(api.Method, requestURL, body)
 	if err != nil {
 		return nil, &models.APIExecutionError{
 			APIName: api.Name,
@@ -1708,11 +1709,28 @@ func (cp *CollectionProcessor) executeAPI(api APIRequest, variables map[string]s
 		req.Header.Set(k, cp.replaceVariables(v, variables))
 	}
 
-	// Set Content-Type for form data if body is urlencoded format
-	if api.Body != "" && strings.Contains(api.Body, "=") && !strings.Contains(api.Body, "{") {
-		// Looks like form data
-		if req.Header.Get("Content-Type") == "" {
-			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// Content-Type determination
+	// 1) If user provided Content-Type, honor it
+	if req.Header.Get("Content-Type") == "" && api.Body != "" {
+		// 2) Try to detect JSON
+		bodyContent := cp.replaceVariables(api.Body, variables)
+		trimmed := strings.TrimSpace(bodyContent)
+		var js interface{}
+		if (strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")) && json.Unmarshal([]byte(trimmed), &js) == nil {
+			req.Header.Set("Content-Type", "application/json")
+		} else {
+			// 3) Try to detect other well-known types
+			if _, err := url.ParseQuery(trimmed); err == nil && strings.Contains(trimmed, "=") {
+				// Looks like x-www-form-urlencoded
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			} else if strings.HasPrefix(trimmed, "<?xml") || (strings.HasPrefix(trimmed, "<") && strings.Contains(trimmed, "</")) {
+				req.Header.Set("Content-Type", "application/xml")
+			} else {
+				// 4) Fallback to prior heuristic for urlencoded
+				if strings.Contains(api.Body, "=") && !strings.Contains(api.Body, "{") {
+					req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				}
+			}
 		}
 	}
 
