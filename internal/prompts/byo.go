@@ -194,7 +194,7 @@ func PromptBYOIAM(opts *models.LoadTestDeploymentOptions) error {
 	}, &execArn)
 	aws.PrintECSRoleIAMPolicies()
 	_ = survey.AskOne(&survey.Input{
-		Message: "Task role (ARN on AWS; press Enter to reuse execution role, Make sure role has s3 and kms access):",
+		Message: "Task role (ARN on AWS; press Enter to reuse execution role):",
 	}, &taskArn)
 
 	execArn = strings.TrimSpace(execArn)
