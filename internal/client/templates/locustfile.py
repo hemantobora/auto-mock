@@ -244,21 +244,13 @@ def _on_test_start(environment, **_):
             print("[auth] Host not set at test start; will initialize shared token lazily when users start.")
             return
         client = None
+        # Attempt context-based client only; if unavailable, defer to lazy init without emitting errors.
         try:
-            # Newer Locust provides a convenient context creator
             ctx = environment.create_local_http_context(base_host)
             client = ctx.client
-        except AttributeError:
-            # Fallback: create a temporary HttpUser bound to the environment
-            try:
-                tmp = AutoMockUser(environment)
-                if base_host:
-                    tmp.host = base_host
-                client = tmp.client
-            except Exception as e:
-                # As a last resort, skip shared auth initialization
-                print(f"[auth] Could not create a client for shared auth: {e}")
-                client = None
+        except Exception:
+            # Silent defer; on_start will acquire token.
+            return
 
         if client is not None:
             client.verify = VERIFY_TLS

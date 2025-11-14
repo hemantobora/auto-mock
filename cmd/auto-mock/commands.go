@@ -179,10 +179,11 @@ func deployCommand(c *cli.Context) error {
 		if err != nil {
 			return err
 		}
+		fmt.Println()
 		fmt.Printf(`✅ Load-test infra deployed: 
 ALB TLS=https://%s 
 ALB Open=http://%s 
-Workers=%d`, out.ALBDNSName, out.ALBDNSName, out.WorkerDesiredCount)
+Workers Count=%d `, out.ALBDNSName, out.ALBDNSName, out.WorkerDesiredCount)
 		return nil
 	}
 	scaleWorkers := func() error {
@@ -248,7 +249,6 @@ Workers=%d`, out.ALBDNSName, out.ALBDNSName, out.WorkerDesiredCount)
 					return err
 				}
 				fmt.Println()
-				fmt.Println("🚀 Deploying load-test infrastructure...")
 				return deployLoad()
 			}
 			if choice == "only-mocks" {
