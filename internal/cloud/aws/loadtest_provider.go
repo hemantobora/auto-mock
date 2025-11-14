@@ -333,26 +333,77 @@ func (p *Provider) PurgeLoadTestArtifacts(ctx context.Context, projectID string)
 	deleted += p.deleteAllVersionsWithPrefix(ctx, fmt.Sprintf("configs/%s/", ltID))
 	deleted += p.deleteAllVersionsForKey(ctx, fmt.Sprintf("metadata/%s.json", ltID))
 
-	// Determine if bucket can be deleted (no remaining mock artifacts and bucket otherwise empty)
-	mockExists := false
+	// Evaluate cleanup conditions to avoid Terraform state drift.
+	// We only delete Terraform state (both loadtest and mock) and the bucket if BOTH contexts have:
+	// - no artifacts (configs/* or metadata/*.json) AND
+	// - no deployment metadata present.
+	// This prevents deleting Terraform state while any stack is still deployed.
 	mk := int32(1)
-	if list, _ := p.S3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(p.BucketName), Prefix: aws.String(fmt.Sprintf("configs/%s/", baseID)), MaxKeys: &mk}); list != nil && len(list.Contents) > 0 {
-		mockExists = true
+
+	// Check remaining loadtest artifacts
+	ltArtifactsExist := false
+	if list, _ := p.S3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket:  aws.String(p.BucketName),
+		Prefix:  aws.String(fmt.Sprintf("configs/%s/", ltID)),
+		MaxKeys: &mk,
+	}); list != nil && len(list.Contents) > 0 {
+		ltArtifactsExist = true
 	}
-	if !mockExists {
+	if !ltArtifactsExist {
+		if _, err := p.S3Client.HeadObject(ctx, &s3.HeadObjectInput{
+			Bucket: aws.String(p.BucketName),
+			Key:    aws.String(fmt.Sprintf("metadata/%s.json", ltID)),
+		}); err == nil {
+			ltArtifactsExist = true
+		}
+	}
+
+	// Check remaining mock artifacts
+	mockArtifactsExist := false
+	if list, _ := p.S3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket:  aws.String(p.BucketName),
+		Prefix:  aws.String(fmt.Sprintf("configs/%s/", baseID)),
+		MaxKeys: &mk,
+	}); list != nil && len(list.Contents) > 0 {
+		mockArtifactsExist = true
+	}
+	if !mockArtifactsExist {
 		if _, err := p.S3Client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(p.BucketName), Key: aws.String(fmt.Sprintf("metadata/%s.json", baseID))}); err == nil {
-			mockExists = true
+			mockArtifactsExist = true
 		}
 	}
-	bucketEmpty := false
-	if rem, _ := p.S3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(p.BucketName), MaxKeys: &mk}); rem != nil && len(rem.Contents) == 0 {
-		bucketEmpty = true
+
+	// Check deployment metadata presence for both contexts
+	mockDeployed := false
+	if _, err := p.S3Client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(p.BucketName),
+		Key:    aws.String("deployment-metadata.json"),
+	}); err == nil {
+		mockDeployed = true
 	}
+	loadtestDeployed := false
+	if _, err := p.S3Client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(p.BucketName),
+		Key:    aws.String("deployment-metadata-loadtest.json"),
+	}); err == nil {
+		loadtestDeployed = true
+	}
+
 	bucketDeleted := false
-	if !mockExists && bucketEmpty {
-		if _, err := p.S3Client.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(p.BucketName)}); err == nil {
-			bucketDeleted = true
+
+	// Only when nothing remains in both contexts and nothing is deployed, remove Terraform state and maybe the bucket.
+	if !ltArtifactsExist && !loadtestDeployed && !mockArtifactsExist && !mockDeployed {
+		// Safe to remove both stacks' Terraform state
+		deleted += p.deleteAllVersionsWithPrefix(ctx, "terraform/loadtest/state/")
+		deleted += p.deleteAllVersionsWithPrefix(ctx, "terraform/state/")
+
+		// If the bucket is now empty, delete it
+		if rem, _ := p.S3Client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(p.BucketName), MaxKeys: &mk}); rem != nil && len(rem.Contents) == 0 {
+			if _, err := p.S3Client.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(p.BucketName)}); err == nil {
+				bucketDeleted = true
+			}
 		}
 	}
+
 	return deleted, bucketDeleted, nil
 }

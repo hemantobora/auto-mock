@@ -76,11 +76,12 @@ func RunLocust(profile, project string, options client.Options, upload, download
 	if upload {
 		ll := models.NewLoader(os.Stdout, "Uploading load test scripts")
 		ll.Start()
-		defer ll.StopWithMessage("Upload complete")
 		pointer, versionSnap, err := manager.Provider.UploadLoadTestBundle(ctx, project, options.OutDir)
 		if err != nil {
+			ll.StopWithMessage("Upload failed")
 			return err
 		}
+		ll.StopWithMessage("Upload complete")
 		fmt.Println("\n✅ Load test bundle uploaded:")
 		b, _ := json.MarshalIndent(struct {
 			Pointer *models.LoadTestPointer `json:"pointer"`
@@ -123,6 +124,20 @@ func handleDeletePointer(ctx context.Context, provider internal.Provider, projec
 	}
 	if newPtr == nil {
 		fmt.Printf("✅ Deleted bundle (%d objects) and removed pointer (no previous version).\n", deleted)
+		// If no pointer remains, and there are no mock expectations or mock deployment metadata,
+		// clean up terraform state and attempt to remove the bucket entirely.
+		_, cfgErr := provider.GetConfig(ctx, project)
+		_, mdErr := provider.GetDeploymentMetadata()
+		if cfgErr != nil && mdErr != nil {
+			// No mock config and no mock deployment metadata remain; purge loadtest artifacts (incl. terraform)
+			if purged, bucketRemoved, perr := provider.PurgeLoadTestArtifacts(ctx, project); perr == nil {
+				if bucketRemoved {
+					fmt.Printf("🧹 Also purged residual loadtest artifacts (~%d objects) and removed project bucket.\n", purged)
+				} else if purged > 0 {
+					fmt.Printf("🧹 Also purged residual loadtest artifacts (~%d objects). Bucket retained.\n", purged)
+				}
+			}
+		}
 		return nil
 	}
 	fmt.Printf("✅ Deleted bundle (%d objects) and rolled back pointer to %s (%s)\n", deleted, newPtr.ActiveVersion, newPtr.BundleID)
