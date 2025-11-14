@@ -18,33 +18,25 @@ import (
 
 // LoadTestManager handles Terraform operations for the Locust load-testing stack
 type LoadTestManager struct {
-	ProjectName  string
-	Region       string
-	TerraformDir string
-	WorkingDir   string
-	Provider     core.Provider
-	Profile      string
-	BucketName   string
+	ProjectName string
+	Region      string
+	WorkingDir  string
+	Provider    core.Provider
+	Profile     string
+	BucketName  string
 }
 
 // NewLoadTestManager creates a new manager for the loadtest stack
 func NewLoadTestManager(cleanProject, profile string, provider core.Provider) (*LoadTestManager, error) {
-	exe, _ := os.Executable()
-	root := filepath.Dir(filepath.Dir(filepath.Dir(exe)))
-	terraformDir := filepath.Join(root, "terraform", "loadtest")
-	if _, serr := os.Stat(terraformDir); os.IsNotExist(serr) {
-		terraformDir = filepath.Join("terraform", "loadtest") // fallback
-	}
 	workingDir := filepath.Join(osTempDir(), fmt.Sprintf("automock-lt-%s-%d", cleanProject, os.Getpid()))
 
 	return &LoadTestManager{
-		ProjectName:  cleanProject,
-		TerraformDir: terraformDir,
-		WorkingDir:   workingDir,
-		Provider:     provider,
-		Profile:      profile,
-		Region:       provider.GetRegion(),
-		BucketName:   provider.GetStorageName(),
+		ProjectName: cleanProject,
+		WorkingDir:  workingDir,
+		Provider:    provider,
+		Profile:     profile,
+		Region:      provider.GetRegion(),
+		BucketName:  provider.GetStorageName(),
 	}, nil
 }
 
@@ -159,17 +151,11 @@ func (m *LoadTestManager) prepareWorkspace() error {
 	if err := os.MkdirAll(m.WorkingDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
-	return filepath.Walk(m.TerraformDir, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(m.TerraformDir, p)
-		target := filepath.Join(m.WorkingDir, rel)
-		if info.IsDir() {
-			return os.MkdirAll(target, info.Mode())
-		}
-		return copyFile(p, target)
-	})
+	// Materialize embedded loadtest terraform templates into WorkingDir.
+	if err := writeEmbeddedTemplates(loadtestTemplates, m.WorkingDir); err != nil {
+		return fmt.Errorf("prepare workspace: %w", err)
+	}
+	return nil
 }
 func (m *LoadTestManager) cleanup() {
 	if m.WorkingDir != "" && strings.Contains(m.WorkingDir, "automock-lt-") {

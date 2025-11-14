@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,7 +19,6 @@ import (
 type Manager struct {
 	ProjectName        string
 	Region             string
-	TerraformDir       string
 	WorkingDir         string
 	Provider           internal.Provider
 	Profile            string
@@ -36,22 +34,11 @@ func DefaultDeploymentOptions() *models.DeploymentOptions {
 
 // NewManager creates a new Terraform manager
 func NewManager(cleanProject, profile string, provider internal.Provider) (*Manager, error) {
-	// Get the project root directory
-	execPath, _ := os.Executable()
-	projectRoot := filepath.Dir(filepath.Dir(filepath.Dir(execPath)))
-
-	// Use embedded terraform directory or fallback to project terraform dir
-	terraformDir := filepath.Join(projectRoot, "terraform", "mock")
-	if _, err := os.Stat(terraformDir); os.IsNotExist(err) {
-		terraformDir = filepath.Join("terraform", "mock")
-	}
-
 	// Create a unique working directory for this deployment
 	workingDir := filepath.Join(os.TempDir(), fmt.Sprintf("automock-%s-%s", cleanProject, time.Now().Format("20060102-150405")))
 
 	return &Manager{
 		ProjectName:        cleanProject,
-		TerraformDir:       terraformDir,
 		WorkingDir:         workingDir,
 		Provider:           provider,
 		ExistingBucketName: provider.GetStorageName(), // Use existing bucket if available
@@ -181,90 +168,12 @@ func (m *Manager) prepareWorkspace() error {
 		return fmt.Errorf("failed to create working directory: %w", err)
 	}
 
-	if err := m.copyTerraformFiles(); err != nil {
-		return fmt.Errorf("failed to copy terraform files: %w", err)
+	// Materialize embedded Terraform templates into the working directory.
+	if err := writeEmbeddedTemplates(mockTemplates, m.WorkingDir); err != nil {
+		return fmt.Errorf("failed to materialize terraform templates: %w", err)
 	}
 
 	return nil
-}
-
-// copyTerraformFiles copies the Terraform configuration to the working directory
-func (m *Manager) copyTerraformFiles() error {
-	err := filepath.Walk(m.TerraformDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		relPath, err := filepath.Rel(m.TerraformDir, path)
-		if err != nil {
-			return err
-		}
-
-		targetPath := filepath.Join(m.WorkingDir, relPath)
-
-		if info.IsDir() {
-			return os.MkdirAll(targetPath, info.Mode())
-		}
-
-		return m.copyFile(path, targetPath)
-	})
-	if err != nil {
-		return err
-	}
-
-	// NEW: Also copy docker/ directory
-	projectRoot := filepath.Dir(filepath.Dir(m.TerraformDir)) // Go up from terraform/ to project root
-	dockerDir := filepath.Join(projectRoot, "docker")
-
-	if _, err := os.Stat(dockerDir); err == nil {
-		// docker/ directory exists, copy it
-		targetDockerDir := filepath.Join(m.WorkingDir, "docker")
-
-		err = filepath.Walk(dockerDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-
-			relPath, err := filepath.Rel(dockerDir, path)
-			if err != nil {
-				return err
-			}
-
-			targetPath := filepath.Join(targetDockerDir, relPath)
-
-			if info.IsDir() {
-				return os.MkdirAll(targetPath, info.Mode())
-			}
-
-			return m.copyFile(path, targetPath)
-		})
-
-		if err != nil {
-			return fmt.Errorf("failed to copy docker directory: %w", err)
-		}
-
-		fmt.Println("✓ Copied docker/ directory to working directory")
-	}
-
-	return nil
-}
-
-// copyFile copies a single file
-func (m *Manager) copyFile(src, dst string) error {
-	sourceFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer sourceFile.Close()
-
-	destFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer destFile.Close()
-
-	_, err = io.Copy(destFile, sourceFile)
-	return err
 }
 
 // initTerraform initializes the Terraform working directory
