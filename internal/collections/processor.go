@@ -264,28 +264,36 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 					envelope["variables"] = vars
 				}
 
-				// Let the user choose STRICT vs ONLY_MATCHING_FIELDS vs REGEX (full-body)
-				var mode string
-				if err := survey.AskOne(&survey.Select{
-					Message: "GraphQL POST body match mode:",
-					Options: []string{"ONLY_MATCHING_FIELDS", "STRICT"},
-					Default: "ONLY_MATCHING_FIELDS",
-				}, &mode); err != nil {
-					mode = "ONLY_MATCHING_FIELDS"
-				}
-
-				switch {
-				case mode == "STRICT":
-					expectation.HttpRequest.Body = map[string]any{
-						"type":      "JSON",
-						"json":      envelope,
-						"matchType": "STRICT",
+				var needsBody bool
+				_ = survey.AskOne(&survey.Confirm{
+					Message: "Do you want to match the request body?",
+					Default: false,
+					Help:    "Choose ‘No’ to skip body matching.",
+				}, &needsBody)
+				if needsBody {
+					// Let the user choose STRICT vs ONLY_MATCHING_FIELDS vs REGEX (full-body)
+					var mode string
+					if err := survey.AskOne(&survey.Select{
+						Message: "GraphQL POST body match mode:",
+						Options: []string{"ONLY_MATCHING_FIELDS", "STRICT"},
+						Default: "ONLY_MATCHING_FIELDS",
+					}, &mode); err != nil {
+						mode = "ONLY_MATCHING_FIELDS"
 					}
-				default: // ONLY_MATCHING_FIELDS
-					expectation.HttpRequest.Body = map[string]any{
-						"type":      "JSON",
-						"json":      envelope,
-						"matchType": "ONLY_MATCHING_FIELDS",
+
+					switch {
+					case mode == "STRICT":
+						expectation.HttpRequest.Body = map[string]any{
+							"type":      "JSON",
+							"json":      envelope,
+							"matchType": "STRICT",
+						}
+					default: // ONLY_MATCHING_FIELDS
+						expectation.HttpRequest.Body = map[string]any{
+							"type":      "JSON",
+							"json":      envelope,
+							"matchType": "ONLY_MATCHING_FIELDS",
+						}
 					}
 				}
 			}
