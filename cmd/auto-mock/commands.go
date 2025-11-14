@@ -243,9 +243,12 @@ Workers=%d`, out.ALBDNSName, out.ALBDNSName, out.WorkerDesiredCount)
 			choice := ""
 			_ = survey.AskOne(&survey.Select{Message: "Mocks & loadtest artifacts found. Deploy:", Options: []string{"both", "only-mocks", "only-loadtest", "exit"}, Default: "both"}, &choice)
 			if choice == "both" {
+				fmt.Println("🚀 Deploying mock infrastructure first...")
 				if err := deployMocks(); err != nil {
 					return err
 				}
+				fmt.Println()
+				fmt.Println("🚀 Deploying load-test infrastructure...")
 				return deployLoad()
 			}
 			if choice == "only-mocks" {

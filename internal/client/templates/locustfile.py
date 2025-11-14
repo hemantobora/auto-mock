@@ -175,6 +175,7 @@ EXCLUDE_TAGS = set(_cfg_list("exclude_tags"))
 # -------------------------------------------------------------------
 
 _SHARED_TOKEN: Optional[str] = None
+_SHARED_TOKEN_LOCK = threading.Lock()
 
 def _json_get(d: Any, path: str, default=None):
     cur = d
@@ -238,6 +239,10 @@ def _on_test_start(environment, **_):
     if (AUTH.get("mode") or "none").lower() == "shared":
         # Prefer newer API; fallback for older Locust versions
         base_host = HOST_ENV or getattr(environment, "host", None)
+        if not base_host:
+            # Host not provided yet (e.g., user will set it in UI). Defer shared auth to user on_start.
+            print("[auth] Host not set at test start; will initialize shared token lazily when users start.")
+            return
         client = None
         try:
             # Newer Locust provides a convenient context creator
@@ -313,6 +318,20 @@ class AutoMockUser(HttpUser):
         if (AUTH.get("mode") or "none").lower() == "per_user":
             ctx = {"data": self._data or {}, "user": {"id": self._user_index, "index": self._user_index}}
             self._token = _do_auth(self.client, ctx)
+
+        # Lazy init for shared auth if host wasn't available at test_start
+        if (AUTH.get("mode") or "none").lower() == "shared" and not _SHARED_TOKEN:
+            # Ensure host is set on this user if provided via env
+            if HOST_ENV and not getattr(self, "host", None):
+                self.host = HOST_ENV
+            if getattr(self, "host", None):
+                with _SHARED_TOKEN_LOCK:
+                    if not _SHARED_TOKEN:
+                        tok = _do_auth(self.client)
+                        if tok:
+                            # Assign after successful retrieval
+                            globals()["_SHARED_TOKEN"] = tok
+                            print("🔐 Auth OK (shared token, lazy)")
 
     def _apply_token(self, headers: Dict[str, str]) -> Dict[str, str]:
         mode = (AUTH.get("mode") or "none").lower()

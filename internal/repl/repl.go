@@ -105,7 +105,7 @@ func SelectProjectAction(projectName string, existingConfig *models.MockConfigur
 			"edit - Edit a particular expectation (modify method, path, response, etc.)",
 			"remove - Remove specific expectations while keeping others",
 			"replace - Replace ALL existing expectations with new ones",
-			"delete - Delete the entire project and tear down infrastructure (if running)",
+			"delete - Delete the project expectation and tear down infrastructure (if running)",
 			"add - Add new expectations to existing ones",
 			"deploy - Deploy current expectations to cloud infrastructure",
 			"exit - Cancel the operation and exit",

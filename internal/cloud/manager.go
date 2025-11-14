@@ -123,7 +123,7 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 			// Proceed to generation flow
 			fmt.Printf("➕ Generating new expectations for project: %s\n", project)
 			m.generateMockConfiguration(cliContext)
-			refreshConfig = true
+			return nil
 		case models.ActionAdd:
 			fmt.Printf("➕ Adding new expectations to project: %s\n", project)
 			m.addMockConfiguration(cliContext, existingConfig)
@@ -157,7 +157,7 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 			if err := m.destroyInfrastructureAndDeleteProject(); err != nil {
 				return fmt.Errorf("failed to destroy infrastructure: %w", err)
 			}
-			refreshConfig = false
+			return nil
 		case models.ActionReplace:
 			fmt.Printf("🔄 Replacing expectations for project: %s\n", project)
 			if err := expManager.ReplaceExpectationsPrompt(); err != nil {
@@ -192,6 +192,7 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 			refreshConfig = false
 		}
 		actionType = repl.SelectProjectAction(m.getCurrentProject(), existingConfig)
+		fmt.Println()
 	}
 }
 
