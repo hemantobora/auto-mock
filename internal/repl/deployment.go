@@ -72,7 +72,6 @@ func (d *Deployment) DeployInfrastructureWithTerraform(skip_confirmation bool) e
 	}
 
 	// ── 6) Deploy ─────────────────────────────────────────────────────────────
-	fmt.Println("\n🚀 Deploying infrastructure with Terraform...")
 	outputs, err := manager.Deploy(options) // uses the options we just assembled
 	if err != nil {
 		return fmt.Errorf("deployment failed: %w", err)

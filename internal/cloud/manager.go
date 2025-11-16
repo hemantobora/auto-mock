@@ -122,11 +122,15 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 		case models.ActionGenerate:
 			// Proceed to generation flow
 			fmt.Printf("➕ Generating new expectations for project: %s\n", project)
-			m.generateMockConfiguration(cliContext)
+			if err := m.generateMockConfiguration(cliContext); err != nil {
+				return fmt.Errorf("mock expectation generation failed: %w", err)
+			}
 			return nil
 		case models.ActionAdd:
 			fmt.Printf("➕ Adding new expectations to project: %s\n", project)
-			m.addMockConfiguration(cliContext, existingConfig)
+			if err := m.addMockConfiguration(cliContext, existingConfig); err != nil {
+				return fmt.Errorf("add failed: %w", err)
+			}
 			refreshConfig = true
 		case models.ActionView:
 			fmt.Printf("👁️ Viewing expectations for project: %s\n", project)
@@ -171,7 +175,7 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 			fmt.Println("❌ Exiting auto-mock. Have a great day!")
 			return nil
 		case models.ActionDeploy:
-			fmt.Printf("🚀 Deploying infrastructure for project: %s\n", project)
+			fmt.Printf("🚀 Preparing mock infrastructure deployment for project: %s\n", project)
 			deployed, _ := m.Provider.IsDeployed()
 			if deployed {
 				fmt.Println("✅ Infrastructure is already deployed.")

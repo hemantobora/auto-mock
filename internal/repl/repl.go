@@ -57,12 +57,6 @@ func StartMockGenerationREPL(projectName string, providerOverride string) (strin
 		return "", fmt.Errorf("no configuration generated")
 	}
 
-	// Display the result
-	fmt.Println("\n📋 Generated MockServer Configuration:")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println(mockServerJSON)
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
 	// Handle the result (save, deploy, etc.)
 	// return handleFinalResult(mockServerJSON, projectName)
 	return mockServerJSON, nil
