@@ -299,12 +299,6 @@ func ExtendExpectationsForProgressive(expectations []MockExpectation) []MockExpe
 
 	// 2) Walk the original slice by index so edits stick
 	for i := range expectations {
-		// ensure monotonically increasing priorities on originals
-		maxPriority++
-		if expectations[i].Priority < maxPriority {
-			expectations[i].Priority = maxPriority
-		}
-
 		p := expectations[i].Progressive
 		if p == nil || p.Step <= 0 || p.Base < 0 || p.Cap < p.Base {
 			continue
@@ -314,7 +308,6 @@ func ExtendExpectationsForProgressive(expectations []MockExpectation) []MockExpe
 		delay := p.Base + p.Step
 		for delay <= p.Cap {
 			clone := CloneExpectation(&expectations[i])
-
 			// Description / delay
 			if clone.Description != "" {
 				clone.Description = fmt.Sprintf("%s [Progressive delay: %d ms]", clone.Description, delay)

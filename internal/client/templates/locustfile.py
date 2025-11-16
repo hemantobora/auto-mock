@@ -377,6 +377,17 @@ class AutoMockUser(HttpUser):
             if 200 <= resp.status_code < 400:
                 resp.success()
             else:
+                # Debug logging for failures
+                try:
+                    body_text = resp.text or ""
+                except Exception:
+                    body_text = "<no text>"
+
+                snippet = body_text.replace("\n", " ")[:200]
+                print(
+                    f"[locust] {method} {path} failed: "
+                    f"HTTP {resp.status_code} - {snippet}"
+                )
                 resp.failure(f"HTTP {resp.status_code}")
 
 # Build weighted tasks dynamically, honoring include/exclude tags

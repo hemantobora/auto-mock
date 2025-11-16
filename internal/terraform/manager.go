@@ -80,7 +80,7 @@ func (m *Manager) createBackendConfig() error {
 
 // Deploy creates the complete infrastructure using Terraform
 func (m *Manager) Deploy(options *models.DeploymentOptions) (*InfrastructureOutputs, error) {
-	fmt.Printf("🚀 Deploying infrastructure for project: %s\n", m.ProjectName)
+	fmt.Printf("🚀 Deploying mock infrastructure for project: %s\n", m.ProjectName)
 
 	// Validate bucket name was found
 	if m.ExistingBucketName == "" {

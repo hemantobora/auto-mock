@@ -70,7 +70,7 @@ func collectRESTAPIDetails(expectation *MockExpectation) error {
 	// Path collection
 	var path string
 	if err := survey.AskOne(&survey.Input{
-		Message: "Enter the API path:",
+		Message: "Enter the API path. Matching criteria will be asked later:",
 		Help:    "Use {param} for path parameters, e.g., /api/users/{id}",
 		Default: "/api/users/{id}",
 	}, &path); err != nil {
