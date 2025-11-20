@@ -41,10 +41,16 @@ func (p *Provider) DisplayCostEstimate(options *models.DeploymentOptions) {
 	if len(options.NatGatewayIDs) > 0 {
 		totalMonthly += natMonthly
 	}
+	if options.PrivateALB {
+		totalMonthly += albMonthly
+	}
 
 	fmt.Printf("  Base (24/7, %d x %s @ %.2fvCPU/%.1fGB):  				$%.2f/month\n",
 		options.MinTasks, options.InstanceSize, vCPU, memGB, baseMonthly)
 	fmt.Printf("  ALB (1x):                                				$%.2f/month\n", albMonthly)
+	if options.PrivateALB {
+		fmt.Printf("  Internal ALB (additional cost):                 			$%.2f/month\n", albMonthly)
+	}
 	if len(options.NatGatewayIDs) > 0 {
 		fmt.Printf("  NAT Gateway (1x):                        				$%.2f/month\n", natMonthly)
 	}

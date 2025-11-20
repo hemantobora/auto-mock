@@ -46,9 +46,6 @@ func (d *Deployment) DeployInfrastructureWithTerraform(skip_confirmation bool) e
 	}
 
 	options := d.Provider.CreateDeploymentConfiguration()
-	// <-- IMPORTANT: make these options the ones we deploy with
-
-	// ── 3) Ask for size / min / max (fills remaining fields on d.Options) ─────
 
 	// Optional: show cost estimate (AWS)
 	d.Provider.DisplayCostEstimate(options)

@@ -266,6 +266,17 @@ func promptDeploymentOptionsREPL(options *models.DeploymentOptions) error {
 		}
 	}
 
+	var confirmed bool
+	confirmPrompt := &survey.Confirm{
+		Message: "Would you like to create a private ALB for your mocks? This is essentially useful if your service connecting to mocks is also in the same VPC.",
+		Default: false,
+		Help:    "A private ALB allows internal access within your VPC without exposing the mocks to the public internet.",
+	}
+	if err := survey.AskOne(confirmPrompt, &confirmed); err == nil {
+		options.PrivateALB = confirmed
+	}
+
+	fmt.Println("\n✅ Deployment configuration complete!")
 	return nil
 }
 
