@@ -186,7 +186,6 @@ func (m *Manager) initTerraform() error {
 	cmd := exec.Command("terraform", "init")
 	cmd.Dir = m.WorkingDir
 	cmd.Env = append(os.Environ(), m.getTerraformEnv()...)
-
 	output, err := cmd.CombinedOutput()
 	done <- true
 

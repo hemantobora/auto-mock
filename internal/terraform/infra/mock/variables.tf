@@ -119,6 +119,12 @@ variable "use_existing_igw" {
   default     = false
 }
 
+variable "enable_private_alb" {
+  description = "If true, deploy a private/internal ALB."
+  type        = bool
+  default     = true
+}
+
 variable "internet_gateway_id" {
   description = "ID of an existing Internet Gateway (e.g., igw-xxxx) if use_existing_igw = true."
   type        = string

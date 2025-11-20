@@ -59,6 +59,9 @@ type DeploymentOptions struct {
 	Region      string `json:"-"`
 	BucketName  string `json:"-"`
 	Provider    string `json:"provider,omitempty"`
+
+	// === App LoadBalancer Settings ===
+	PrivateALB bool `json:"-"`
 }
 
 // CreateTerraformVars renders terraform.tfvars as HCL based on DeploymentOptions.

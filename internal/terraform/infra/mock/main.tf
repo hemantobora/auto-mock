@@ -112,6 +112,7 @@ module "ecs_infrastructure" {
   task_execution_role_arn       = var.execution_role_arn
   task_role_arn                 = var.task_role_arn
 
+  enable_private_alb           = var.enable_private_alb
 
   tags = local.common_tags
 }
