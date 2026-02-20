@@ -111,6 +111,8 @@ module "ecs_infrastructure" {
   use_existing_iam_roles        = var.use_existing_iam_roles
   task_execution_role_arn       = var.execution_role_arn
   task_role_arn                 = var.task_role_arn
+  iam_role_path                 = var.iam_role_path
+  iam_permissions_boundary      = var.iam_permissions_boundary
 
   enable_private_alb           = var.enable_private_alb
 

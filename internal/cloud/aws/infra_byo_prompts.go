@@ -310,9 +310,11 @@ func assembleOptions(cap models.Capability, in models.Inputs) (*models.Deploymen
 		SecurityGroupIDs:          sgIDs,
 
 		// Compute / IAM / Logs
-		UseExistingIAMRoles: u.IAM,
-		ExecutionRoleARN:    ifThen(u.IAM, in.ExecutionRoleARN, ""),
-		TaskRoleARN:         ifThen(u.IAM, in.TaskRoleARN, ""),
+		UseExistingIAMRoles:    u.IAM,
+		ExecutionRoleARN:       ifThen(u.IAM, in.ExecutionRoleARN, ""),
+		TaskRoleARN:            ifThen(u.IAM, in.TaskRoleARN, ""),
+		IAMRolePath:            in.IAMRolePath,
+		IAMPermissionsBoundary: in.IAMPermissionsBoundary,
 	}
 	return opts, nil
 }
@@ -507,6 +509,34 @@ func promptInputsForMissingSurvey(cap Capability) (Inputs, error) {
 			return idOrEmpty(s, reARN, "Task Role ARN")
 		})); err != nil {
 			return in, err
+		}
+	} else {
+		// Prompt for optional IAM role path and permissions boundary
+		var rolePath string
+		var permissionsBoundary string
+		if err := survey.AskOne(&survey.Input{
+			Message: "Any IAM Role Path (leave blank for default)",
+			Help:    "If set, this will be used as the path for created IAM roles (e.g. /service-role/). Leave blank to use AWS default.",
+		}, &rolePath); err != nil {
+			return in, err
+		}
+		if rolePath != "" {
+			in.IAMRolePath = &rolePath
+		}
+		if err := survey.AskOne(&survey.Input{
+			Message: "Any IAM Permissions Boundary ARN (leave blank for none)",
+			Help:    "If set, this ARN will be used as a permissions boundary for created IAM roles.",
+		}, &permissionsBoundary, survey.WithValidator(func(ans interface{}) error {
+			s := strings.TrimSpace(ans.(string))
+			if s == "" {
+				return nil
+			}
+			return idOrEmpty(s, reARN, "Permissions Boundary ARN")
+		})); err != nil {
+			return in, err
+		}
+		if permissionsBoundary != "" {
+			in.IAMPermissionsBoundary = &permissionsBoundary
 		}
 	}
 

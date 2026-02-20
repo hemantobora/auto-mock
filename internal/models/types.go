@@ -9,15 +9,17 @@ type Capability struct {
 }
 
 type Inputs struct {
-	VPCID             string
-	PublicSubnets     []string
-	PrivateSubnets    []string
-	InternetGatewayID string
-	NatGatewayIDs     []string
-	ALBSGID           string
-	ECSSGID           string
-	ExecutionRoleARN  string
-	TaskRoleARN       string
+	VPCID                  string
+	PublicSubnets          []string
+	PrivateSubnets         []string
+	InternetGatewayID      string
+	NatGatewayIDs          []string
+	ALBSGID                string
+	ECSSGID                string
+	ExecutionRoleARN       string
+	TaskRoleARN            string
+	IAMRolePath            *string
+	IAMPermissionsBoundary *string
 }
 
 type UseExisting struct {

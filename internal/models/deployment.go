@@ -50,9 +50,11 @@ type DeploymentOptions struct {
 
 	// === IAM ROLES (FeatIAMWrite, FeatPassRole) ===
 	// Second most restricted - IAM governance
-	UseExistingIAMRoles bool   `json:"-"`
-	ExecutionRoleARN    string `json:"execution_role_arn,omitempty"` // ECS task execution role
-	TaskRoleARN         string `json:"task_role_arn,omitempty"`      // ECS task role (app permissions)
+	UseExistingIAMRoles    bool    `json:"-"`
+	ExecutionRoleARN       string  `json:"execution_role_arn,omitempty"`       // ECS task execution role
+	TaskRoleARN            string  `json:"task_role_arn,omitempty"`            // ECS task role (app permissions)
+	IAMRolePath            *string `json:"iam_role_path,omitempty"`            // Optional path for created roles (e.g., "/auto-mock/")
+	IAMPermissionsBoundary *string `json:"iam_permissions_boundary,omitempty"` // Optional ARN for permissions boundary on created roles
 
 	// === App Settings ===
 	ProjectName string `json:"-"`
@@ -144,6 +146,13 @@ cloud_provider       = "%s"
 		}
 		if d.TaskRoleARN != "" {
 			fmt.Fprintf(&b, "task_role_arn      = \"%s\"\n", d.TaskRoleARN)
+		}
+	} else {
+		if d.IAMRolePath != nil {
+			fmt.Fprintf(&b, "iam_role_path      = \"%s\"\n", *d.IAMRolePath)
+		}
+		if d.IAMPermissionsBoundary != nil {
+			fmt.Fprintf(&b, "iam_permissions_boundary = \"%s\"\n", *d.IAMPermissionsBoundary)
 		}
 	}
 

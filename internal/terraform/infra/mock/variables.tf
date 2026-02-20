@@ -179,3 +179,15 @@ variable "cloud_provider" {
   type        = string
   default     = "aws"
 }
+
+variable "iam_role_path" {
+  description = "Optional IAM role path. If not set, default AWS path is used."
+  type        = string
+  default     = null
+}
+
+variable "iam_permissions_boundary" {
+  description = "Optional permissions boundary ARN for IAM roles. If not set, no boundary is applied."
+  type        = string
+  default     = null
+}
