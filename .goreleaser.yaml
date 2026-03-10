@@ -44,3 +44,16 @@ brews:
       bin.install "automock"
     test: |
       system "#{bin}/automock", "--version"
+
+scoops:
+  - name: automock
+    repository:
+      owner: hemantobora
+      name: scoop-bucket
+    commit_author:
+      name: goreleaser
+      email: hemantobora@gmail.com
+    homepage: "https://github.com/hemantobora/auto-mock"
+    description: "AutoMock CLI – generate & deploy MockServer infra"
+    commit_msg_template: "chore(scoop): update {{ .ProjectName }} to {{ .Tag }}"
+    license: "MIT"
