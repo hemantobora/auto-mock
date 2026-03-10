@@ -191,3 +191,12 @@ variable "iam_permissions_boundary" {
   type        = string
   default     = null
 }
+
+# ─────────────────────────────────────────────
+# Custom domain (optional)
+# ─────────────────────────────────────────────
+variable "custom_domain" {
+  description = "Base domain managed in Route53 (e.g. env.myhome.com). Leave empty to use the self-signed cert."
+  type        = string
+  default     = ""
+}

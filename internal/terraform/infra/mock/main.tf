@@ -116,5 +116,8 @@ module "ecs_infrastructure" {
 
   enable_private_alb           = var.enable_private_alb
 
+  # Custom domain — empty string means self-signed cert (default)
+  custom_domain = var.custom_domain
+
   tags = local.common_tags
 }

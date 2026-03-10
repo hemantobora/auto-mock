@@ -120,13 +120,26 @@ func (p *Provider) CreateDeploymentConfiguration() *models.DeploymentOptions {
 	return options
 }
 
-// CreateTerraformVars creates the terraform.tfvars file
+// CreateDefaultDeploymentConfiguration returns a minimal DeploymentOptions used
+// by the destroy command.  It restores CustomDomain from the persisted deployment
+// metadata so that Terraform evaluates the same conditional paths (self-signed vs
+// ACM) that were active when the infrastructure was created.
 func (p *Provider) CreateDefaultDeploymentConfiguration() *models.DeploymentOptions {
-	return &models.DeploymentOptions{
+	opts := &models.DeploymentOptions{
 		InstanceSize: "small",
 		Region:       p.GetRegion(),
 		BucketName:   p.BucketName,
 		ProjectName:  p.GetProjectName(),
 		Provider:     p.GetProviderType(),
 	}
+
+	// Restore custom domain from prior deployment so the destroy tfvars match
+	// what was originally applied.  If metadata is absent or the field is empty
+	// (pre-existing deployments without a custom domain) we leave it as "" and
+	// the self-signed path is used — which is correct for those deployments.
+	if md, err := p.GetDeploymentMetadata(); err == nil && md.CustomDomain != "" {
+		opts.CustomDomain = md.CustomDomain
+	}
+
+	return opts
 }

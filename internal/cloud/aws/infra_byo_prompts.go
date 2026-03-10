@@ -276,6 +276,31 @@ func promptDeploymentOptionsREPL(options *models.DeploymentOptions) error {
 		options.PrivateALB = confirmed
 	}
 
+	// ── Custom domain (optional) ──────────────────────────────────────────────
+	// When provided, Terraform will:
+	//   1. Look up the Route53 hosted zone for the domain automatically.
+	//   2. Issue an ACM certificate for <project>.<domain> via DNS validation.
+	//   3. Create an A-alias record pointing to the ALB.
+	// When left blank, the existing self-signed cert path is used.
+	var customDomain string
+	if err := survey.AskOne(&survey.Input{
+		Message: "Custom domain (leave blank to skip, e.g. env.myhome.com):",
+		Help:    "The domain must already be a public hosted zone in Route53 on this AWS account. The mock will be reachable at <project-name>.<domain>.",
+	}, &customDomain, survey.WithValidator(func(ans interface{}) error {
+		s := strings.TrimSpace(ans.(string))
+		if s == "" {
+			return nil // optional
+		}
+		// Basic sanity: must contain at least one dot and no spaces
+		if !strings.Contains(s, ".") || strings.ContainsAny(s, " \t") {
+			return fmt.Errorf("custom domain looks invalid (expected format: env.myhome.com)")
+		}
+		return nil
+	})); err == nil && strings.TrimSpace(customDomain) != "" {
+		options.CustomDomain = strings.TrimSpace(customDomain)
+		fmt.Printf("✓ Mock will be accessible at https://%s.%s\n", options.ProjectName, options.CustomDomain)
+	}
+
 	fmt.Println("\n✅ Deployment configuration complete!")
 	return nil
 }

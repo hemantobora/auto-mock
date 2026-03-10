@@ -12,6 +12,7 @@ type DeploymentMetadata struct {
 	ProjectName      string                 `json:"project_name"`
 	DeploymentStatus string                 `json:"deployment_status"` // none, deploying, deployed, failed, destroyed
 	DeployedAt       time.Time              `json:"deployed_at,omitempty"`
+	CustomDomain     string                 `json:"custom_domain,omitempty"` // persisted so destroy uses same vars
 	Details          *InfrastructureOutputs `json:"details,omitempty"`
 }
 
@@ -23,6 +24,9 @@ type InfrastructureOutputs struct {
 	IntegrationSummary    map[string]interface{} `json:"integration_summary"`
 	CLICommands           map[string]string      `json:"cli_integration_commands"`
 	InfrastructureSummary map[string]interface{} `json:"infrastructure_summary"`
+	// CustomDomain is the base domain used during deployment (e.g. env.myhome.com).
+	// Persisted so that the destroy command can reconstruct the correct tfvars.
+	CustomDomain          string                 `json:"custom_domain,omitempty"`
 }
 
 // DeploymentOptions configures the infrastructure deployment
@@ -64,6 +68,12 @@ type DeploymentOptions struct {
 
 	// === App LoadBalancer Settings ===
 	PrivateALB bool `json:"-"`
+
+	// === Custom Domain (optional) ===
+	// When set, Terraform will look up the Route53 hosted zone for this domain,
+	// issue an ACM certificate for <ProjectName>.<CustomDomain>, and create an
+	// A-alias record pointing to the ALB.  Leave empty to use self-signed cert.
+	CustomDomain string `json:"custom_domain,omitempty"`
 }
 
 // CreateTerraformVars renders terraform.tfvars as HCL based on DeploymentOptions.
@@ -154,6 +164,11 @@ cloud_provider       = "%s"
 		if d.IAMPermissionsBoundary != nil {
 			fmt.Fprintf(&b, "iam_permissions_boundary = \"%s\"\n", *d.IAMPermissionsBoundary)
 		}
+	}
+
+	// Custom domain (optional — emitted only when provided)
+	if d.CustomDomain != "" {
+		fmt.Fprintf(&b, "\ncustom_domain = \"%s\"\n", d.CustomDomain)
 	}
 
 	return b.String()
