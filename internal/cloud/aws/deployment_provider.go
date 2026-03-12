@@ -21,7 +21,8 @@ func (p *Provider) SaveDeploymentMetadata(output *models.InfrastructureOutputs) 
 		ProjectName:      p.projectID,
 		DeploymentStatus: "deployed",
 		DeployedAt:       time.Now().UTC(),
-		CustomDomain:     output.CustomDomain, // persisted so destroy uses the same tfvars
+		CustomDomain:     output.CustomDomain,     // persisted so destroy uses the same tfvars
+		CreateHostedZone: output.CreateHostedZone, // persisted so destroy tears down the zone it created
 		Details:          output,
 	}
 

@@ -11,8 +11,9 @@ import (
 type DeploymentMetadata struct {
 	ProjectName      string                 `json:"project_name"`
 	DeploymentStatus string                 `json:"deployment_status"` // none, deploying, deployed, failed, destroyed
-	DeployedAt       time.Time              `json:"deployed_at,omitempty"`
-	CustomDomain     string                 `json:"custom_domain,omitempty"` // persisted so destroy uses same vars
+	DeployedAt       time.Time             `json:"deployed_at,omitempty"`
+	CustomDomain     string                 `json:"custom_domain,omitempty"`      // persisted so destroy uses same vars
+	CreateHostedZone bool                   `json:"create_hosted_zone,omitempty"` // persisted so destroy uses same vars
 	Details          *InfrastructureOutputs `json:"details,omitempty"`
 }
 
@@ -26,7 +27,8 @@ type InfrastructureOutputs struct {
 	InfrastructureSummary map[string]interface{} `json:"infrastructure_summary"`
 	// CustomDomain is the base domain used during deployment (e.g. env.myhome.com).
 	// Persisted so that the destroy command can reconstruct the correct tfvars.
-	CustomDomain          string                 `json:"custom_domain,omitempty"`
+	CustomDomain     string `json:"custom_domain,omitempty"`
+	CreateHostedZone bool   `json:"create_hosted_zone,omitempty"`
 }
 
 // DeploymentOptions configures the infrastructure deployment
@@ -70,10 +72,14 @@ type DeploymentOptions struct {
 	PrivateALB bool `json:"-"`
 
 	// === Custom Domain (optional) ===
-	// When set, Terraform will look up the Route53 hosted zone for this domain,
-	// issue an ACM certificate for <ProjectName>.<CustomDomain>, and create an
-	// A-alias record pointing to the ALB.  Leave empty to use self-signed cert.
-	CustomDomain string `json:"custom_domain,omitempty"`
+	// When set, Terraform will look up (or create) the Route53 hosted zone for
+	// this domain, issue an ACM certificate for <ProjectName>.<CustomDomain>,
+	// and create an A-alias record pointing to the ALB.
+	// Leave empty to use self-signed cert.
+	CustomDomain     string `json:"custom_domain,omitempty"`
+	// CreateHostedZone controls whether Terraform creates a new Route53 hosted
+	// zone (true) or looks up an existing one (false, default).
+	CreateHostedZone bool   `json:"create_hosted_zone,omitempty"`
 }
 
 // CreateTerraformVars renders terraform.tfvars as HCL based on DeploymentOptions.
@@ -169,6 +175,9 @@ cloud_provider       = "%s"
 	// Custom domain (optional — emitted only when provided)
 	if d.CustomDomain != "" {
 		fmt.Fprintf(&b, "\ncustom_domain = \"%s\"\n", d.CustomDomain)
+		if d.CreateHostedZone {
+			fmt.Fprintf(&b, "create_hosted_zone = true\n")
+		}
 	}
 
 	return b.String()

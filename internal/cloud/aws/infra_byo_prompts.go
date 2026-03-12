@@ -277,28 +277,41 @@ func promptDeploymentOptionsREPL(options *models.DeploymentOptions) error {
 	}
 
 	// ── Custom domain (optional) ──────────────────────────────────────────────
-	// When provided, Terraform will:
-	//   1. Look up the Route53 hosted zone for the domain automatically.
-	//   2. Issue an ACM certificate for <project>.<domain> via DNS validation.
-	//   3. Create an A-alias record pointing to the ALB.
-	// When left blank, the existing self-signed cert path is used.
+	// Blank  → self-signed cert (no Route53 involvement).
+	// Filled → ask whether the zone already exists in R53 or needs to be created.
+	//   BYO zone  (N): data source lookup → ACM cert → validation records → A-alias
+	//   New zone  (Y): resource aws_route53_zone → ACM cert → validation records → A-alias
+	//                  (NS records are output so the user can delegate at their registrar)
 	var customDomain string
 	if err := survey.AskOne(&survey.Input{
-		Message: "Custom domain (leave blank to skip, e.g. env.myhome.com):",
-		Help:    "The domain must already be a public hosted zone in Route53 on this AWS account. The mock will be reachable at <project-name>.<domain>.",
+		Message: "Custom domain (leave blank to skip, e.g. mock.offers.com):",
+		Help:    "The mock will be reachable at <project-name>.<domain> over HTTPS with a valid ACM certificate.",
 	}, &customDomain, survey.WithValidator(func(ans interface{}) error {
 		s := strings.TrimSpace(ans.(string))
 		if s == "" {
 			return nil // optional
 		}
-		// Basic sanity: must contain at least one dot and no spaces
 		if !strings.Contains(s, ".") || strings.ContainsAny(s, " \t") {
-			return fmt.Errorf("custom domain looks invalid (expected format: env.myhome.com)")
+			return fmt.Errorf("domain looks invalid (expected format: mock.offers.com)")
 		}
 		return nil
 	})); err == nil && strings.TrimSpace(customDomain) != "" {
 		options.CustomDomain = strings.TrimSpace(customDomain)
+
+		var createZone bool
+		if err := survey.AskOne(&survey.Confirm{
+			Message: fmt.Sprintf("Would you like to host %s in Route53?", options.CustomDomain),
+			Default: false,
+			Help: "No  → the zone already exists in Route53; the tool will look it up and add the necessary records.\n" +
+				"Yes → the tool will create a new Route53 public hosted zone. After deploy, point your registrar to the NS records shown in the output.",
+		}, &createZone); err == nil {
+			options.CreateHostedZone = createZone
+		}
+
 		fmt.Printf("✓ Mock will be accessible at https://%s.%s\n", options.ProjectName, options.CustomDomain)
+		if options.CreateHostedZone {
+			fmt.Println("  ℹ️  A new hosted zone will be created. After deploy, update your registrar with the NS records printed in the Terraform output.")
+		}
 	}
 
 	fmt.Println("\n✅ Deployment configuration complete!")
