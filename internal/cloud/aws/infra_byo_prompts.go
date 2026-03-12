@@ -381,12 +381,19 @@ func (p *Provider) promptCapabilityAndInputs(ctx context.Context) (*models.Capab
 		return nil, nil, fmt.Errorf("failed to get caller identity: %w", err)
 	}
 	identity := aws.ToString(id.Arn)
+	// GetCallerIdentity is special-cased by AWS — no IAM permission is required
+	// and even an explicit Deny cannot block it. However, if credentials are
+	// invalid the call will fail above, so accountID is always non-empty here.
+	// We pass it down so the permissions boundary prompt can auto-construct the
+	// full ARN from just a policy name. If it were ever empty, the prompt falls
+	// back to requiring a full ARN from the user.
+	accountID := aws.ToString(id.Account)
 	cap, err := promptCapabilitiesSurvey(identity)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	in, err := promptInputsForMissingSurvey(cap)
+	in, err := promptInputsForMissingSurvey(cap, accountID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -433,7 +440,7 @@ func promptCapabilitiesSurvey(identity string) (Capability, error) {
 
 /* ===================== Inputs Prompt (BYO for unchecked) ===================== */
 
-func promptInputsForMissingSurvey(cap Capability) (Inputs, error) {
+func promptInputsForMissingSurvey(cap Capability, accountID string) (Inputs, error) {
 	in := Inputs{} // MVP default
 
 	// Networking BYO
@@ -559,22 +566,60 @@ func promptInputsForMissingSurvey(cap Capability) (Inputs, error) {
 			return in, err
 		}
 		if rolePath != "" {
+			// AWS requires the path to start and end with "/".
+			// Normalize silently so the user doesn't have to remember the format.
+			if !strings.HasPrefix(rolePath, "/") {
+				rolePath = "/" + rolePath
+			}
+			if !strings.HasSuffix(rolePath, "/") {
+				rolePath = rolePath + "/"
+			}
 			in.IAMRolePath = &rolePath
 		}
+		// Accept either a bare policy name or a full ARN.
+		// When accountID is available (always, given GetCallerIdentity's special
+		// AWS treatment) the tool auto-constructs the full ARN from just the name.
+		// If accountID were somehow empty we fall back to requiring the full ARN.
+		canAutoARN := accountID != ""
+		var boundaryHelp string
+		if canAutoARN {
+			boundaryHelp = fmt.Sprintf(
+				"Enter the policy name (e.g. my-boundary) or the full ARN.\n"+
+					"If you provide just the name, the tool will build: arn:aws:iam::%s:policy/<name>",
+				accountID,
+			)
+		} else {
+			boundaryHelp = "Enter the full ARN (e.g. arn:aws:iam::123456789012:policy/my-boundary)."
+		}
 		if err := survey.AskOne(&survey.Input{
-			Message: "Any IAM Permissions Boundary ARN (leave blank for none)",
-			Help:    "If set, this ARN will be used as a permissions boundary for created IAM roles.",
+			Message: "IAM Permissions Boundary (leave blank for none)",
+			Help:    boundaryHelp,
 		}, &permissionsBoundary, survey.WithValidator(func(ans interface{}) error {
 			s := strings.TrimSpace(ans.(string))
 			if s == "" {
 				return nil
 			}
-			return idOrEmpty(s, reARN, "Permissions Boundary ARN")
+			if strings.HasPrefix(s, "arn:") {
+				return idOrEmpty(s, reARN, "Permissions Boundary ARN")
+			}
+			if !canAutoARN {
+				return fmt.Errorf("account ID unavailable — please provide the full ARN")
+			}
+			if strings.ContainsAny(s, " /") {
+				return fmt.Errorf("policy name looks invalid — use just the name (e.g. my-boundary) or a full ARN")
+			}
+			return nil
 		})); err != nil {
 			return in, err
 		}
 		if permissionsBoundary != "" {
-			in.IAMPermissionsBoundary = &permissionsBoundary
+			var fullARN string
+			if strings.HasPrefix(permissionsBoundary, "arn:") {
+				fullARN = permissionsBoundary
+			} else {
+				fullARN = fmt.Sprintf("arn:aws:iam::%s:policy/%s", accountID, permissionsBoundary)
+			}
+			in.IAMPermissionsBoundary = &fullARN
 		}
 	}
 
