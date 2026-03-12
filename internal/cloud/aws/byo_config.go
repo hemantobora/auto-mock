@@ -133,13 +133,13 @@ func (p *Provider) CreateDefaultDeploymentConfiguration() *models.DeploymentOpti
 		Provider:     p.GetProviderType(),
 	}
 
-	// Restore custom domain + hosted zone flag from prior deployment so the
-	// destroy tfvars match what was originally applied.  If metadata is absent
-	// or the fields are empty (pre-existing deployments) we leave them at their
-	// zero values — self-signed cert, no zone management — which is correct.
-	if md, err := p.GetDeploymentMetadata(); err == nil && md.CustomDomain != "" {
+	// Restore flags from prior deployment so destroy tfvars exactly match
+	// what was originally applied. We always restore when metadata is present,
+	// not just when CustomDomain is set — PrivateALB = false is meaningful.
+	if md, err := p.GetDeploymentMetadata(); err == nil {
 		opts.CustomDomain = md.CustomDomain
 		opts.CreateHostedZone = md.CreateHostedZone
+		opts.PrivateALB = md.PrivateALB
 	}
 
 	return opts

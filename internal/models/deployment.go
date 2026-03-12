@@ -14,6 +14,7 @@ type DeploymentMetadata struct {
 	DeployedAt       time.Time             `json:"deployed_at,omitempty"`
 	CustomDomain     string                 `json:"custom_domain,omitempty"`      // persisted so destroy uses same vars
 	CreateHostedZone bool                   `json:"create_hosted_zone,omitempty"` // persisted so destroy uses same vars
+	PrivateALB       bool                   `json:"enable_private_alb,omitempty"` // persisted so destroy uses same vars
 	Details          *InfrastructureOutputs `json:"details,omitempty"`
 }
 
@@ -29,6 +30,7 @@ type InfrastructureOutputs struct {
 	// Persisted so that the destroy command can reconstruct the correct tfvars.
 	CustomDomain     string `json:"custom_domain,omitempty"`
 	CreateHostedZone bool   `json:"create_hosted_zone,omitempty"`
+	PrivateALB       bool   `json:"enable_private_alb,omitempty"`
 }
 
 // DeploymentOptions configures the infrastructure deployment
@@ -69,7 +71,7 @@ type DeploymentOptions struct {
 	Provider    string `json:"provider,omitempty"`
 
 	// === App LoadBalancer Settings ===
-	PrivateALB bool `json:"-"`
+	PrivateALB bool `json:"enable_private_alb,omitempty"`
 
 	// === Custom Domain (optional) ===
 	// When set, Terraform will look up (or create) the Route53 hosted zone for
@@ -171,6 +173,9 @@ cloud_provider       = "%s"
 			fmt.Fprintf(&b, "iam_permissions_boundary = \"%s\"\n", *d.IAMPermissionsBoundary)
 		}
 	}
+
+	// Private ALB — always emitted so destroy uses the exact value from deploy
+	fmt.Fprintf(&b, "\nenable_private_alb = %t\n", d.PrivateALB)
 
 	// Custom domain (optional — emitted only when provided)
 	if d.CustomDomain != "" {

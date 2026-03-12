@@ -74,10 +74,11 @@ func (d *Deployment) DeployInfrastructureWithTerraform(skip_confirmation bool) e
 		return fmt.Errorf("deployment failed: %w", err)
 	}
 
-	// Carry custom domain + hosted zone flag into outputs so they are persisted
-	// in deployment metadata and can be restored verbatim when destroy runs.
+	// Carry deployment flags into outputs so they are persisted in deployment
+	// metadata and can be restored verbatim when the destroy command runs.
 	outputs.CustomDomain = options.CustomDomain
 	outputs.CreateHostedZone = options.CreateHostedZone
+	outputs.PrivateALB = options.PrivateALB
 
 	d.Provider.SaveDeploymentMetadata(outputs)
 	return nil
