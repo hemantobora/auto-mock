@@ -4,95 +4,91 @@
 [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://golang.org/)
 [![AWS](https://img.shields.io/badge/AWS-Supported-FF9900?logo=amazon-aws)](https://aws.amazon.com/)
 
-**AutoMock** is an AI-powered, cloud-native CLI tool that generates and deploys production-ready mock API servers from simple descriptions, API collections, or interactive builders. Spin up ephemeral, fully managed mock servers in minutes with auto-scaling, monitoring, and intelligent expectation management.
+**AutoMock** is a cloud-native CLI tool that generates and deploys production-ready mock API servers from natural language descriptions, API collections, or an interactive builder. Spin up fully managed mock servers on AWS with auto-scaling, monitoring, and built-in load testing support.
 
-> Note: Cloud provider support is currently AWS-only. GCP and Azure are planned but not yet available.
+> Cloud provider support is currently AWS-only. GCP and Azure are planned but not yet available.
 
 ---
 
 ## 🌟 Highlights
 
-- 🤖 **AI-Generated Mocks** - Describe your API in natural language, get complete MockServer configurations
-- ☁️ **Cloud-Native Deployment** - One command deploys ECS Fargate + ALB + Auto-scaling
-- 📦 **Multi-Format Import** - Postman, Bruno, Insomnia collections → MockServer expectations
-- 🔧 **Interactive Builder** - 7-step guided builder for precise control
-- ⚡ **Auto-Scaling** - Configurable min/max based on CPU/Memory/Requests (defaults: 10–200 tasks)
-- 💾 **Cloud Storage** - S3-backed, versioned, team-accessible
-- 🎭 **Advanced Features** - Progressive delays, GraphQL, response templates, rate limiting
-- 🧪 **Load Testing** - Built-in Locust test generation
-- 🔐 **Production-Ready** - ALB health checks, CloudWatch monitoring, IAM best practices
+- 🤖 **AI-Generated Mocks** — Describe your API in natural language, get complete MockServer configurations
+- ☁️ **Cloud-Native Deployment** — One command deploys ECS Fargate + ALB + Auto-scaling
+- 📦 **Multi-Format Import** — Postman, Bruno, Insomnia collections → MockServer expectations
+- 🔧 **Interactive Builder** — 7-step guided builder for precise control
+- ⚡ **Auto-Scaling** — CPU/Memory/Request-based (configurable; defaults: 10–200 tasks)
+- 💾 **Cloud Storage** — S3-backed, versioned, team-accessible expectations
+- 🎭 **Advanced Features** — Progressive delays, GraphQL, response templates, response limits
+- 🧪 **Load Testing** — Locust bundle generation and managed AWS deployment
+- 🔐 **Production-Ready** — ALB health checks, CloudWatch monitoring, IAM best practices
 
 ---
 
-## �️ Installation
+## 🗺️ Installation
 
-You can install Automock via Homebrew (recommended), download prebuilt binaries from Releases, or build from source with Go.
-
-### Option A — Homebrew (recommended)
-
-macOS or Linux with Homebrew:
+### Option A — Homebrew (macOS / Linux)
 
 ```bash
 brew tap hemantobora/tap
 brew install automock
-# Verify
 automock --version
 ```
 
-Tip: You can also directly run `brew install hemantobora/tap/automock` and Homebrew will auto-tap the repo.
+Or directly: `brew install hemantobora/tap/automock`
 
-### Option B — Download release binaries
+### Option B — Scoop (Windows)
 
-1) Go to the Releases page: https://github.com/hemantobora/auto-mock/releases
-2) Download the archive for your OS/arch (e.g., `automock_0.0.1_darwin_arm64.tar.gz`)
-3) Extract and place the binary on your PATH, e.g.:
+```bash
+scoop bucket add hemantobora https://github.com/hemantobora/scoop-bucket
+scoop install automock
+automock --version
+```
+
+### Option C — Download release binary
+
+1. Go to the [Releases page](https://github.com/hemantobora/auto-mock/releases)
+2. Download the archive for your OS/arch (e.g., `automock_darwin_arm64.tar.gz`)
+3. Extract and place the binary on your PATH:
 
 ```bash
 tar -xzf automock_*.tar.gz
-sudo mv automock /usr/local/bin/   # or ~/.local/bin on Linux
+sudo mv automock /usr/local/bin/
 automock --version
 ```
 
-### Option C — Go install (from source)
+### Option D — Build from source
 
 Requires Go 1.22+:
 
 ```bash
-go install github.com/hemantobora/auto-mock/cmd/auto-mock@latest
-# or pin a version, e.g. v0.0.1
-go install github.com/hemantobora/auto-mock/cmd/auto-mock@v0.0.1
-
-# Ensure your GOPATH/bin (or GOBIN) is on PATH
-automock --version
+git clone https://github.com/hemantobora/auto-mock.git
+cd auto-mock
+go build -o automock ./cmd/auto-mock
 ```
 
 ### Upgrading
 
 - Homebrew: `brew upgrade automock`
-- Release binary: download the newer version and replace your existing binary
-- Go install: `go install github.com/hemantobora/auto-mock/cmd/auto-mock@latest`
+- Scoop: `scoop update automock`
+- Binary: download the newer version and replace the existing binary
 
 ---
 
-## �🚀 Quick Start
+## 🚀 Quick Start
 
 ```bash
-# Install
-git clone https://github.com/hemantobora/auto-mock.git
-cd auto-mock && ./build.sh
+# Set your AI provider key (choose one)
+export ANTHROPIC_API_KEY="sk-ant-..."
+export OPENAI_API_KEY="sk-..."
 
-# Configure (choose one AI provider)
-export ANTHROPIC_API_KEY="sk-ant-..."  # For Claude
-export OPENAI_API_KEY="sk-..."         # For GPT-4
+# Generate mock expectations
+automock init --project user-api --provider anthropic
 
-# Create your first mock
-./automock init --project user-api --provider anthropic
-
-# Deploy to AWS (optional)
-./automock deploy --project user-api
+# Deploy to AWS
+automock deploy --project user-api
 ```
 
-**Your mock API is now live!** 🎉
+Your mock API is now live at the ALB endpoint shown after deploy.
 
 ---
 
@@ -101,8 +97,7 @@ export OPENAI_API_KEY="sk-..."         # For GPT-4
 | Document | Description |
 |----------|-------------|
 | [GETTING_STARTED.md](GETTING_STARTED.md) | Complete setup guide, tutorials, examples |
-| [terraform/README.md](terraform/README.md) | Infrastructure details, cost estimates |
-| `./automock help` | Comprehensive CLI reference |
+| `automock help` | CLI reference |
 
 ---
 
@@ -113,24 +108,24 @@ export OPENAI_API_KEY="sk-..."         # For GPT-4
 Generate complete MockServer configurations from natural language:
 
 ```bash
-./automock init --project my-api --provider anthropic
+automock init --project my-api --provider anthropic
 ```
 
 **Prompt:** *"User management API with registration, login, profile CRUD, password reset, and admin functions"*
 
 **AI generates:**
-- ✅ All CRUD endpoints (`GET /users`, `POST /users`, `PUT /users/{id}`, etc.)
-- ✅ Authentication flows (login, logout, token refresh)
-- ✅ Admin-only endpoints with proper authorization
-- ✅ Error responses (400, 401, 403, 404, 500)
-- ✅ Realistic test data with proper types
-- ✅ Request validation rules
-- ✅ Multiple scenarios per endpoint
+- All CRUD endpoints (`GET /users`, `POST /users`, `PUT /users/{id}`, etc.)
+- Authentication flows (login, logout, token refresh)
+- Admin-only endpoints with authorization
+- Error responses (400, 401, 403, 404, 500)
+- Realistic test data with proper types
+- Request validation rules
+- Multiple scenarios per endpoint
 
 **Supported AI Providers:**
 - **Anthropic** (Claude Sonnet 4.5)
 - **OpenAI** (GPT-4)
-- **Template** (No AI, fallback mode)
+- **Template** (no AI, fallback mode)
 
 ---
 
@@ -139,7 +134,7 @@ Generate complete MockServer configurations from natural language:
 Import existing API definitions from popular tools:
 
 ```bash
-./automock init \
+automock init \
   --project api-mock \
   --collection-file api.postman_collection.json \
   --collection-type postman
@@ -148,24 +143,23 @@ Import existing API definitions from popular tools:
 **Supported Formats:**
 - **Postman** Collection v2.1 (.json)
 - **Bruno** Collection (.json)
-- **Insomnia** Workspace (.json) — beta
+- **Insomnia** Workspace (.json)
 
-**Smart Features:**
-- 🔄 Sequential API execution with variable resolution
-- �️ Interactive matching configuration (guided; no automatic scenario inference)
-- �️ Auto-incremented priorities to avoid collisions
-- 📝 Pre/post-script processing (Postman-like JS via embedded engine)
-- 🔐 Auth mapping to headers when provided in the collection
+**Features:**
+- Sequential API execution with variable resolution
+- Interactive matching configuration (guided; no automatic scenario inference)
+- Auto-incremented priorities to avoid collisions
+- Pre/post-script processing (Postman-like JS via embedded engine)
+- Auth mapping to headers when provided in the collection
 
-**Example: Multi-Scenario Detection**
+**Example: Multi-Scenario Configuration**
 ```
-Same endpoint GET /api/users/123:
+GET /api/users/123:
   Priority 100: Anonymous → 401 Unauthorized
   Priority 200: Authenticated → 200 OK (user data)
   Priority 300: Admin → 200 OK (admin view)
   Priority 400: Rate limited → 429 Too Many Requests
 ```
-Note: Scenarios like these are configured via the guided flow; they are not inferred automatically in all cases.
 
 ---
 
@@ -174,18 +168,18 @@ Note: Scenarios like these are configured via the guided flow; they are not infe
 Precision-controlled, step-by-step expectation creation:
 
 ```bash
-./automock init --project my-api
+automock init --project my-api
 # Select: interactive
 ```
 
 **7-Step Process:**
-1. **Basic Info** - Description, priority, tags
-2. **Request Matching** - Method, path, query params, headers
-3. **Response Configuration** - Status code, headers, body templates
-4. **Advanced Features** - Delays, caching, compression
-5. **Connection Options** - Socket config, keep-alive
-6. **Rate Limiting** - Per-IP, per-endpoint limits
-7. **Review & Confirm** - Validate before saving
+1. **Basic Info** — Description, priority, tags
+2. **Request Matching** — Method, path, query params, headers
+3. **Response Configuration** — Status code, headers, body templates
+4. **Advanced Features** — Delays, caching, compression
+5. **Connection Options** — Socket config, keep-alive
+6. **Response Limits** — Serve unlimited times or expire after N requests
+7. **Review & Confirm** — Validate before saving
 
 **Advanced Request Matching:**
 - Path parameters: `/users/{id}/orders/{orderId}`
@@ -196,7 +190,7 @@ Precision-controlled, step-by-step expectation creation:
 
 **Response Features:**
 - Template variables: `$!uuid`, `$!now_epoch`, `$!request.headers['X-Request-ID'][0]`
-- Progressive delays: 100ms → 150ms → 200ms...
+- Progressive delays: 100ms → 150ms → 200ms…
 - Multiple response bodies per expectation
 
 ---
@@ -206,27 +200,28 @@ Precision-controlled, step-by-step expectation creation:
 Deploy production-ready infrastructure with one command:
 
 ```bash
-./automock deploy --project my-api
+automock deploy --project my-api
 ```
 
 **What Gets Deployed:**
 ```
 ┌─────────────────────────────────────────┐
 │  Application Load Balancer (Public)     │
-│  http://automock-{project}-{id}.elb...  │
+│  https://automock-{project}-{id}.elb…  │
 └─────────────┬───────────────────────────┘
               │
-    ┌─────────┴─────────┐
-    │  Target Groups     │
-    │  • API (/)         │
-    │  • Dashboard       │
-    └─────────┬──────────┘
+    ┌─────────┴──────────┐
+    │  Target Groups      │
+    │  • API (/)          │
+    │  • Dashboard        │
+    └─────────┬───────────┘
               │
 ┌─────────────┴────────────────────────────┐
 │  ECS Fargate Cluster                     │
 │  • MockServer (port 1080)                │
 │  • Config Loader (sidecar)               │
-│  • Auto-scaling: configurable (defaults 10–200 tasks) │
+│  • Auto-scaling: configurable            │
+│    (defaults: 10–200 tasks)              │
 └──────────────────────────────────────────┘
               │
     ┌─────────┴──────────┐
@@ -237,19 +232,21 @@ Deploy production-ready infrastructure with one command:
 ```
 
 **Infrastructure Features:**
-- ⚡ **Auto-Scaling** - CPU/Memory/Request-based (10-200 tasks)
-- 🔍 **Monitoring** - CloudWatch metrics, logs, alarms
-- 🏥 **Health Checks** - ALB target health, /mockserver/status
-- 🔒 **Security** - IAM roles, security groups, private subnets
-- 💰 **Cost Optimization** - Guidance to minimize spend
+- Auto-Scaling — CPU/Memory/Request-based (10–200 tasks by default)
+- Monitoring — CloudWatch metrics, logs, alarms
+- Health Checks — ALB target health, `/mockserver/status`
+- Security — IAM roles, security groups, private subnets
+- Custom Domain — ACM certificate + Route53 (optional, prompted at deploy time)
+- Private ALB — Optional internal ALB for VPC-internal clients (e.g., Locust)
+- BYO Networking — Use existing VPC, subnets, IGW, NAT, IAM roles, and security groups
 
 **Accessing Your Mock:**
 ```bash
 # API endpoint
-curl http://automock-my-api-123.us-east-1.elb.amazonaws.com/api/users
+curl https://automock-my-api-123.us-east-1.elb.amazonaws.com/api/users
 
-# Dashboard (UI for expectations)
-open http://automock-my-api-123.us-east-1.elb.amazonaws.com/mockserver/dashboard
+# MockServer Dashboard
+open https://automock-my-api-123.us-east-1.elb.amazonaws.com/mockserver/dashboard
 ```
 
 ---
@@ -259,43 +256,29 @@ open http://automock-my-api-123.us-east-1.elb.amazonaws.com/mockserver/dashboard
 Manage expectations throughout their lifecycle:
 
 ```bash
-# View all expectations
-./automock init --project my-api
-# → Select: view
-
-# Add new expectations (any generation mode)
-./automock init --project my-api
-# → Select: add
-
-# Edit specific expectations
-./automock init --project my-api
-# → Select: edit → Choose endpoint → Modify
-
-# Remove some expectations
-./automock init --project my-api
-# → Select: remove → Choose endpoints
-
-# Replace all expectations
-./automock init --project my-api
-# → Select: replace → Generate new set
-
-# Download expectations file
-./automock init --project my-api
-# → Select: download → Saves to {project}-expectations.json
-
-# Delete project & infrastructure
-./automock init --project my-api
-# → Select: delete → Confirms & tears down everything
+# View / add / edit / remove / replace / download / delete
+automock init --project my-api
+# → Select the desired action from the menu
 ```
+
+| Action | Description |
+|--------|-------------|
+| `view` | List all expectations |
+| `add` | Add new expectations (any generation mode) |
+| `edit` | Edit specific expectations |
+| `remove` | Remove selected expectations |
+| `replace` | Replace all expectations |
+| `download` | Save to `{project}-expectations.json` |
+| `delete` | Tear down project and all infrastructure |
 
 ---
 
-### 🧪 Load Testing
+### 🧪 Load Testing — Local
 
-Generate Locust load testing bundles from collections:
+Generate Locust load testing bundles from a collection:
 
 ```bash
-./automock load \
+automock load \
   --collection-file api.json \
   --collection-type postman \
   --dir ./load-tests \
@@ -303,286 +286,137 @@ Generate Locust load testing bundles from collections:
 
 cd load-tests
 ./run_locust_ui.sh
-
-# Browser opens to http://localhost:8089
-# Configure: users, spawn rate, target host
-# Run load tests & view real-time metrics
+# Browser opens at http://localhost:8089
 ```
 
 **Generated Files:**
-- `locustfile.py` - Test scenarios
-- `requirements.txt` - Dependencies
-- `run_locust_ui.sh` - Start with web UI
-- `run_locust_headless.sh` - Run without UI
-- `run_locust_master.sh` - Distributed master
-- `run_locust_worker.sh` - Distributed worker
+- `locustfile.py` — Test scenarios
+- `requirements.txt` — Python dependencies
+- `run_locust_ui.sh` / `.ps1` — Start with web UI
+- `run_locust_headless.sh` / `.ps1` — Run without UI
+- `run_locust_master.sh` / `.ps1` — Distributed master
+- `run_locust_worker.sh` / `.ps1` — Distributed worker
 
-Variable substitution in Locust
-- `${env.VAR}` is expanded at load-time across the spec.
-- `${data.<field>}` and `${user.id|index}` are expanded at runtime in path, headers, params, and body.
-- Auth nuance: in `auth.mode: shared`, only `${env.*}` expands; in `auth.mode: per_user`, `${data.*}` and `${user.*}` also expand in the login path/headers/body.
+**Variable substitution:**
+- `${env.VAR}` — Expanded at load-time across the spec
+- `${data.<field>}` and `${user.id|index}` — Expanded at runtime in path, headers, params, and body
+- In `auth.mode: shared`, only `${env.*}` expands; in `auth.mode: per_user`, `${data.*}` and `${user.*}` also expand in the login path/headers/body
 
 ---
 
-### ☁️ Managed Locust on AWS (beta)
-#### Optional: Custom Runtime Image (Locust + Boto3)
+### ☁️ Managed Locust on AWS
 
-By default, no custom image is required. The module uses public images:
+Deploy a Locust cluster to AWS via the same `deploy` command. The stack provisions an ECS Fargate cluster (master + configurable workers), an ALB for the Locust UI, and Cloud Map service discovery between master and workers.
 
-- Locust: `locustio/locust:2.31.2`
-- Init sidecar: `python:3.11-slim` (installs boto3 at startup and downloads the bundle)
-
-If you prefer faster cold-starts or no runtime installs, you can optionally build a tiny derived image that already contains Locust + boto3 and your bootstrap script:
-
-- Locust CLI
-- Python + `boto3` (for S3 downloads)
-
-Build the reference image:
-
-```
-# Example: build your own derived image (optional)
-docker build -t <your-account>.dkr.ecr.<region>.amazonaws.com/automock-locust:latest <path-to-your-dockerfile>
-```
-
-Push to ECR (example):
-
-```
-aws ecr create-repository --repository-name automock-locust || true
-aws ecr get-login-password --region <region> | docker login --username AWS --password-stdin <your-account>.dkr.ecr.<region>.amazonaws.com
-docker push <your-account>.dkr.ecr.<region>.amazonaws.com/automock-locust:latest
-```
-
-Then set Terraform variable `locust_container_image` to that ECR URI before deploying (optional):
-
-```
-locust_container_image = "<your-account>.dkr.ecr.<region>.amazonaws.com/automock-locust:latest"
-```
-
-Sidecar environment variables used:
-
-- `BUNDLE_BUCKET`: S3 bucket name
-- `PROJECT_NAME`: Base project ID (without suffix)
-- `AWS_REGION`: Region (optional but passed)
-
-When using the default configuration, the init sidecar runs a small inline Python script to:
-
-If you see an error like:
-
-```
-Could not find '/workspace/locustfile.py'. Ensure your locustfile ends with '.py' or is a directory with locustfiles.
-```
-
-It means no active bundle was downloaded. Common causes:
-1. No load test bundle uploaded yet (run `automock load --upload` for your project).
-2. Pointer file `current.json` missing or deleted (re-upload a bundle to recreate it).
-3. Bundle directory did not contain `locustfile.py` at upload time (upload validation should catch this).
-4. IAM permissions missing for S3 GetObject/ListBucket on the bundle paths.
-
-Recovery steps:
-- Upload a new bundle: `automock load --project <name> --upload --dir ./loadtest`
-- Confirm pointer exists: check S3 key `configs/<project>-loadtest/current.json`
-- Verify bundle objects under `configs/<project>-loadtest/bundles/<bundle_id>/`
-- Re-deploy after fixing.
-
-The master task will start even if the bundle is missing; Locust falls back to the error above. This is intentional to keep deployments responsive. Add a health check to force restart if desired:
-
-```
-healthCheck = {
-  command = ["CMD-SHELL", "test -f /workspace/locustfile.py || exit 1"],
-  interval = 30,
-  timeout  = 5,
-  retries  = 3,
-  startPeriod = 20
-}
-```
-1. Fetch `configs/<project>-loadtest/current.json`
-2. Read `bundle_id` (or `BundleID` fallback)
-3. Download all files under `bundles/<project>-loadtest/<bundle_id>/` into `/workspace`
-4. Exit 0 even if missing (so main Locust container still starts)
-
-IAM policy requirements for the task role:
-```
-Action: ["s3:GetObject", "s3:ListBucket"]
-Resource:
-  arn:aws:s3:::<bucket>
-  arn:aws:s3:::<bucket>/configs/*
-  arn:aws:s3:::<bucket>/bundles/*
-```
-
-Health check recommendation (add to container definition):
-```
-healthCheck = {
-  command = ["CMD-SHELL", "test -f /workspace/locustfile.py || exit 1"],
-  interval = 30,
-  timeout  = 5,
-  retries  = 3,
-  startPeriod = 15
-}
-```
-
-
-Provision a dedicated, production-ready Locust cluster on AWS using Terraform under the hood. This deploys an ALB (HTTP/HTTPS with a self-signed cert), an ECS Fargate cluster, and optional workers for distributed tests.
-
-Deploy via the interactive REPL:
-
+**Deploy:**
 ```bash
-./automock repl
-# In the menu:
-# → Deploy Locust infrastructure
-#   • Choose a project name (e.g., perf-demo)
-#   • Confirm AWS region and sizing
-# → Show Locust deployment details
+# Upload your load test bundle first
+automock load --project my-api --upload --dir ./load-tests
+
+# Deploy infrastructure (prompts for sizing and optional BYO networking)
+automock deploy --project my-api
 ```
 
-Scale workers up or down (Terraform-based, drift-free):
-
+**Scale workers:**
 ```bash
-# From REPL menu:
-# → Scale Locust workers
-#   • Enter new desired worker count (e.g., 5)
+automock deploy --project my-api
+# → When already deployed, prompts for new worker count
 ```
 
-Tear down when done:
-
+**Destroy:**
 ```bash
-# From REPL menu:
-# → Destroy Locust infrastructure
+automock destroy --project my-api
+# → Select: mocks, loadtest, or both
 ```
 
-What you get:
-- Public ALB with HTTP/HTTPS access to the Locust master UI
-- Private Cloud Map namespace for service discovery within ECS
+**What you get:**
+- Public ALB with HTTP and HTTPS access to the Locust master UI (self-signed cert)
 - ECS task definitions for master and workers
+- Cloud Map private namespace for master–worker discovery
 - CloudWatch log groups with configurable retention
-- Security groups with least-privileged rules
+- Security groups with least-privilege rules
 
-Outputs shown by the REPL include:
-- ALB DNS name (UI URL)
-- Cloud Map FQDN for Locust master
-- ECS cluster and service names
+**Custom Locust image (optional):**
 
-Note on TLS: the stack uses a self-signed certificate imported into ACM for HTTPS. For production, replace with a proper ACM certificate and Route53-managed domain.
+By default the module uses public images (`locustio/locust:2.31.2` + `python:3.11-slim` init sidecar). If you prefer faster cold-starts without runtime installs, build a derived image with Locust and `boto3` pre-installed and set the `locust_container_image` Terraform variable before deploying.
 
-## 📂 Project Structure
+**Troubleshooting — `locustfile.py` not found:**
 
-```
-auto-mock/
-├── cmd/auto-mock/           # CLI entrypoint (main.go)
-├── internal/
-│   ├── cloud/               # Cloud provider abstraction
-│   │   ├── aws/             # AWS implementation (S3, ECS, IAM)
-│   │   ├── factory.go       # Provider detection & initialization
-│   │   └── manager.go       # Orchestration & workflows
-│   ├── mcp/                 # AI provider integration (Anthropic, OpenAI)
-│   ├── builders/            # Interactive expectation builders
-│   ├── collections/         # Collection parsers (Postman, Bruno, Insomnia)
-│   ├── expectations/        # Expectation CRUD operations
-│   ├── repl/                # Interactive CLI flows
-│   ├── terraform/           # Infrastructure deployment
-│   └── models/              # Data structures
-├── terraform/               # Terraform modules
-│   ├── main.tf              # Root configuration
-│   ├── variables.tf         # Input variables
-│   └── outputs.tf           # Output values
-├── go.mod                   # Go dependencies
-├── build.sh                 # Build script
-├── README.md                # This file
-├── GETTING_STARTED.md       # Detailed guide
-└── LICENSE                  # MIT License
-```
+If Locust logs show `Could not find '/workspace/locustfile.py'`, check:
+1. No bundle has been uploaded yet — run `automock load --project <name> --upload --dir ./load-tests`
+2. The pointer file `current.json` is missing — re-uploading a bundle recreates it
+3. IAM permissions missing: the task role needs `s3:GetObject` and `s3:ListBucket` on the project bucket
 
 ---
 
 ## 🎯 Use Cases
 
-### 1. Frontend Development
+### Frontend Development
 Mock backend APIs before they exist:
 ```bash
-./automock init --project frontend-mock --provider anthropic
+automock init --project frontend-mock --provider anthropic
 # Describe: "REST API for blog app: posts, comments, users"
-./automock deploy --project frontend-mock
-
-# Frontend team develops against:
-# http://automock-frontend-mock-123.elb.amazonaws.com
+automock deploy --project frontend-mock
 ```
 
-### 2. Integration Testing
-Consistent, controlled test environments:
+### Integration Testing
+Consistent, controlled test environments in CI/CD:
 ```bash
-# CI/CD pipeline
-./automock deploy --project test-api --skip-confirmation
-npm run test:integration -- --api-url http://automock-test-api-123.elb.amazonaws.com
-./automock destroy --project test-api --force
+automock deploy --project test-api --skip-confirmation
+npm run test:integration -- --api-url https://automock-test-api-123.elb.amazonaws.com
+automock destroy --project test-api --force
 ```
 
-### 3. Third-Party API Simulation
+### Third-Party API Simulation
 Test against external APIs without rate limits or costs:
 ```bash
-./automock init \
+automock init \
   --project stripe-mock \
   --collection-file stripe-api.postman_collection.json \
   --collection-type postman
 ```
 
-### 4. Performance Testing
-Validate system behavior under load:
+### Performance Testing
+Generate and deploy load tests against your mock:
 ```bash
-./automock load \
+automock load \
   --collection-file prod-api.json \
   --collection-type postman \
   --dir ./load-tests
-
-# Run distributed load test
-cd load-tests
-./run_locust_master.sh &
-./run_locust_worker.sh &
-./run_locust_worker.sh &
-```
-
-### 5. Demo & Prototyping
-Quick API mocks for presentations:
-```bash
-./automock init --project demo-api --provider anthropic
-# Describe API in seconds
-./automock deploy --project demo-api
-# Share URL with stakeholders
+automock load --project prod-api --upload --dir ./load-tests
+automock deploy --project prod-api
 ```
 
 ---
 
 ## 💰 Cost Estimates
 
-### AWS Infrastructure (10 tasks, 24/7)
+### Default AWS Infrastructure (10 tasks, 24/7)
 
-Note: 10 tasks reflects the default `min_tasks`; both `min_tasks` and `max_tasks` are configurable during setup.
+`min_tasks` and `max_tasks` are both configurable at deploy time. The table below reflects the defaults. Using BYO networking (existing VPC, subnets, and NAT) eliminates the NAT Gateway cost.
 
 | Component | Monthly Cost |
 |-----------|--------------|
 | ECS Fargate (0.25 vCPU, 0.5 GB) | ~$35 |
 | Application Load Balancer | ~$16 |
-| NAT Gateways (2x) | ~$64 |
+| NAT Gateway | ~$32 |
 | Data Transfer | ~$9 |
 | CloudWatch Logs | ~$0.50 |
 | S3 Storage | ~$0.30 |
-| **Total** | **~$125** |
+| **Total** | **~$93** |
 
-> Note: These are rough, region-dependent estimates and will vary with traffic, data transfer, and log volume. Please validate with the AWS Pricing Calculator for your account and region.
+> Rough estimates; varies by region, traffic, and log volume. Validate with the [AWS Pricing Calculator](https://calculator.aws).
 
-### Hourly Rate (rough)
-- 10 tasks: **~$0.17/hour**
-
-<!-- TTL auto-teardown is not currently implemented; TTL-based cost examples removed. -->
+**Hourly rate (10 tasks):** ~$0.13/hour
 
 ### AI Generation Costs
-| Provider | Cost per API Generation |
-|----------|-------------------------|
-| Claude Sonnet 4.5 | $0.05 - $0.20 |
-| GPT-4 | $0.10 - $0.30 |
 
-**Cost Optimization Tips:**
-- Destroy when not in use: `./automock destroy --project name`
-- Reduce task count for smaller APIs
-- Use spot instances (future feature)
+| Provider | Cost per Generation |
+|----------|---------------------|
+| Claude Sonnet 4.5 | $0.05 – $0.20 |
+| GPT-4 | $0.10 – $0.30 |
+
+**Cost tips:** Destroy when not in use (`automock destroy --project <name>`), reduce task count for smaller APIs, or use BYO networking to share existing NAT Gateways.
 
 ---
 
@@ -591,75 +425,50 @@ Note: 10 tasks reflects the default `min_tasks`; both `min_tasks` and `max_tasks
 ### Auto-Scaling Policies
 
 **Scale Up (Aggressive):**
-- CPU 70-80% → +50% tasks (10 → 15)
-- CPU 80-90% → +100% tasks (10 → 20)
-- CPU 90%+ → +200% tasks (10 → 30)
-- Memory thresholds follow same pattern
-- Requests/min: 500-1000 → +50%, 1000+ → +100%
+- CPU 70–80% → +50% tasks
+- CPU 80–90% → +100% tasks
+- CPU 90%+ → +200% tasks
+- Memory thresholds follow the same pattern
+- Requests/min: 500–1000 → +50%, 1000+ → +100%
 
 **Scale Down (Conservative):**
-- CPU < 40% for 5 minutes → -25% tasks
+- CPU < 40% for 5 minutes → −25% tasks
 - Cooldown: 5 minutes between scale events
 
-**Limits:**
-- Minimum: 10 tasks
-- Maximum: 200 tasks
+**Limits:** minimum 10 tasks, maximum 200 tasks (both configurable)
 
 ### Monitoring & Alerts
 
-**CloudWatch Metrics:**
-- ECS: CPU utilization, memory utilization, task count
-- ALB: Request count, response time, 4xx/5xx errors
-- Custom: Expectation reloads, config changes
+**CloudWatch Metrics:** ECS CPU/memory/task count, ALB request count/response time/4xx/5xx errors
 
-**Alarms:**
-- Unhealthy host count > 0
-- 5XX errors > 10/minute
-- CPU > 70% for 10 minutes
-- Memory > 80% for 10 minutes
+**Alarms:** unhealthy host count > 0, 5XX errors > 10/min, CPU > 70% for 10 min, Memory > 80% for 10 min
 
 ### Security
 
-**IAM:**
-- Least privilege access
-- Separate task execution and task roles
-- No hardcoded credentials
-
-**Networking:**
-- Private subnets for ECS tasks
-- NAT Gateways for outbound only
-- Security groups restrict traffic to ALB
-- ALB in public subnets
-
-**Data:**
-- S3 server-side encryption (AES-256)
-- S3 versioning enabled
-- CloudWatch Logs retention: 30 days
+- **IAM** — Least-privilege, separate task execution and task roles, no hardcoded credentials; optional permissions boundary and custom role path
+- **Networking** — ECS tasks in private subnets, NAT for outbound only, security groups restrict traffic to ALB
+- **Data** — S3 server-side encryption (AES-256), versioning enabled, CloudWatch Logs retention: 30 days
 
 ---
 
 ## 🔧 Advanced Features
 
 ### Progressive Response Delays
+
 Simulate degrading performance:
 ```json
 {
   "progressive": {
-    "base": 100,    // Start at 100ms
-    "step": 50,     // Increase by 50ms per request
-    "cap": 500      // Max 500ms
+    "base": 100,
+    "step": 50,
+    "cap": 500
   }
 }
 ```
-
-**Result:**
-- Request 1: 100ms delay
-- Request 2: 150ms delay
-- Request 3: 200ms delay
-- ...
-- Request N: 500ms delay (stays at cap)
+Request 1: 100ms → Request 2: 150ms → … → capped at 500ms
 
 ### Response Templates
+
 Dynamic values in responses:
 ```json
 {
@@ -671,18 +480,10 @@ Dynamic values in responses:
 }
 ```
 
-**Available Variables:**
-- `$!uuid` - Random UUID
-- `$!now_epoch` - Current timestamp (epoch seconds)
-- `$!rand_int_100` - Random integer (0-100)
-- `$!rand_bytes_64` - Random 64 bytes (base64)
-- `$!request.path` - Request path
-- `$!request.method` - Request method
-- `$!request.headers['X-Header'][0]` - Header value
-- `$!request.pathParameters['param'][0]` - Path parameter
-- `$!request.queryStringParameters['query'][0]` - Query parameter
+**Available variables:** `$!uuid`, `$!now_epoch`, `$!rand_int_100`, `$!rand_bytes_64`, `$!request.path`, `$!request.method`, `$!request.headers['X-Header'][0]`, `$!request.pathParameters['param'][0]`, `$!request.queryStringParameters['query'][0]`
 
 ### GraphQL Support
+
 Basic GraphQL request matching (no schema validation):
 ```json
 {
@@ -695,68 +496,37 @@ Basic GraphQL request matching (no schema validation):
     }
   },
   "httpResponse": {
-    "body": {
-      "data": {
-        "user": {"id": "123", "name": "John"}
-      }
-    }
+    "body": {"data": {"user": {"id": "123", "name": "John"}}}
   }
 }
 ```
 
-Supported matching:
-- Query string contains
-- Operation name extraction/matching
-- Optional variables matching (exact)
+Supported: query string contains, operation name matching, optional variables matching (exact).
 
 ---
 
----
+## 📂 Project Structure
 
-## 🛠️ Development
-
-### Build from Source
-```bash
-git clone https://github.com/hemantobora/auto-mock.git
-cd auto-mock
-go mod download
-go build -o automock ./cmd/auto-mock
 ```
-
-### Run Tests
-```bash
-go test ./...
+auto-mock/
+├── cmd/auto-mock/           # CLI entrypoint
+├── internal/
+│   ├── cloud/               # Cloud provider abstraction
+│   │   ├── aws/             # AWS implementation (S3, ECS, IAM)
+│   │   ├── factory.go       # Provider detection & initialization
+│   │   └── manager.go       # Orchestration & workflows
+│   ├── mcp/                 # AI provider integration (Anthropic, OpenAI)
+│   ├── builders/            # Interactive expectation builders
+│   ├── collections/         # Collection parsers (Postman, Bruno, Insomnia)
+│   ├── expectations/        # Expectation CRUD operations
+│   ├── repl/                # Interactive CLI flows
+│   ├── terraform/           # Embedded infrastructure modules
+│   └── models/              # Data structures
+├── go.mod
+├── build.sh
+├── README.md
+└── LICENSE
 ```
-
-### Local Development
-```bash
-# Build
-./build.sh
-
-# Run with verbose logging
-./automock init --project test --log-level debug
-```
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! Here's how:
-
-1. **Fork the repository**
-2. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
-3. **Commit your changes** (`git commit -m 'Add amazing feature'`)
-4. **Push to the branch** (`git push origin feature/amazing-feature`)
-5. **Open a Pull Request**
-
-### Areas We'd Love Help With
-- [ ] Azure and GCP provider support
-- [ ] Swagger/OpenAPI import
-- [ ] Bruno .bru file format support
-- [ ] Web UI for expectation management
-- [ ] Terraform modules for other clouds
-- [ ] Enhanced monitoring dashboards
-- [ ] Performance optimizations
 
 ---
 
@@ -768,54 +538,68 @@ We welcome contributions! Here's how:
 - [x] Interactive builder
 - [x] Auto-scaling infrastructure
 - [x] CloudWatch monitoring
-- [x] Locust load testing
+- [x] Locust load testing (local + managed AWS)
+- [x] Custom domain support (ACM + Route53)
+- [x] Private ALB for VPC-internal clients
+- [x] BYO networking (VPC, subnets, IAM, security groups)
 - [ ] Azure provider support
 - [ ] GCP provider support
 - [ ] Swagger/OpenAPI import
 - [ ] Bruno .bru file format
 - [ ] Web UI for expectation management
 - [ ] Prometheus metrics export
-- [ ] Custom domain support (Route53)
 - [ ] Multiple region deployment
 - [ ] Docker Compose local deployment
-- [ ] Kubernetes deployment option
+
+---
+
+## 🛠️ Development
+
+```bash
+git clone https://github.com/hemantobora/auto-mock.git
+cd auto-mock
+go mod download
+go build -o automock ./cmd/auto-mock
+
+# Run tests
+go test ./...
+```
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+**Areas we'd love help with:** Azure/GCP provider support, Swagger/OpenAPI import, Bruno .bru format, Web UI for expectation management, Prometheus metrics export.
 
 ---
 
 ## 📄 License
 
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
-
-**Attribution Required:** If you use AutoMock in your project, please include attribution to:
-```
-AutoMock by Hemanto Bora
-https://github.com/hemantobora/auto-mock
-```
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
 
 ---
 
 ## 🙏 Acknowledgments
 
-- **MockServer** - Powerful HTTP mocking server
-- **Anthropic** - Claude AI for intelligent mock generation
-- **OpenAI** - GPT-4 for intelligent mock generation
-- **AWS** - Cloud infrastructure platform
-- **Go** - Excellent tooling and performance
-- **Terraform** - Infrastructure as Code
+- **MockServer** — Powerful HTTP mocking server
+- **Anthropic** — Claude AI for intelligent mock generation
+- **OpenAI** — GPT-4 for intelligent mock generation
+- **AWS** — Cloud infrastructure platform
+- **Terraform** — Infrastructure as Code
 
 ---
 
 ## 📞 Support
 
-- **Documentation**: [GETTING_STARTED.md](GETTING_STARTED.md), `./automock help`
+- **Documentation**: [GETTING_STARTED.md](GETTING_STARTED.md), `automock help`
 - **GitHub Issues**: [Create an issue](https://github.com/hemantobora/auto-mock/issues)
 - **Email**: hemantobora@gmail.com
-
----
-
-## ⭐ Star History
-
-If you find AutoMock useful, please consider starring the repository!
 
 ---
 
