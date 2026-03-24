@@ -139,9 +139,6 @@ func validateScalingConfiguration(minTasks, maxTasks int) error {
 // promptDeploymentOptionsREPL prompts for deployment configuration in REPL
 func promptDeploymentOptionsREPL(options *models.DeploymentOptions) error {
 
-	fmt.Println("\n⚙️  Deployment Configuration")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
 	// Your size map (cpu in CPU units; memory in MiB)
 	taskConfig := map[string]struct{ CPU, MemMiB int }{
 		"small":  {CPU: 256, MemMiB: 512},   // 0.25 vCPU, 0.5 GB
@@ -314,7 +311,6 @@ func promptDeploymentOptionsREPL(options *models.DeploymentOptions) error {
 		}
 	}
 
-	fmt.Println("\n✅ Deployment configuration complete!")
 	return nil
 }
 
@@ -408,12 +404,10 @@ func promptCapabilitiesSurvey(identity string) (Capability, error) {
 
 	// 🪪 Identity Banner
 	fmt.Printf("\n👤 Using AWS identity: %s\n", identity)
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("✨ Let's review what this identity can create automatically.")
+	fmt.Println("✨ Let’s review what this identity can create automatically.")
 	fmt.Println("🔹 The tool assumes this identity is a Power User with permission to create all resources by default.")
 	fmt.Println("🔹 Use SPACE to unselect any resources you want to BYO (Bring Your Own) instead of letting Terraform create them.")
 	fmt.Println("🔹 If creation isn’t allowed for this identity, uncheck it — I’ll then prompt you for the required IDs (VPC, Subnets, SGs, etc).")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
 
 	// Networking

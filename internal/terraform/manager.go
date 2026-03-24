@@ -123,14 +123,11 @@ func (m *Manager) Deploy(options *models.DeploymentOptions) (*InfrastructureOutp
 		return nil, fmt.Errorf("failed to get terraform outputs: %w", err)
 	}
 
-	fmt.Printf("✅ Infrastructure deployed successfully for project: %s\n", m.ProjectName)
 	return outputs, nil
 }
 
 // Destroy removes the infrastructure
 func (m *Manager) Destroy() error {
-	fmt.Printf("🗑️  Destroying infrastructure for project: %s\n", m.ProjectName)
-
 	if err := m.prepareWorkspace(); err != nil {
 		return fmt.Errorf("failed to prepare workspace: %w", err)
 	}
@@ -149,14 +146,10 @@ func (m *Manager) Destroy() error {
 		return fmt.Errorf("failed to create terraform vars: %w", err)
 	}
 
-	fmt.Println("💥 Destroying infrastructure...")
 	if err := m.destroyTerraform(); err != nil {
 		return fmt.Errorf("terraform destroy failed: %w", err)
 	}
 
-	fmt.Printf("✅ Infrastructure destroyed successfully for project: %s\n", m.ProjectName)
-
-	m.Provider.DeleteDeploymentMetadata()
 	return nil
 }
 
@@ -335,8 +328,15 @@ func (m *Manager) runCommandWithOutput(cmd *exec.Cmd) error {
 
 	go func() {
 		scanner := bufio.NewScanner(stdout)
+		outputsReached := false
 		for scanner.Scan() {
-			fmt.Println(scanner.Text())
+			line := scanner.Text()
+			if strings.HasPrefix(line, "Outputs:") {
+				outputsReached = true
+			}
+			if !outputsReached {
+				fmt.Println(line)
+			}
 		}
 	}()
 

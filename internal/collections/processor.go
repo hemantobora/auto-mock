@@ -198,7 +198,7 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 		}
 		current++
 
-		fmt.Printf("\n── [%d/%d] %s %s  (%s)\n", current, total, node.API.Method, cp.extractPath(node.API.URL), node.API.Name)
+		fmt.Printf("\n\033[1;36m── [%d/%d] %s %s  (%s)\033[0m\n", current, total, node.API.Method, cp.extractPath(node.API.URL), node.API.Name)
 
 		// Build base expectation
 		path, queryParams := mock_configurator.ParsePathAndQueryParams(node.API.URL)

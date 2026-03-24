@@ -78,5 +78,26 @@ func (d *Deployment) DeployInfrastructureWithTerraform(skip_confirmation bool) e
 	outputs.PrivateALB = options.PrivateALB
 
 	d.Provider.SaveDeploymentMetadata(outputs)
+
+	// Print clean deployment summary — prefer HTTPS URLs when a custom domain is configured
+	apiURL := outputs.MockServerURL
+	dashboardURL := outputs.DashboardURL
+	if outputs.InfrastructureSummary != nil {
+		if tls, ok := outputs.InfrastructureSummary["tls_endpoints"].(map[string]interface{}); ok {
+			if v, ok := tls["api"].(string); ok && v != "" && v != "Not enabled" {
+				apiURL = v
+			}
+			if v, ok := tls["dashboard"].(string); ok && v != "" && v != "Not enabled" {
+				dashboardURL = v
+			}
+		}
+	}
+
+	fmt.Println("\n✅ Deployment complete")
+	fmt.Printf("   API       : %s\n", apiURL)
+	fmt.Printf("   Dashboard : %s\n", dashboardURL)
+	if listCmd, ok := outputs.CLICommands["list_expectations"]; ok && listCmd != "" {
+		fmt.Printf("   List expectations: %s\n", listCmd)
+	}
 	return nil
 }
