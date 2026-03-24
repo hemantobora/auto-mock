@@ -124,9 +124,6 @@ func deployCommand(c *cli.Context) error {
 	profile := c.String("profile")
 	projectName := c.String("project")
 
-	fmt.Println("\nChecking Infrastructure Prerequisites")
-	fmt.Println(strings.Repeat("=", 80))
-
 	manager := cloud.NewCloudManager(profile)
 	if err := manager.AutoDetectProvider(profile); err != nil {
 		return err
@@ -180,10 +177,10 @@ func deployCommand(c *cli.Context) error {
 			return err
 		}
 		fmt.Println()
-		fmt.Printf(`✅ Load-test infra deployed: 
-ALB TLS=https://%s 
-ALB Open=http://%s 
-Workers Count=%d `, out.ALBDNSName, out.ALBDNSName, out.WorkerDesiredCount)
+		fmt.Println("✅ Load-test infra deployed:")
+		fmt.Printf("   HTTPS : https://%s\n", out.ALBDNSName)
+		fmt.Printf("   HTTP  : http://%s\n", out.ALBDNSName)
+		fmt.Printf("   Workers: %d\n", out.WorkerDesiredCount)
 		return nil
 	}
 	scaleWorkers := func() error {
@@ -195,29 +192,37 @@ Workers Count=%d `, out.ALBDNSName, out.ALBDNSName, out.WorkerDesiredCount)
 		if err != nil {
 			return err
 		}
-		var desiredStr string
-		_ = survey.AskOne(&survey.Input{
-			Message: "Enter desired worker count (-1 to stop the update):",
-			Help:    "Provide the worker count",
-			Default: "0",
-		}, &desiredStr)
-		desiredStr = strings.TrimSpace(desiredStr)
-		if desiredStr == "" {
-			return fmt.Errorf("no worker count provided")
-		}
-		n, convErr := strconv.Atoi(desiredStr)
-		if convErr != nil {
-			return fmt.Errorf("invalid worker count: %s", desiredStr)
-		}
-		if n < 0 {
-			fmt.Println("✅ Scale update cancelled.")
+		const maxAttempts = 3
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			var desiredStr string
+			if err := survey.AskOne(&survey.Input{
+				Message: "Enter desired worker count (-1 to cancel):",
+				Help:    "Provide a positive integer, or -1 to cancel",
+				Default: "0",
+			}, &desiredStr); err != nil {
+				return err
+			}
+			desiredStr = strings.TrimSpace(desiredStr)
+			if desiredStr == "" {
+				fmt.Printf("⚠️  Worker count cannot be empty. Try again (%d/%d).\n", attempt, maxAttempts)
+				continue
+			}
+			n, convErr := strconv.Atoi(desiredStr)
+			if convErr != nil {
+				fmt.Printf("⚠️  '%s' is not a valid number. Try again (%d/%d).\n", desiredStr, attempt, maxAttempts)
+				continue
+			}
+			if n < 0 {
+				fmt.Println("✅ Scale update cancelled.")
+				return nil
+			}
+			if err := mgr.ScaleWorkers(n); err != nil {
+				return err
+			}
+			fmt.Println("✅ Scaled workers to:", n)
 			return nil
 		}
-		if err := mgr.ScaleWorkers(n); err != nil {
-			return err
-		}
-		fmt.Println("✅ Scaled workers to:", n)
-		return nil
+		return fmt.Errorf("scale update cancelled: no valid worker count entered after %d attempts", maxAttempts)
 	}
 
 	// 4. Decision matrix
@@ -229,7 +234,13 @@ Workers Count=%d `, out.ALBDNSName, out.ALBDNSName, out.WorkerDesiredCount)
 			return scaleWorkers()
 		case loadDeployed && !mockDeployed:
 			choice := ""
-			_ = survey.AskOne(&survey.Select{Message: "Loadtest deployed; mocks not deployed. Action:", Options: []string{"deploy-mocks", "scale-workers", "exit"}, Default: "deploy-mocks"}, &choice)
+			if err := survey.AskOne(&survey.Select{
+				Message: "Loadtest deployed; mocks not deployed. Action:",
+				Options: []string{"deploy-mocks", "scale-workers", "exit"},
+				Default: "deploy-mocks",
+			}, &choice); err != nil {
+				return err
+			}
 			if choice == "deploy-mocks" {
 				return deployMocks()
 			}
@@ -242,7 +253,13 @@ Workers Count=%d `, out.ALBDNSName, out.ALBDNSName, out.WorkerDesiredCount)
 			return deployLoad()
 		default: // neither deployed but both bundles/config exist
 			choice := ""
-			_ = survey.AskOne(&survey.Select{Message: "Mocks & loadtest artifacts found. Deploy:", Options: []string{"both", "only-mocks", "only-loadtest", "exit"}, Default: "both"}, &choice)
+			if err := survey.AskOne(&survey.Select{
+				Message: "Mocks & loadtest artifacts found. Deploy:",
+				Options: []string{"both", "only-mocks", "only-loadtest", "exit"},
+				Default: "both",
+			}, &choice); err != nil {
+				return err
+			}
 			if choice == "both" {
 				fmt.Println("🚀 Deploying mock infrastructure first...")
 				if err := deployMocks(); err != nil {
@@ -299,16 +316,23 @@ func destroyCommand(c *cli.Context) error {
 			Message: fmt.Sprintf("Are you sure? Project '%s' will be destroyed. This action cannot be undone.", projectName),
 		}
 
-		// Ask for project name confirmation
+		// Ask for project name confirmation — up to 3 attempts
+		const maxNameAttempts = 3
 		var inputName string
-		namePrompt := &survey.Input{
-			Message: "Enter project name:",
+		for attempt := 1; attempt <= maxNameAttempts; attempt++ {
+			if err := survey.AskOne(&survey.Input{
+				Message: "Enter project name to confirm:",
+			}, &inputName); err != nil {
+				return err
+			}
+			if inputName == projectName {
+				break
+			}
+			if attempt < maxNameAttempts {
+				fmt.Printf("⚠️  Name does not match '%s'. Try again (%d/%d).\n", projectName, attempt, maxNameAttempts)
+				inputName = ""
+			}
 		}
-
-		if err := survey.AskOne(namePrompt, &inputName); err != nil {
-			return err
-		}
-
 		if inputName != projectName {
 			fmt.Println("\nProject name does not match. Deletion cancelled.")
 			return nil
@@ -361,7 +385,17 @@ func destroyCommand(c *cli.Context) error {
 		choice = "loadtest"
 	}
 	if choice == "" {
-		_ = survey.AskOne(&survey.Select{Message: "Select what to destroy:", Options: options, Default: options[0]}, &choice)
+		if err := survey.AskOne(&survey.Select{
+			Message: "Select what to destroy:",
+			Options: options,
+			Default: options[0],
+		}, &choice); err != nil {
+			return err
+		}
+		if choice == "" {
+			fmt.Println("Destruction cancelled.")
+			return nil
+		}
 	}
 
 	// Destroy mocks
@@ -434,8 +468,7 @@ func statusCommand(c *cli.Context) error {
 	}
 
 	if mockDeployed {
-		fmt.Println("✅ Mock infrastructure is deployed.")
-		fmt.Println("\n✅ Mock Infrastructure is deployed with the following details:")
+		fmt.Println("\n✅ Mock infrastructure is deployed with the following details:")
 
 		deployedAt := mockMeta.DeployedAt.UTC()
 		deployedLocal := deployedAt.Local()
@@ -454,14 +487,13 @@ func statusCommand(c *cli.Context) error {
 
 		jsonBytes, err := json.MarshalIndent(mockMeta, "", "  ")
 		if err != nil {
-			fmt.Printf("❌ Failed to marshal metadata: %v\n", err)
-			return err
+			return fmt.Errorf("failed to marshal mock metadata: %w", err)
 		}
 
 		fmt.Println(string(jsonBytes))
 	}
 	if loadDeployed {
-		fmt.Println("\n✅ Load Test infrastructure is deployed.")
+		fmt.Println("\n✅ Load test infrastructure is deployed with the following details:")
 
 		deployedAt := loadMeta.DeployedAt.UTC()
 		deployedLocal := deployedAt.Local()
@@ -481,8 +513,7 @@ func statusCommand(c *cli.Context) error {
 
 		jsonBytes, err := json.MarshalIndent(loadMeta, "", "  ")
 		if err != nil {
-			fmt.Printf("❌ Failed to marshal metadata: %v\n", err)
-			return err
+			return fmt.Errorf("failed to marshal load test metadata: %w", err)
 		}
 
 		fmt.Println(string(jsonBytes))

@@ -63,7 +63,7 @@ func (d *Deployment) DeployInfrastructureWithTerraform(skip_confirmation bool) e
 			return err
 		}
 		if !confirmed {
-			fmt.Println("\n❌ Deployment cancelled")
+			fmt.Println("\nDeployment cancelled.")
 			return nil
 		}
 	}

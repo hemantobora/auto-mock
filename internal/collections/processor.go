@@ -99,11 +99,7 @@ func (cp *CollectionProcessor) ProcessCollection(filePath string) (string, error
 		return "", fmt.Errorf("failed to execute APIs: %w", err)
 	}
 
-	// Step 5: Enhanced scenario detection and matching criteria configuration
-	fmt.Println("\n🔍 ANALYZING APIs FOR SCENARIOS...")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	// Enhanced GraphQL-aware scenario detection
+	// Step 5: Configure expectation matching criteria
 	expectations, err := cp.configureExpectationCriteria(executionNodes)
 	if err != nil {
 		return "", fmt.Errorf("failed to configure matching: %w", err)
@@ -181,22 +177,28 @@ func (cp *CollectionProcessor) ParseCollectionFile(filePath string) ([]APIReques
 	}
 }
 
-// configureIndividualMatching handles non-scenario APIs (renamed from original)
+// configureIndividualMatching configures matching criteria for each API
 func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode) ([]builders.MockExpectation, error) {
-	fmt.Println("\n🔧 Individual API Matching Configuration")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("Configure matching for individual APIs")
+	// Count nodes that have responses (the ones we'll actually configure)
+	total := 0
+	for _, n := range nodes {
+		if n.Response != nil {
+			total++
+		}
+	}
+	fmt.Printf("\nConfiguring matching for %d API(s)...\n", total)
 
 	var expectations []builders.MockExpectation
 	var mock_configurator builders.MockConfigurator
 
+	current := 0
 	for _, node := range nodes {
 		if node.Response == nil {
 			continue
 		}
+		current++
 
-		fmt.Printf("\n🔧 Configuring: %s %s - %s\n", node.API.Method, cp.extractPath(node.API.URL), node.API.Name)
-		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		fmt.Printf("\n── [%d/%d] %s %s  (%s)\n", current, total, node.API.Method, cp.extractPath(node.API.URL), node.API.Name)
 
 		// Build base expectation
 		path, queryParams := mock_configurator.ParsePathAndQueryParams(node.API.URL)
@@ -499,7 +501,7 @@ func (cp *CollectionProcessor) executeAPIs(nodes []ExecutionNode) error {
 					return
 				default:
 					elapsed := time.Since(start).Truncate(time.Second)
-					fmt.Printf("\r   %s Making API call%s [%s]",
+					fmt.Printf("\r   %s Making API call%s [%s]\033[K",
 						spinner[i%len(spinner)],
 						dots[i%len(dots)],
 						elapsed)
@@ -511,7 +513,7 @@ func (cp *CollectionProcessor) executeAPIs(nodes []ExecutionNode) error {
 
 		response, err := cp.executeAPI(node.API, variables)
 		done <- true
-		fmt.Printf("\r   ")
+		fmt.Printf("\r\033[K")
 		if err != nil {
 			fmt.Printf("   ❌ API execution failed: %v\n", err)
 
@@ -578,7 +580,6 @@ func (cp *CollectionProcessor) executeAPIs(nodes []ExecutionNode) error {
 	}
 
 	fmt.Printf("\n🎉 Executed %d APIs successfully!\n", len(nodes))
-	fmt.Println("\n🧹 Clearing in-memory variables...")
 	variables = nil // Clear the map
 
 	return nil
@@ -659,19 +660,11 @@ func (cp *CollectionProcessor) isGraphQLRequest(api APIRequest) bool {
 	return false
 }
 
-// configureExpectationCriteria handles scenario detection and configuration
+// configureExpectationCriteria classifies APIs and configures matching criteria
 func (cp *CollectionProcessor) configureExpectationCriteria(nodes []ExecutionNode) ([]builders.MockExpectation, error) {
-	fmt.Println("\n🎯 TYPE-AWARE EXPECTATION CONFIGURATION")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("Analyzing APIs for type intelligence matching...")
-
-	// Step 1: Classify APIs by type (REST vs GraphQL)
-	restNodes, graphqlNodes := cp.classifyAPIsByType(nodes)
-
+	_, graphqlNodes := cp.classifyAPIsByType(nodes)
 	if len(graphqlNodes) > 0 {
-		fmt.Printf("\n🔍 API Classification:\n")
-		fmt.Printf("   • REST APIs: %d\n", len(restNodes))
-		fmt.Printf("   • GraphQL APIs: %d\n\n", len(graphqlNodes))
+		fmt.Printf("   REST: %d  GraphQL: %d\n", len(nodes)-len(graphqlNodes), len(graphqlNodes))
 	}
 	return cp.configureIndividualMatching(nodes)
 }
@@ -1814,17 +1807,18 @@ func (cp *CollectionProcessor) extractPath(url string) string {
 
 // resolveVariables performs the 5-step variable resolution process
 func (cp *CollectionProcessor) resolveVariables(api *APIRequest, neededVars []string, variables map[string]string) error {
+	resolved := 0
 	for _, varName := range neededVars {
 		// Check if already resolved
 		if _, exists := variables[varName]; exists {
-			fmt.Printf("   ✅ %s (from previous API)\n", varName)
+			resolved++
 			continue
 		}
 
 		// Step 2: Check environment
 		if envVal := os.Getenv(varName); envVal != "" {
 			variables[varName] = envVal
-			fmt.Printf("   ✅ %s (from environment)\n", varName)
+			resolved++
 			continue
 		}
 
@@ -1833,7 +1827,7 @@ func (cp *CollectionProcessor) resolveVariables(api *APIRequest, neededVars []st
 			fmt.Printf("   🔧 Running pre-script for %s...\n", varName)
 			if val := cp.executePreScriptForVariable(api.PreScript, varName, variables); val != "" {
 				variables[varName] = val
-				fmt.Printf("   ✅ %s (from pre-script)\n", varName)
+				resolved++
 				continue
 			}
 		}
@@ -1862,9 +1856,12 @@ func (cp *CollectionProcessor) resolveVariables(api *APIRequest, neededVars []st
 		}
 
 		variables[varName] = value
-		fmt.Printf("   ✅ %s (user input)\n", varName)
+		resolved++
 	}
 
+	if resolved > 0 {
+		fmt.Printf("   ✅ Resolved %d variable(s)\n", resolved)
+	}
 	return nil
 }
 

@@ -22,9 +22,13 @@ func generateInteractiveWithMenu() (string, error) {
 	}
 
 	var expectations []builders.MockExpectation
+	expectationNum := 0
 
 	// Build expectations based on API type
 	for {
+		expectationNum++
+		fmt.Printf("\n── Expectation %d ──\n", expectationNum)
+
 		var expectation builders.MockExpectation
 
 		switch apiType {
@@ -82,18 +86,10 @@ func chooseAPIType() (string, error) {
 
 // buildRESTExpectation builds a single REST expectation using 7-step process
 func buildRESTExpectation() (builders.MockExpectation, error) {
-	fmt.Println("\n📡 Creating REST Expectation")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	// Delegate to REST builder
 	return builders.BuildRESTExpectationWithContext()
 }
 
 // buildGraphQLExpectation builds a single GraphQL expectation using 7-step process
 func buildGraphQLExpectation() (builders.MockExpectation, error) {
-	fmt.Println("\n🔗 Creating GraphQL Expectation")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	// Delegate to GraphQL builder
 	return builders.BuildGraphQLExpectationWithContext()
 }

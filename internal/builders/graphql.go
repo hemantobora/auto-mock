@@ -17,9 +17,6 @@ func BuildGraphQLExpectationWithContext() (MockExpectation, error) {
 	exp.HttpResponse = &HttpResponse{}
 	exp.HttpResponse.Headers = []models.NameValues{}
 
-	fmt.Println("🧬 Starting GraphQL Expectation Builder (POST/GET JSON only)")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
 	// Step 1: Endpoint path (usually /graphql)
 	if err := collectGraphQLPath(exp.HttpRequest); err != nil {
 		return exp, err

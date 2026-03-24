@@ -24,9 +24,7 @@ const defaultBodyMatchType = "ONLY_MATCHING_FIELDS"
 // (e.g. "anthropic", "openai", "template") and the REPL will skip the
 // provider selection prompt.
 func StartMockGenerationREPL(projectName string, providerOverride string) (string, error) {
-	fmt.Printf("🎯 MockServer Configuration Generator Initialized\n")
-	fmt.Printf("📦 Project: %s\n", projectName)
-	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	fmt.Printf("📦 Project: %s\n\n", projectName)
 
 	// Simple mock config generation for now
 	// Step 1: Choose generation method
@@ -146,8 +144,6 @@ func generateMockConfiguration(method, projectName, providerOverride string) (st
 // - One optional regenerate pass.
 // - Returns MockServer JSON string produced from []models.MockExpectation.
 func generateFromDescription(ctx context.Context, projectName string, providerOverride string) (string, error) {
-	fmt.Println("🤖 AI-Powered Generation")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("⚠️  Disclaimer: Review inputs for any secrets/tokens before use.")
 
 	// 1) Providers
@@ -219,10 +215,12 @@ func generateFromDescription(ctx context.Context, projectName string, providerOv
 	// 5) Example preview
 	var description string
 	var useExample bool
-	_ = survey.AskOne(&survey.Confirm{
+	if err := survey.AskOne(&survey.Confirm{
 		Message: "Would you like to view some example API descriptions?",
 		Default: false,
-	}, &useExample)
+	}, &useExample); err != nil {
+		return "", err
+	}
 
 	if useExample {
 		opts := make([]string, len(mcp.Examples))
@@ -245,10 +243,12 @@ func generateFromDescription(ctx context.Context, projectName string, providerOv
 				fmt.Println("───────────────────────────────")
 
 				var copyIt bool
-				_ = survey.AskOne(&survey.Confirm{
+				if err := survey.AskOne(&survey.Confirm{
 					Message: "Copy this example to clipboard so you can edit externally?",
 					Default: true,
-				}, &copyIt)
+				}, &copyIt); err != nil {
+					return "", err
+				}
 
 				if copyIt {
 					if err := clipboard.WriteAll(ex.Description); err != nil {
@@ -259,10 +259,12 @@ func generateFromDescription(ctx context.Context, projectName string, providerOv
 				}
 
 				var useIt bool
-				_ = survey.AskOne(&survey.Confirm{
+				if err := survey.AskOne(&survey.Confirm{
 					Message: "Use this example as your description (without editing)?",
 					Default: false,
-				}, &useIt)
+				}, &useIt); err != nil {
+					return "", err
+				}
 				if useIt {
 					description = ex.Description
 				}
@@ -288,10 +290,12 @@ func generateFromDescription(ctx context.Context, projectName string, providerOv
 
 	// 6) Optional hints toggle (kept tiny)
 	var addHints bool
-	_ = survey.AskOne(&survey.Confirm{
+	if err := survey.AskOne(&survey.Confirm{
 		Message: "Add minimal hints (JSON-only request bodies STRlCT/ONLY_MATCHING_FIELDS; Velocity rule for responses)?",
 		Default: true,
-	}, &addHints)
+	}, &addHints); err != nil {
+		return "", err
+	}
 
 	// 7) First generation
 	prompt := buildPrompt(description, apiStyle, projectName, addHints)
@@ -322,7 +326,7 @@ func generateFromDescription(ctx context.Context, projectName string, providerOv
 			if err != nil {
 				return "", err
 			}
-			fmt.Println("\n📦 Preview (first ~40 lines):")
+			fmt.Println("\n📦 Regenerated preview (first ~40 lines):")
 			printFirstLines(jsonPreview, 40)
 		}
 	}

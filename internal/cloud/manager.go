@@ -88,10 +88,6 @@ func (m *CloudManager) AutoDetectProvider(profile string) error {
 	return nil
 }
 
-// startSpinner prints an animated spinner with a message until the returned stop function is called.
-// Keeps dependencies minimal (no external libs). Falls back gracefully on non-TTY environments.
-// spinner removed per user preference
-
 // Initialize runs the complete initialization workflow
 func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 	// Step 1: Resolve project (CLI-driven or interactive)
@@ -117,7 +113,9 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 	for {
 		switch actionType {
 		case models.ActionCreate:
-			m.createNewProject("")
+			if _, err := m.createNewProject(""); err != nil {
+				return err
+			}
 			fallthrough
 		case models.ActionGenerate:
 			// Proceed to generation flow
@@ -172,7 +170,7 @@ func (m *CloudManager) Initialize(cliContext *CLIContext) error {
 			}
 			refreshConfig = true
 		case models.ActionExit:
-			fmt.Println("❌ Exiting auto-mock. Have a great day!")
+			fmt.Println("👋 Goodbye!")
 			return nil
 		case models.ActionDeploy:
 			fmt.Printf("🚀 Preparing mock infrastructure deployment for project: %s\n", project)
@@ -225,15 +223,23 @@ func (m *CloudManager) generateMockConfiguration(cliContext *CLIContext) error {
 func (m *CloudManager) createNewProject(project string) (models.ActionType, error) {
 	var name string
 	if project == "" {
-		if err := survey.AskOne(&survey.Input{
-			Message: "Project name:",
-			Help:    "Choose a unique name for your mock project",
-		}, &name); err != nil {
-			return models.ActionExit, err
-		}
-
-		if err := m.Provider.ValidateProjectName(name); err != nil {
-			return models.ActionExit, fmt.Errorf("invalid project name: %w", err)
+		const maxAttempts = 3
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			if err := survey.AskOne(&survey.Input{
+				Message: "Project name:",
+				Help:    "Choose a unique name for your mock project",
+			}, &name); err != nil {
+				return models.ActionExit, err
+			}
+			if err := m.Provider.ValidateProjectName(name); err != nil {
+				if attempt < maxAttempts {
+					fmt.Printf("⚠️  Invalid name: %v. Try again (%d/%d).\n", err, attempt, maxAttempts)
+					name = ""
+					continue
+				}
+				return models.ActionExit, fmt.Errorf("invalid project name: %w", err)
+			}
+			break
 		}
 	} else {
 		name = project
@@ -325,10 +331,8 @@ func (m *CloudManager) destroyInfrastructureAndDeleteProject() error {
 		return fmt.Errorf("failed to create terraform manager: %w", err)
 	}
 
-	fmt.Println("🔄 Checking infrastructure status...")
 	status, _ := m.Provider.IsDeployed()
 	if status {
-		// Destroy infrastructure
 		fmt.Println("\nDestroying infrastructure...")
 		err = destroyer.Destroy()
 		if err != nil {
@@ -375,8 +379,6 @@ func (m *CloudManager) handleRemoveExpectations(expManager *expectations.Expecta
 	// Special case: remove all (indices contains -1)
 	if len(indicesToRemove) == 1 && indicesToRemove[0] == -1 {
 		fmt.Println("\n🔄 Clearing project...")
-		fmt.Println("   • Tearing down infrastructure (placeholder)")
-		fmt.Println("   • Clearing expectation file")
 
 		// Delete the configuration (empties the project)
 		if err := m.Provider.DeleteProject(m.getCurrentProject()); err != nil {
@@ -414,14 +416,7 @@ func (m *CloudManager) handleRemoveExpectations(expManager *expectations.Expecta
 		return fmt.Errorf("failed to save after removal: %w", err)
 	}
 
-	// If infrastructure exists, redeploy with updated expectations
-	fmt.Println("   • Checking for running infrastructure...")
-	fmt.Println("   • Redeployment with updated expectations (placeholder)")
-
-	fmt.Printf("\n✅ Successfully removed %d expectation(s)!\n", len(indicesToRemove))
-	fmt.Printf("📊 Remaining expectations: %d\n", len(filteredExpectations))
-
-	fmt.Printf("✅ Remove completed successfully!\n")
+	fmt.Printf("\n✅ Successfully removed %d expectation(s). Remaining: %d\n", len(indicesToRemove), len(filteredExpectations))
 	return nil
 }
 
@@ -491,7 +486,8 @@ func (m *CloudManager) handleGeneratedMock(mockConfiguration string) error {
 				return err
 			}
 			if confirmExit {
-				return fmt.Errorf("user cancelled upload")
+				fmt.Println("👋 Exiting without saving.")
+				return nil
 			}
 			continue
 		}

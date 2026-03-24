@@ -15,9 +15,6 @@ func BuildRESTExpectationWithContext() (MockExpectation, error) {
 	var expectation MockExpectation
 	var mock_configurator MockConfigurator
 
-	fmt.Println("🚀 Starting Enhanced 7-Step REST Expectation Builder")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
 	steps := []struct {
 		name string
 		fn   func(exp *MockExpectation) error
