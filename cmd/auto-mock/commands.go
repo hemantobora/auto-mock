@@ -477,9 +477,25 @@ func statusCommand(c *cli.Context) error {
 		fmt.Printf("⏱️  Uptime: %s\n", uptimeStr)
 		fmt.Println()
 
+		// Extract API URL before we strip Details fields, so we can print
+		// the correct list-expectations command regardless of display mode.
+		var mockAPIURL string
+		if mockMeta.Details != nil {
+			mockAPIURL = mockMeta.Details.MockServerURL
+			if tls, ok := mockMeta.Details.InfrastructureSummary["tls_endpoints"].(map[string]interface{}); ok {
+				if v, ok := tls["api"].(string); ok && v != "" && v != "Not enabled" {
+					mockAPIURL = v
+				}
+			}
+			// Strip raw terraform blobs — noisy and not useful for status display.
+			mockMeta.Details.CLICommands = nil
+			mockMeta.Details.IntegrationSummary = nil
+			mockMeta.Details.InfrastructureSummary = nil
+		}
+
 		if !detailed {
 			fmt.Println("📊 Summary Status:")
-			mockMeta.Details = nil // hide the nested infra outputs
+			mockMeta.Details = nil
 		} else {
 			fmt.Println("🧾 Detailed Status:")
 		}
@@ -488,8 +504,11 @@ func statusCommand(c *cli.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to marshal mock metadata: %w", err)
 		}
-
 		fmt.Println(string(jsonBytes))
+
+		if mockAPIURL != "" {
+			fmt.Printf("\n   List expectations: curl -X PUT \"%s/mockserver/retrieve?type=ACTIVE_EXPECTATIONS\"\n", mockAPIURL)
+		}
 	}
 	if loadDeployed {
 		fmt.Println("\n✅ Load test infrastructure is deployed with the following details:")

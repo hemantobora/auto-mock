@@ -112,7 +112,7 @@ func (m *Manager) Deploy(options *models.DeploymentOptions) (*InfrastructureOutp
 	}
 
 	// Step 5: Apply infrastructure
-	fmt.Println("\n🏗️  Applying infrastructure changes...")
+	fmt.Println("\n🏗️  Applying...")
 	if err := m.applyTerraform(); err != nil {
 		return nil, fmt.Errorf("terraform apply failed: %w", err)
 	}
@@ -169,7 +169,7 @@ func (m *Manager) prepareWorkspace() error {
 
 // initTerraform initializes the Terraform working directory
 func (m *Manager) initTerraform() error {
-	fmt.Println("🔧 Initializing Terraform...")
+	fmt.Println("🔧 Initializing...")
 
 	done := make(chan bool)
 	go m.ShowProgress("Initializing", done)
@@ -189,7 +189,7 @@ func (m *Manager) initTerraform() error {
 
 // planTerraform runs terraform plan
 func (m *Manager) planTerraform() error {
-	fmt.Println("📋 Planning infrastructure changes...")
+	fmt.Println("📋 Planning...")
 
 	done := make(chan bool)
 	go m.ShowProgress("Planning", done)

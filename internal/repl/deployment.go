@@ -96,8 +96,6 @@ func (d *Deployment) DeployInfrastructureWithTerraform(skip_confirmation bool) e
 	fmt.Println("\n✅ Deployment complete")
 	fmt.Printf("   API       : %s\n", apiURL)
 	fmt.Printf("   Dashboard : %s\n", dashboardURL)
-	if listCmd, ok := outputs.CLICommands["list_expectations"]; ok && listCmd != "" {
-		fmt.Printf("   List expectations: %s\n", listCmd)
-	}
+	fmt.Printf("   List expectations: curl -X PUT \"%s/mockserver/retrieve?type=ACTIVE_EXPECTATIONS\"\n", apiURL)
 	return nil
 }
