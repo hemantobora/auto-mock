@@ -26,9 +26,6 @@ func NewDeployment(projectName, profile string, provider internal.Provider) *Dep
 
 // DeployInfrastructureWithTerraform deploys actual infrastructure using Terraform
 func (d *Deployment) DeployInfrastructureWithTerraform(skip_confirmation bool) error {
-	fmt.Println("\n🏗️  Complete Infrastructure Deployment")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
 	// Create Terraform manager
 	manager, err := terraform.NewManager(d.ProjectName, d.Profile, d.Provider)
 	if err != nil {

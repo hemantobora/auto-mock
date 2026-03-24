@@ -232,7 +232,6 @@ func (mc *MockConfigurator) CollectRequestBody(exp *MockExpectation, existing st
 
 func (mc *MockConfigurator) CollectQueryParameterMatching(exp *MockExpectation) error {
 	fmt.Printf("\n🔍 Query Parameter Matching\n")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// Already configured?
 	if n := len(exp.HttpRequest.QueryStringParameters); n > 0 {
@@ -338,7 +337,6 @@ func (mc *MockConfigurator) ParsePathAndQueryParams(fullPath string) (cleanPath 
 
 func (mc *MockConfigurator) CollectPathMatchingStrategy(exp *MockExpectation) error {
 	fmt.Println("\n🛤️ Path Matching Strategy")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	rawPath := strings.TrimSpace(exp.HttpRequest.Path)
 	if rawPath == "" {
@@ -452,7 +450,6 @@ func (mc *MockConfigurator) CollectPathMatchingStrategy(exp *MockExpectation) er
 // Step 4: Request Header Matching
 func (mc *MockConfigurator) CollectResponseHeader(exp *MockExpectation) error {
 	fmt.Printf("\n📝 Response Headers\n")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	var needsHeaders bool
 	if err := survey.AskOne(&survey.Confirm{
@@ -520,7 +517,6 @@ func parseCSVValues(s string) []string {
 // CollectRequestHeaderMatching builds HttpRequest.Headers as []NameValues with exact matching.
 func (mc *MockConfigurator) CollectRequestHeaderMatching(exp *models.MockExpectation) error {
 	fmt.Printf("\n📝 Request Header Matching\n")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	var needsHeaders bool
 	if err := survey.AskOne(&survey.Confirm{
@@ -581,7 +577,6 @@ func (mc *MockConfigurator) CollectRequestHeaderMatching(exp *models.MockExpecta
 
 func (mc *MockConfigurator) CollectAdvancedFeatures(expectation *MockExpectation) error {
 	fmt.Printf("\n⚙️ Advanced MockServer Features\n")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// 3.2 Feature picker
 	reg := Registry()

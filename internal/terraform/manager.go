@@ -73,8 +73,6 @@ func (m *Manager) createBackendConfig() error {
 		return fmt.Errorf("failed to write backend config: %w", err)
 	}
 
-	fmt.Printf("✓ Configured Terraform backend: %s/terraform/state/\n",
-		m.ExistingBucketName)
 	return nil
 }
 
@@ -362,13 +360,10 @@ func (m *Manager) cleanup() {
 // CheckTerraformInstalled verifies that Terraform is installed and accessible
 func CheckTerraformInstalled() error {
 	cmd := exec.Command("terraform", "version")
-	output, err := cmd.Output()
+	_, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("terraform not found in PATH. Please install Terraform: https://terraform.io/downloads")
 	}
-
-	version := strings.Split(string(output), "\n")[0]
-	fmt.Printf("🔧 Found %s\n", version)
 
 	return nil
 }

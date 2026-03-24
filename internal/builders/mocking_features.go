@@ -104,10 +104,6 @@ func Registry() []Category {
 
 // PickFeaturesInteractively allows users to select features through an interactive menu
 func PickFeaturesInteractively(reg []Category) ([]FeatureItem, error) {
-	fmt.Println("\n🎨 Advanced Features Configuration")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("💡 Select categories and features to configure advanced MockServer behavior")
-	fmt.Println()
 
 	// Step 1: Show available categories
 	var catLabels []string

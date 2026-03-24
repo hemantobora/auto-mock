@@ -45,7 +45,6 @@ func BuildRESTExpectationWithContext() (MockExpectation, error) {
 // Step 1: Collect API Details (Method, Path, Request Body)
 func collectRESTAPIDetails(expectation *MockExpectation) error {
 	fmt.Printf("\n📋 API Details\n")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━")
 	var mock_configurator MockConfigurator
 
 	expectation.HttpRequest = &models.HttpRequest{
@@ -115,7 +114,6 @@ func collectRESTAPIDetails(expectation *MockExpectation) error {
 // Step 5: Response Definition
 func collectResponseDefinition(expectation *MockExpectation) error {
 	fmt.Printf("\n📤 Response Definition\n")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	expectation.HttpResponse = &models.HttpResponse{
 		Headers: []models.NameValues{},
@@ -144,8 +142,6 @@ func collectResponseDefinition(expectation *MockExpectation) error {
 
 // collectStatusCode collects HTTP status code using hierarchical selection
 func collectStatusCode(expectation *MockExpectation) error {
-	fmt.Println("\n🔢 Status Code Selection")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	statusCodes := CommonStatusCodes()
 
@@ -197,8 +193,6 @@ func collectStatusCode(expectation *MockExpectation) error {
 
 // collectResponseBody collects the response body
 func collectResponseBody(expectation *MockExpectation) error {
-	fmt.Println("\n📄 Response Body")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━")
 
 	var bodyChoice string
 	if err := survey.AskOne(&survey.Select{
@@ -264,7 +258,6 @@ func collectResponseBody(expectation *MockExpectation) error {
 // Step 8: Review and Confirm
 func reviewAndConfirm(expectation *MockExpectation) error {
 	fmt.Printf("\n🔄 Review and Confirm\n")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// Display summary
 	fmt.Printf("\n📋 Expectation Summary:\n")

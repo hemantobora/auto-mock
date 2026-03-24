@@ -201,7 +201,7 @@ func (m *LoadTestManager) runTerraform(args ...string) error {
 	return cmd.Wait()
 }
 func (m *LoadTestManager) initTerraform() error {
-	fmt.Println("🔧 terraform init (loadtest)...")
+	fmt.Println("🔧 Initializing...")
 	l := models.NewLoader(os.Stdout, "Initializing Terraform")
 	l.Start()
 	defer l.Stop()
@@ -217,7 +217,7 @@ func (m *LoadTestManager) initTerraform() error {
 	return nil
 }
 func (m *LoadTestManager) planTerraform() error {
-	fmt.Println("📋 terraform plan (loadtest)...")
+	fmt.Println("📋 Planning...")
 	l := models.NewLoader(os.Stdout, "Planning changes")
 	l.Start()
 	defer l.Stop()
@@ -232,12 +232,12 @@ func (m *LoadTestManager) planTerraform() error {
 	return nil
 }
 func (m *LoadTestManager) applyTerraform() error {
-	fmt.Println("🏗️ terraform apply (loadtest)...")
+	fmt.Println("🏗️  Applying...")
 	// Stream output for apply so users see progress details
 	return m.runTerraform("apply", "-auto-approve", "tfplan")
 }
 func (m *LoadTestManager) destroyTerraform() error {
-	fmt.Println("💥 terraform destroy (loadtest)...")
+	fmt.Println("💥 Destroying...")
 	// Stream output for destroy as well
 	return m.runTerraform("destroy", "-auto-approve")
 }

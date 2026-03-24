@@ -437,8 +437,7 @@ func statusCommand(c *cli.Context) error {
 	projectName := c.String("project")
 	detailed := c.Bool("detailed")
 
-	fmt.Printf("\n🛰️  Checking infrastructure status for: %s\n", projectName)
-	fmt.Println(strings.Repeat("━", 80))
+	fmt.Printf("\n🛰️  Status: %s\n", projectName)
 
 	manager := cloud.NewCloudManager(profile)
 

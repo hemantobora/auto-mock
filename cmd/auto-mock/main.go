@@ -14,8 +14,9 @@ var version = "0.0.1-alpha"
 func main() {
 	app := &cli.App{
 		Name:    "automock",
-		Usage:   "Generate and deploy mock API infrastructure",
+		Usage:   "Mock API and load-test infrastructure CLI",
 		Version: version,
+		Action:  showDetailedHelp,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:  "profile",
@@ -25,7 +26,7 @@ func main() {
 		Commands: []*cli.Command{
 			{
 				Name:  "init",
-				Usage: "Initialize AutoMock project with expectations and optional infrastructure deployment",
+				Usage: "Create a project, generate mock expectations, and optionally deploy",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
 						Name:  "project",
@@ -59,7 +60,7 @@ func main() {
 			},
 			{
 				Name:  "deploy",
-				Usage: "Deploy complete infrastructure for existing project",
+				Usage: "Deploy mock and/or load-test infrastructure for a project",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
 						Name:     "project",
@@ -142,13 +143,6 @@ func main() {
 					},
 				},
 				Action: locustCommand,
-			},
-			{
-				Name:  "help",
-				Usage: "Show detailed help",
-				Action: func(c *cli.Context) error {
-					return showDetailedHelp(c)
-				},
 			},
 		},
 	}
