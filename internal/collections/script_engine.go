@@ -83,6 +83,16 @@ func (se *ScriptEngine) setupEnvironment() {
 	// Set pm object in VM
 	se.vm.Set("pm", pm)
 
+	// Bruno API — bru object
+	// res is set later in SetResponseData once the actual response is available.
+	bru := map[string]interface{}{
+		"setEnvVar": se.bruSetEnvVar,
+		"getEnvVar": se.bruGetEnvVar,
+		"setVar":    se.bruSetEnvVar,
+		"getVar":    se.bruGetEnvVar,
+	}
+	se.vm.Set("bru", bru)
+
 	// Set up console for debugging
 	console := map[string]interface{}{
 		"log": func(args ...interface{}) {
@@ -98,12 +108,26 @@ func (se *ScriptEngine) setupEnvironment() {
 	se.vm.Set("console", console)
 }
 
-// SetResponseData sets the response context for post-scripts
+// SetResponseData sets the response context for post-scripts.
+// It also injects the Bruno-style "res" object into the VM so that
+// scripts can access res.body, res.status, and res.headers directly.
 func (se *ScriptEngine) SetResponseData(jsonData interface{}, text string, status int, headers map[string]string) {
 	se.responseData = jsonData
 	se.responseText = text
 	se.responseStatus = status
 	se.responseHeaders = headers
+
+	// Bruno uses res.body as a plain property (not a function like pm.response.json())
+	headersMap := make(map[string]interface{})
+	for k, v := range headers {
+		headersMap[k] = v
+	}
+	res := map[string]interface{}{
+		"body":    jsonData,
+		"status":  status,
+		"headers": headersMap,
+	}
+	se.vm.Set("res", res)
 }
 
 // SetRequestData sets the request context for scripts
@@ -211,6 +235,23 @@ func (se *ScriptEngine) collectionVariablesGet(key string) interface{} {
 // Generic variables get (checks all variable scopes)
 func (se *ScriptEngine) variablesGet(key string) interface{} {
 	return se.environmentGet(key)
+}
+
+// Bruno bru.setEnvVar / bru.getEnvVar
+func (se *ScriptEngine) bruSetEnvVar(key string, value interface{}) {
+	strValue := fmt.Sprintf("%v", value)
+	se.extractedVars[key] = strValue
+	fmt.Printf("   📝 bru.setEnvVar('%s', '%s')\n", key, strValue)
+}
+
+func (se *ScriptEngine) bruGetEnvVar(key string) interface{} {
+	if val, exists := se.extractedVars[key]; exists {
+		return val
+	}
+	if val, exists := se.existingVars[key]; exists {
+		return val
+	}
+	return nil
 }
 
 // Response methods for post-scripts

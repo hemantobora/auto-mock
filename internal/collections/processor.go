@@ -504,19 +504,19 @@ func (cp *CollectionProcessor) executeAPIs(nodes []ExecutionNode) error {
 		}
 
 		// Step 3-5: Resolve variables
-		if err := cp.resolveVariables(&node.API, neededVars, variables); err != nil {
-			fmt.Printf("   ❌ Variable resolution failed: %v\n", err)
+		if resolveErr := cp.resolveVariables(&node.API, neededVars, variables); resolveErr != nil {
+			fmt.Printf("   ❌ Variable resolution failed: %v\n", resolveErr)
 
 			var continueOnError bool
-			if err := survey.AskOne(&survey.Confirm{
+			if surveyErr := survey.AskOne(&survey.Confirm{
 				Message: "Continue with remaining APIs?",
 				Default: true,
-			}, &continueOnError); err != nil {
-				return err
+			}, &continueOnError); surveyErr != nil {
+				return surveyErr
 			}
 
 			if !continueOnError {
-				return fmt.Errorf("execution stopped due to variable resolution error")
+				return fmt.Errorf("stopped at API '%s': %w", node.API.Name, resolveErr)
 			}
 			continue
 		}
