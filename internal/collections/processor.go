@@ -188,6 +188,29 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 	}
 	fmt.Printf("\nConfiguring matching for %d API(s)...\n", total)
 
+	// Ask once which optional steps to apply across all APIs in this collection.
+	const (
+		colOptQueryParams    = "Query parameter matching"
+		colOptPathStrategy   = "Path matching strategy"
+		colOptRequestHeaders = "Request header matching"
+		colOptAdvanced       = "Advanced features (delay, limits, priority, connection)"
+	)
+	var colSelected []string
+	if err := survey.AskOne(&survey.MultiSelect{
+		Message: "Configure additional options for all APIs (space to select, enter to skip):",
+		Options: []string{colOptQueryParams, colOptPathStrategy, colOptRequestHeaders, colOptAdvanced},
+	}, &colSelected); err != nil {
+		return nil, err
+	}
+	colHas := func(opt string) bool {
+		for _, s := range colSelected {
+			if s == opt {
+				return true
+			}
+		}
+		return false
+	}
+
 	var expectations []builders.MockExpectation
 	var mock_configurator builders.MockConfigurator
 
@@ -309,21 +332,29 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 			}
 
 			// Configure matching criteria for this individual API
-			if err := mock_configurator.CollectQueryParameterMatching(&expectation); err != nil {
-				return nil, err
+			if colHas(colOptQueryParams) {
+				if err := mock_configurator.CollectQueryParameterMatching(&expectation); err != nil {
+					return nil, err
+				}
 			}
 
-			if err := mock_configurator.CollectPathMatchingStrategy(&expectation); err != nil {
+			if colHas(colOptPathStrategy) {
+				if err := mock_configurator.CollectPathMatchingStrategy(&expectation); err != nil {
+					return nil, err
+				}
+			}
+		}
+
+		if colHas(colOptRequestHeaders) {
+			if err := mock_configurator.CollectRequestHeaderMatching(&expectation); err != nil {
 				return nil, err
 			}
 		}
 
-		if err := mock_configurator.CollectRequestHeaderMatching(&expectation); err != nil {
-			return nil, err
-		}
-
-		if err := mock_configurator.CollectAdvancedFeatures(&expectation); err != nil {
-			return nil, err
+		if colHas(colOptAdvanced) {
+			if err := mock_configurator.CollectAdvancedFeatures(&expectation); err != nil {
+				return nil, err
+			}
 		}
 
 		var v any

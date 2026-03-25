@@ -15,27 +15,101 @@ func BuildRESTExpectationWithContext() (MockExpectation, error) {
 	var expectation MockExpectation
 	var mock_configurator MockConfigurator
 
-	steps := []struct {
-		name string
-		fn   func(exp *MockExpectation) error
-	}{
-		{"API Details", collectRESTAPIDetails},
-		{"Query Parameter Matching", mock_configurator.CollectQueryParameterMatching},
-		{"Path Matching Strategy", mock_configurator.CollectPathMatchingStrategy},
-		{"Request Header Matching", mock_configurator.CollectRequestHeaderMatching},
-		{"Response Definition", collectResponseDefinition},
-		{"Response Header", mock_configurator.CollectResponseHeader},
-		{"Advanced Features", mock_configurator.CollectAdvancedFeatures},
-		{"Review and Confirm", reviewAndConfirm},
+	// Mandatory: API Details
+	if err := collectRESTAPIDetails(&expectation); err != nil {
+		return expectation, &models.ExpectationBuildError{
+			ExpectationType: "REST",
+			Step:            "API Details",
+			Cause:           err,
+		}
 	}
 
-	for _, step := range steps {
-		if err := step.fn(&expectation); err != nil {
+	// Mandatory: Response Definition
+	if err := collectResponseDefinition(&expectation); err != nil {
+		return expectation, &models.ExpectationBuildError{
+			ExpectationType: "REST",
+			Step:            "Response Definition",
+			Cause:           err,
+		}
+	}
+
+	// Optional steps — user selects which to configure (space to toggle, enter to continue)
+	const (
+		optQueryParams    = "Query parameter matching"
+		optPathStrategy   = "Path matching strategy"
+		optRequestHeaders = "Request header matching"
+		optRespHeaders    = "Response headers"
+		optAdvanced       = "Advanced features (delay, limits, priority, connection)"
+	)
+	var selected []string
+	if err := survey.AskOne(&survey.MultiSelect{
+		Message: "Configure additional options (space to select, enter to skip):",
+		Options: []string{optQueryParams, optPathStrategy, optRequestHeaders, optRespHeaders, optAdvanced},
+	}, &selected); err != nil {
+		return expectation, err
+	}
+
+	has := func(opt string) bool {
+		for _, s := range selected {
+			if s == opt {
+				return true
+			}
+		}
+		return false
+	}
+
+	if has(optQueryParams) {
+		if err := mock_configurator.CollectQueryParameterMatching(&expectation); err != nil {
 			return expectation, &models.ExpectationBuildError{
 				ExpectationType: "REST",
-				Step:            step.name,
+				Step:            "Query Parameter Matching",
 				Cause:           err,
 			}
+		}
+	}
+	if has(optPathStrategy) {
+		if err := mock_configurator.CollectPathMatchingStrategy(&expectation); err != nil {
+			return expectation, &models.ExpectationBuildError{
+				ExpectationType: "REST",
+				Step:            "Path Matching Strategy",
+				Cause:           err,
+			}
+		}
+	}
+	if has(optRequestHeaders) {
+		if err := mock_configurator.CollectRequestHeaderMatching(&expectation); err != nil {
+			return expectation, &models.ExpectationBuildError{
+				ExpectationType: "REST",
+				Step:            "Request Header Matching",
+				Cause:           err,
+			}
+		}
+	}
+	if has(optRespHeaders) {
+		if err := mock_configurator.CollectResponseHeader(&expectation); err != nil {
+			return expectation, &models.ExpectationBuildError{
+				ExpectationType: "REST",
+				Step:            "Response Header",
+				Cause:           err,
+			}
+		}
+	}
+	if has(optAdvanced) {
+		if err := mock_configurator.CollectAdvancedFeatures(&expectation); err != nil {
+			return expectation, &models.ExpectationBuildError{
+				ExpectationType: "REST",
+				Step:            "Advanced Features",
+				Cause:           err,
+			}
+		}
+	}
+
+	// Mandatory: Review and Confirm
+	if err := reviewAndConfirm(&expectation); err != nil {
+		return expectation, &models.ExpectationBuildError{
+			ExpectationType: "REST",
+			Step:            "Review and Confirm",
+			Cause:           err,
 		}
 	}
 
