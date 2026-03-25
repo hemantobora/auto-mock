@@ -712,20 +712,30 @@ func editResponseBody(expectation *models.MockExpectation) {
 			case "view":
 				fmt.Printf("\nCurrent response body:\n%s\n\n", currentBody)
 			case "json":
-				var jsonData interface{}
-				var newBody string
-				if err := survey.AskOne(&survey.Multiline{Message: "Enter JSON response body:"}, &newBody); err == nil {
-					if json.Unmarshal([]byte(newBody), &jsonData) == nil {
-						expectation.HttpResponse.Body = map[string]any{
-							"type": "JSON",
-							"json": jsonData,
-						}
-						fmt.Println("✅ Updated JSON response body")
-					} else {
-						fmt.Println("❌ Invalid JSON")
+				for {
+					var newBody string
+					if err := survey.AskOne(&survey.Multiline{Message: "Enter JSON response body:"}, &newBody); err != nil {
+						return
 					}
+					newBody = strings.TrimSpace(newBody)
+					newBody = strings.TrimPrefix(newBody, "\xEF\xBB\xBF") // strip UTF-8 BOM
+					var jsonData interface{}
+					if err := json.Unmarshal([]byte(newBody), &jsonData); err != nil {
+						fmt.Printf("❌ Invalid JSON: %v\n", err)
+						var retry bool
+						_ = survey.AskOne(&survey.Confirm{Message: "Try again?", Default: true}, &retry)
+						if !retry {
+							return
+						}
+						continue
+					}
+					expectation.HttpResponse.Body = map[string]any{
+						"type": "JSON",
+						"json": jsonData,
+					}
+					fmt.Println("✅ Updated JSON response body")
+					return
 				}
-				return
 			case "template":
 				if err := builders.GenerateResponseTemplate(expectation); err != nil {
 					fmt.Printf("❌ Failed to generate response template: %v\n", err)

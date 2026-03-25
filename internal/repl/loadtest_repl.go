@@ -168,8 +168,8 @@ func handleGenerateLocal(ctx context.Context, provider core.Provider, project st
 		OutDir         string `survey:"outDir"`
 	}
 	_ = survey.Ask([]*survey.Question{
-		{Name: "collectionFile", Prompt: &survey.Input{Message: "Collection file (Postman/Bruno/Insomnia path):"}},
-		{Name: "collectionType", Prompt: &survey.Select{Message: "Collection type:", Options: []string{"postman", "bruno", "insomnia"}, Default: "postman"}},
+		{Name: "collectionFile", Prompt: &survey.Input{Message: "Collection file or directory (Postman/OpenCollection/Bruno/Insomnia path):"}},
+		{Name: "collectionType", Prompt: &survey.Select{Message: "Collection type:", Options: []string{"postman", "opencollection", "bruno", "insomnia"}, Default: "postman"}},
 		{Name: "outDir", Prompt: &survey.Input{Message: "Output directory:", Default: fmt.Sprintf("loadtest_%d", time.Now().Unix())}},
 	}, &answers)
 

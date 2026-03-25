@@ -71,7 +71,8 @@ type DeploymentOptions struct {
 	Provider    string `json:"provider,omitempty"`
 
 	// === App LoadBalancer Settings ===
-	PrivateALB bool `json:"enable_private_alb,omitempty"`
+	PrivateALB          bool     `json:"enable_private_alb,omitempty"`
+	ALBIngressCIDRs     []string `json:"alb_ingress_cidr_blocks,omitempty"` // nil/empty = open (0.0.0.0/0)
 
 	// === Custom Domain (optional) ===
 	// When set, Terraform will look up (or create) the Route53 hosted zone for
@@ -176,6 +177,11 @@ cloud_provider       = "%s"
 
 	// Private ALB — always emitted so destroy uses the exact value from deploy
 	fmt.Fprintf(&b, "\nenable_private_alb = %t\n", d.PrivateALB)
+
+	// ALB ingress CIDRs — only emitted when explicitly set; Terraform default handles open access
+	if len(d.ALBIngressCIDRs) > 0 {
+		fmt.Fprintf(&b, "alb_ingress_cidr_blocks = %s\n", formatStringList(d.ALBIngressCIDRs))
+	}
 
 	// Custom domain (optional — emitted only when provided)
 	if d.CustomDomain != "" {

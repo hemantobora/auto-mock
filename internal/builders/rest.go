@@ -289,38 +289,50 @@ func collectResponseBody(expectation *MockExpectation) error {
 		}
 
 	case "json":
-		var responseJSON string
-		if err := survey.AskOne(&survey.Multiline{
-			Message: "Enter the response body JSON:",
-			Help:    "Paste your JSON response here. Leave empty for no body.",
-		}, &responseJSON); err != nil {
-			return err
-		}
+		for {
+			var responseJSON string
+			if err := survey.AskOne(&survey.Multiline{
+				Message: "Enter the response body JSON:",
+				Help:    "Paste your JSON response here. Leave empty for no body.",
+			}, &responseJSON); err != nil {
+				return err
+			}
 
-		responseJSON = strings.TrimSpace(responseJSON)
-		if responseJSON == "" {
-			// Empty response
-			expectation.HttpResponse.Body = ""
-			expectation.HttpResponse.StatusCode = 204 // No Content
-			fmt.Println("ℹ️  Empty response body - status code changed to 204")
+			responseJSON = strings.TrimSpace(responseJSON)
+			responseJSON = strings.TrimPrefix(responseJSON, "\xEF\xBB\xBF") // strip UTF-8 BOM
+			if responseJSON == "" {
+				// Empty response
+				expectation.HttpResponse.Body = ""
+				expectation.HttpResponse.StatusCode = 204 // No Content
+				fmt.Println("ℹ️  Empty response body - status code changed to 204")
+				return nil
+			}
+
+			// Validate JSON
+			var temp interface{}
+			if err := json.Unmarshal([]byte(responseJSON), &temp); err != nil {
+				fmt.Printf("❌ Invalid JSON: %v\n", err)
+				var retry bool
+				if askErr := survey.AskOne(&survey.Confirm{Message: "Try again?", Default: true}, &retry); askErr != nil {
+					return askErr
+				}
+				if !retry {
+					return &models.JSONValidationError{
+						Context: "JSON validation",
+						Content: responseJSON,
+						Cause:   err,
+					}
+				}
+				continue
+			}
+
+			expectation.HttpResponse.Body = map[string]any{
+				"type": "JSON",
+				"json": temp,
+			}
+			fmt.Println("✅ Response body JSON configured")
 			return nil
 		}
-
-		// Validate JSON
-		var temp interface{}
-		if err := json.Unmarshal([]byte(responseJSON), &temp); err != nil {
-			return &models.JSONValidationError{
-				Context: "JSON validation",
-				Content: responseJSON,
-				Cause:   err,
-			}
-		}
-
-		expectation.HttpResponse.Body = map[string]any{
-			"type": "JSON",
-			"json": temp,
-		}
-		fmt.Println("✅ Response body JSON configured")
 
 	default:
 		return fmt.Errorf("unsupported body input method: %s", bodyChoice)

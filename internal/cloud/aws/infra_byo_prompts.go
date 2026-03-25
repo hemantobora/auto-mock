@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -271,6 +274,57 @@ func promptDeploymentOptionsREPL(options *models.DeploymentOptions) error {
 	}
 	if err := survey.AskOne(confirmPrompt, &confirmed); err == nil {
 		options.PrivateALB = confirmed
+	}
+
+	// ── ALB access restriction (optional) ────────────────────────────────────
+	// Only relevant when Terraform creates the security group (not BYO SG).
+	if !options.UseExistingSecurityGroups {
+		detectedIP := detectPublicIP()
+
+		var accessChoice string
+		accessOptions := []string{
+			"open - Allow access from anywhere (0.0.0.0/0)",
+			"myip - Restrict to my current IP only",
+			"custom - Enter a custom CIDR",
+		}
+		defaultAccess := "open - Allow access from anywhere (0.0.0.0/0)"
+		if detectedIP != "" {
+			accessOptions[1] = fmt.Sprintf("myip - Restrict to my current IP only (%s/32)", detectedIP)
+		}
+		if err := survey.AskOne(&survey.Select{
+			Message: "Who can reach the mock server?",
+			Options: accessOptions,
+			Default: defaultAccess,
+			Help:    "Controls the ALB security group ingress rules for port 80 and 443.",
+		}, &accessChoice); err == nil {
+			choice := strings.Split(accessChoice, " ")[0]
+			switch choice {
+			case "myip":
+				if detectedIP != "" {
+					options.ALBIngressCIDRs = []string{detectedIP + "/32"}
+					fmt.Printf("✓ Access restricted to %s/32\n", detectedIP)
+					fmt.Println("  ℹ️  This IP is baked into the security group. If your IP changes, redeploy to update it.")
+				} else {
+					fmt.Println("⚠️  Could not detect your public IP — falling back to open access.")
+				}
+			case "custom":
+				var customCIDR string
+				if err := survey.AskOne(&survey.Input{
+					Message: "Enter CIDR (e.g. 203.0.113.5/32 or 10.0.0.0/8):",
+					Help:    "Use /32 for a single IP address.",
+				}, &customCIDR, survey.WithValidator(func(ans interface{}) error {
+					s := strings.TrimSpace(ans.(string))
+					if !regexp.MustCompile(`^\d+\.\d+\.\d+\.\d+/\d+$`).MatchString(s) {
+						return fmt.Errorf("invalid CIDR — expected format like 1.2.3.4/32")
+					}
+					return nil
+				})); err == nil && strings.TrimSpace(customCIDR) != "" {
+					options.ALBIngressCIDRs = []string{strings.TrimSpace(customCIDR)}
+					fmt.Printf("✓ Access restricted to %s\n", customCIDR)
+				}
+			// "open": leave ALBIngressCIDRs nil — Terraform default handles it
+			}
+		}
 	}
 
 	// ── Custom domain (optional) ──────────────────────────────────────────────
@@ -629,4 +683,20 @@ func contains(ss []string, target string) bool {
 		}
 	}
 	return false
+}
+
+// detectPublicIP fetches the caller's public IPv4 address using AWS's own
+// checkip endpoint. Returns empty string on any failure (timeout, no network).
+func detectPublicIP() string {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("https://checkip.amazonaws.com")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(body))
 }

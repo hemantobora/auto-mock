@@ -18,15 +18,16 @@ func generateFromCollectionWithMenu(projectName string) (string, error) {
 	var collectionType string
 	if err := survey.AskOne(&survey.Select{
 		Message: "Select collection type:",
-		Options: []string{"postman", "bruno", "insomnia"},
+		Options: []string{"postman", "opencollection", "bruno", "insomnia"},
 	}, &collectionType); err != nil {
 		return "", err
 	}
 
-	// Get file path
+	pathMessage := "Enter path to collection file:"
+
 	var filePath string
 	if err := survey.AskOne(&survey.Input{
-		Message: "Enter path to collection file:",
+		Message: pathMessage,
 	}, &filePath); err != nil {
 		return "", err
 	}

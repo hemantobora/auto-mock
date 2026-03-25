@@ -150,7 +150,12 @@ func (cp *CollectionProcessor) showDisclaimer() error {
 
 // Step 2: Parse collection file based on type
 func (cp *CollectionProcessor) ParseCollectionFile(filePath string) ([]APIRequest, error) {
-	fmt.Printf("\n📄 Parsing %s collection file: %s\n", cp.collectionType, filePath)
+	fmt.Printf("\n📄 Parsing %s collection: %s\n", cp.collectionType, filePath)
+
+	// OpenCollection uses a single bundled YAML file — handle before ReadFile
+	if cp.collectionType == "opencollection" {
+		return cp.parseOpenCollectionFile(filePath)
+	}
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {
