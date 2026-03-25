@@ -28,7 +28,9 @@ func (p *Provider) DisplayCostEstimate(options *models.DeploymentOptions) {
 	baseMonthly := float64(options.MinTasks) * perTaskHour * hoursPerMonth
 
 	totalMonthly := baseMonthly + albMonthly + dataMonthly + storageLogs
-	if len(options.NatGatewayIDs) > 0 {
+	// NAT cost applies when Terraform creates a new gateway (greenfield VPC).
+	// BYO NAT (UseExistingNAT=true) means the user already owns it — no new cost.
+	if !options.UseExistingNAT {
 		totalMonthly += natMonthly
 	}
 	if options.PrivateALB {
@@ -45,8 +47,8 @@ func (p *Provider) DisplayCostEstimate(options *models.DeploymentOptions) {
 	if options.PrivateALB {
 		row("Internal ALB:", albMonthly)
 	}
-	if len(options.NatGatewayIDs) > 0 {
-		row("NAT Gateway (1×):", natMonthly)
+	if !options.UseExistingNAT {
+		row("NAT Gateway (1×, Terraform-managed):", natMonthly)
 	}
 	row("Data transfer (~20 GB egress @ $0.09/GB):", dataMonthly)
 	row("Storage & logs (<1 GB):", storageLogs)

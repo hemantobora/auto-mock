@@ -151,19 +151,19 @@ func promptDeploymentOptionsREPL(options *models.DeploymentOptions) error {
 	if options.InstanceSize == "" {
 		var instanceSize string
 		sizePrompt := &survey.Select{
-			Message: "Select instance size:",
+			Message: "Select task size (Fargate CPU / memory allocation):",
 			Options: []string{"small", "medium", "large", "xlarge"},
 			Default: "small",
 			Description: func(value string, index int) string {
 				switch value {
 				case "small":
-					return "0.5 vCPU, 1GB RAM (recommended for testing)"
+					return "0.25 vCPU, 0.5 GB RAM (light load / testing)"
 				case "medium":
-					return "1 vCPU, 2GB RAM (moderate load)"
+					return "0.5 vCPU, 1 GB RAM (moderate load)"
 				case "large":
-					return "2 vCPU, 4GB RAM (high load)"
+					return "1 vCPU, 2 GB RAM (high load)"
 				case "xlarge":
-					return "4 vCPU, 8GB RAM (very high load)"
+					return "2 vCPU, 4 GB RAM (very high load)"
 				default:
 					return ""
 				}
@@ -187,9 +187,9 @@ func promptDeploymentOptionsREPL(options *models.DeploymentOptions) error {
 	if options.MinTasks == 0 {
 		var minTask string
 		minPrompt := &survey.Input{
-			Message: "Minimum number of tasks (Fargate instances):",
-			Default: "5",
-			Help:    "Minimum number of Fargate tasks to run (scales between min and max based on load)",
+			Message: "Minimum number of tasks:",
+			Default: "2",
+			Help:    "Minimum number of Fargate tasks running at all times. 1–2 is fine for testing; use higher values for production.",
 		}
 
 		if err := survey.AskOne(minPrompt, &minTask); err != nil {
@@ -209,15 +209,15 @@ func promptDeploymentOptionsREPL(options *models.DeploymentOptions) error {
 
 	// Max tasks
 	if options.MaxTasks == 0 {
-		// Calculate recommended max
-		recommendedMax := options.MinTasks * 9
+		// Calculate recommended max (min × 6 matches the scaling validator threshold)
+		recommendedMax := options.MinTasks * 6
 
 		for {
 			var maxTask string
 			maxPrompt := &survey.Input{
-				Message: fmt.Sprintf("Maximum number of tasks (Fargate instances) [recommended: %d]:", recommendedMax),
+				Message: fmt.Sprintf("Maximum number of tasks [recommended: %d]:", recommendedMax),
 				Default: fmt.Sprintf("%d", recommendedMax),
-				Help:    fmt.Sprintf("Maximum number of Fargate tasks to run (scales between min and max based on load). Recommended: %d (min × 6 for optimal scaling)", recommendedMax),
+				Help:    fmt.Sprintf("Maximum number of Fargate tasks to run. Recommended: %d (min × 6 gives headroom for the +200%% scaling step).", recommendedMax),
 			}
 
 			if err := survey.AskOne(maxPrompt, &maxTask); err != nil {
