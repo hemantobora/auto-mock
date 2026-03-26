@@ -106,6 +106,7 @@ func SelectProjectAction(projectName string, existingConfig *models.MockConfigur
 		// When no expectations exist: only generation (no management operations)
 		options = []string{
 			"generate - Create a set of expectations from Collection, Interactively or examples",
+			"delete - Delete the project",
 			"exit - Cancel the operation and exit",
 		}
 	}
