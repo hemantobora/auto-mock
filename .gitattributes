@@ -1,0 +1,6 @@
+# Ensure all text files use LF line endings.
+# This prevents CRLF issues when Windows users build and deploy.
+* text=auto
+*.go   text eol=lf
+*.sh   text eol=lf
+*.tf   text eol=lf

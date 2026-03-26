@@ -300,7 +300,7 @@ func (m *CloudManager) handleInteractiveProject() (models.ActionType, error) {
 	}
 
 	if strings.TrimSpace(selectedProject.ProjectID) == "Exit-Auto-Mock" {
-		return models.ActionExit, nil
+		return models.ActionExit, fmt.Errorf("👋 Good bye!!!")
 	}
 
 	m.Provider.SetProjectName(selectedProject.ProjectID)

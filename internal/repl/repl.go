@@ -67,7 +67,7 @@ func ResolveProjectInteractively(existing []models.ProjectInfo) (models.ProjectI
 		options = append(options, info.ProjectID)
 		nameToProject[info.ProjectID] = info
 	}
-	options = append(options, "📝 Create New Project", "👋 Exit")
+	options = append(options, "Create New Project", "Exit")
 
 	var choice string
 	if err := survey.AskOne(&survey.Select{
