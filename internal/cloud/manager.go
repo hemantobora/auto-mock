@@ -298,6 +298,11 @@ func (m *CloudManager) handleInteractiveProject() (models.ActionType, error) {
 	if strings.TrimSpace(selectedProject.ProjectID) == "" {
 		return m.createNewProject("")
 	}
+
+	if strings.TrimSpace(selectedProject.ProjectID) == "Exit-Auto-Mock" {
+		return models.ActionExit, nil
+	}
+
 	m.Provider.SetProjectName(selectedProject.ProjectID)
 	m.Provider.SetStorageName(selectedProject.StorageName)
 	existingConfig, _ := m.getMockConfiguration()

@@ -67,7 +67,7 @@ func ResolveProjectInteractively(existing []models.ProjectInfo) (models.ProjectI
 		options = append(options, info.ProjectID)
 		nameToProject[info.ProjectID] = info
 	}
-	options = append(options, "📝 Create New Project")
+	options = append(options, "📝 Create New Project", "👋 Exit")
 
 	var choice string
 	if err := survey.AskOne(&survey.Select{
@@ -79,6 +79,9 @@ func ResolveProjectInteractively(existing []models.ProjectInfo) (models.ProjectI
 
 	if strings.Contains(choice, "Create New") {
 		return models.ProjectInfo{}, nil
+	}
+	if strings.Contains(choice, "Exit") {
+		return models.ProjectInfo{ProjectID: "Exit-Auto-Mock"}, nil
 	}
 	return nameToProject[choice], nil
 }

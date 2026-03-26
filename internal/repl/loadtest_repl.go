@@ -31,6 +31,9 @@ func StartLoadTestREPL(provider core.Provider, project string) error {
 		if err != nil {
 			return err
 		}
+		if strings.TrimSpace(selected.ProjectID) == "Exit-Auto-Mock" {
+			return fmt.Errorf("👋 Exiting bundle management. Good bye!!!")
+		}
 		if selected.ProjectID == "" {
 			// create new
 			var name string
