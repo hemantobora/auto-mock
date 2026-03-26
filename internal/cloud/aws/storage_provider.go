@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -73,6 +74,12 @@ func (p *Provider) GetConfig(ctx context.Context, projectID string) (*models.Moc
 		Key:    aws.String(key),
 	})
 	if err != nil {
+		// A missing config file is not an error — it just means the project
+		// has no expectations yet (e.g. newly created or already cleaned up).
+		var noSuchKey *s3types.NoSuchKey
+		if errors.As(err, &noSuchKey) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("failed to get config from S3: %w", err)
 	}
 	defer result.Body.Close()
