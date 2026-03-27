@@ -65,13 +65,128 @@ func (mc *MockConfigurator) EditRequestBody(exp *MockExpectation) error {
 	var kind string
 	if err := survey.AskOne(&survey.Select{
 		Message: "Choose body matcher type:",
-		Options: []string{"JSON", "REGEX", "PARAMETERS", "STRING (exact text)"},
+		Options: []string{"JSON", "JSON_SCHEMA", "REGEX", "PARAMETERS", "STRING (exact text)"},
 		Default: "JSON",
 	}, &kind, survey.WithValidator(survey.Required)); err != nil {
 		return err
 	}
 
 	switch {
+	case kind == "JSON_SCHEMA":
+		var rootType string
+		if err := survey.AskOne(&survey.Select{
+			Message: "Root body type:",
+			Options: []string{"object", "array"},
+			Default: "object",
+		}, &rootType); err != nil {
+			return err
+		}
+
+		var schema map[string]any
+
+		if rootType == "array" {
+			// Interactive construction for arrays is not supported.
+			// Accept the full schema directly.
+			fmt.Println("ℹ️  Interactive field construction is only supported for object bodies.")
+			fmt.Println("   Please paste the full JSON Schema below.")
+			var schemaJSON string
+			if err := survey.AskOne(&survey.Multiline{
+				Message: "Paste JSON Schema:",
+				Help:    `e.g. {"type":"array","items":{"type":"object","properties":{"id":{"type":"string"}}}}`,
+			}, &schemaJSON); err != nil {
+				return err
+			}
+			schemaJSON = strings.TrimSpace(schemaJSON)
+			if !json.Valid([]byte(schemaJSON)) {
+				return fmt.Errorf("invalid JSON Schema: not valid JSON")
+			}
+			if err := json.Unmarshal([]byte(schemaJSON), &schema); err != nil {
+				return err
+			}
+		} else {
+			// Interactive field-by-field construction for object bodies.
+			fmt.Println("Define the fields to match. Empty field name to finish.")
+			type fieldDef struct {
+				name     string
+				typ      string
+				pattern  string
+				required bool
+			}
+			var fields []fieldDef
+			for {
+				var name string
+				if err := survey.AskOne(&survey.Input{
+					Message: "Field name (empty to finish):",
+				}, &name); err != nil {
+					return err
+				}
+				name = strings.TrimSpace(name)
+				if name == "" {
+					break
+				}
+
+				var typ string
+				if err := survey.AskOne(&survey.Select{
+					Message: fmt.Sprintf("Type for '%s':", name),
+					Options: []string{"string", "number", "integer", "boolean"},
+					Default: "string",
+				}, &typ); err != nil {
+					return err
+				}
+
+				var pattern string
+				if typ == "string" {
+					if err := survey.AskOne(&survey.Input{
+						Message: fmt.Sprintf("Pattern for '%s' (Java regex, optional):", name),
+						Help:    "e.g. ^[a-f0-9-]{36}$ for UUID. Leave blank to accept any string.",
+					}, &pattern); err != nil {
+						return err
+					}
+					pattern = strings.TrimSpace(pattern)
+				}
+
+				var required bool
+				if err := survey.AskOne(&survey.Confirm{
+					Message: fmt.Sprintf("Is '%s' required?", name),
+					Default: true,
+				}, &required); err != nil {
+					return err
+				}
+
+				fields = append(fields, fieldDef{name: name, typ: typ, pattern: pattern, required: required})
+			}
+
+			if len(fields) == 0 {
+				return fmt.Errorf("no fields defined for JSON_SCHEMA matcher")
+			}
+
+			properties := map[string]any{}
+			var requiredFields []string
+			for _, f := range fields {
+				prop := map[string]any{"type": f.typ}
+				if f.pattern != "" {
+					prop["pattern"] = f.pattern
+				}
+				properties[f.name] = prop
+				if f.required {
+					requiredFields = append(requiredFields, f.name)
+				}
+			}
+			schema = map[string]any{
+				"type":       "object",
+				"properties": properties,
+			}
+			if len(requiredFields) > 0 {
+				schema["required"] = requiredFields
+			}
+		}
+
+		exp.HttpRequest.Body = map[string]any{
+			"type":       "JSON_SCHEMA",
+			"jsonSchema": schema,
+		}
+		return nil
+
 	case kind == "JSON":
 		// Ask for JSON and optional matchType
 		var bodyJSON string
@@ -204,7 +319,7 @@ func (mc *MockConfigurator) CollectRequestBody(exp *MockExpectation, existing st
 		if err := survey.AskOne(&survey.Confirm{
 			Message: "Do you want to configure a custom body matcher?",
 			Default: false,
-			Help:    "Choose ‘Yes’ to set up a JSON, regex, or string matcher.",
+			Help:    "Choose ‘Yes’ to set up a JSON, JSON_SCHEMA, regex, or string matcher.",
 		}, &needsBody); err != nil {
 			return err
 		}
@@ -219,7 +334,7 @@ func (mc *MockConfigurator) CollectRequestBody(exp *MockExpectation, existing st
 		if err := survey.AskOne(&survey.Confirm{
 			Message: "Use existing request body text as EXACT match?\n" + existing,
 			Default: false,
-			Help:    "This matches the body as raw text (STRING).",
+			Help:    "JSON bodies use JSON STRICT matching; non-JSON bodies use exact STRING matching.",
 		}, &useBody); err != nil {
 			return err
 		}

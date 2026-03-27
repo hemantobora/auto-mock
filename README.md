@@ -134,23 +134,32 @@ automock init --project my-api --provider anthropic
 Import existing API definitions from popular tools:
 
 ```bash
+# Postman
 automock init \
   --project api-mock \
   --collection-file api.postman_collection.json \
   --collection-type postman
+
+# Bruno OpenCollection v3 (bundled YAML)
+automock init \
+  --project api-mock \
+  --collection-file open.yml \
+  --collection-type opencollection
 ```
 
 **Supported Formats:**
-- **Postman** Collection v2.1 (.json)
-- **Bruno** Collection (.json)
-- **Insomnia** Workspace (.json)
+- **Postman** Collection v2.1 (.json) — `--collection-type postman`
+- **Bruno** Collection JSON export (.json) — `--collection-type bruno`
+- **Bruno** OpenCollection v3 bundled YAML (.yml) — `--collection-type opencollection`
+- **Insomnia** Workspace (.json) — `--collection-type insomnia`
 
 **Features:**
 - Sequential API execution with variable resolution
 - Interactive matching configuration (guided; no automatic scenario inference)
 - Auto-incremented priorities to avoid collisions
-- Pre/post-script processing (Postman-like JS via embedded engine)
+- Pre/post-script processing — Postman (`pm.environment.set`, `pm.response.json()`) and Bruno (`bru.setEnvVar`, `res.body`) script APIs via embedded JS engine
 - Auth mapping to headers when provided in the collection
+- Template variable detection (`{{variable}}`) — warns and skips exact-match offer for body/query params containing placeholders
 
 **Example: Multi-Scenario Configuration**
 ```
@@ -186,7 +195,7 @@ automock init --project my-api
 - Regex paths: `/api/.*/status`
 - Query string matching: `?status=active&limit=10`
 - Header validation: `Authorization: Bearer *`
-- Body matching: exact, partial, regex, JSONPath
+- Body matching: exact (STRING), partial (JSON ONLY_MATCHING_FIELDS), JSON Schema, regex, parameters
 
 **Response Features:**
 - Template variables: `$!uuid`, `$!now_epoch`, `$!request.headers['X-Request-ID'][0]`
@@ -545,7 +554,7 @@ auto-mock/
 - [ ] Azure provider support
 - [ ] GCP provider support
 - [ ] Swagger/OpenAPI import
-- [ ] Bruno .bru file format
+- [ ] Bruno directory-based (.bru files) format
 - [ ] Web UI for expectation management
 - [ ] Prometheus metrics export
 - [ ] Multiple region deployment
@@ -575,7 +584,7 @@ go test ./...
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-**Areas we'd love help with:** Azure/GCP provider support, Swagger/OpenAPI import, Bruno .bru format, Web UI for expectation management, Prometheus metrics export.
+**Areas we'd love help with:** Azure/GCP provider support, Swagger/OpenAPI import, Bruno directory-based (.bru) format, Web UI for expectation management, Prometheus metrics export.
 
 ---
 

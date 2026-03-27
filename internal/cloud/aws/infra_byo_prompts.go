@@ -308,19 +308,33 @@ func promptDeploymentOptionsREPL(options *models.DeploymentOptions) error {
 					fmt.Println("⚠️  Could not detect your public IP — falling back to open access.")
 				}
 			case "custom":
-				var customCIDR string
+				var customCIDRs string
+				cidrRe := regexp.MustCompile(`^\d+\.\d+\.\d+\.\d+/\d+$`)
 				if err := survey.AskOne(&survey.Input{
-					Message: "Enter CIDR (e.g. 203.0.113.5/32 or 10.0.0.0/8):",
-					Help:    "Use /32 for a single IP address.",
-				}, &customCIDR, survey.WithValidator(func(ans interface{}) error {
-					s := strings.TrimSpace(ans.(string))
-					if !regexp.MustCompile(`^\d+\.\d+\.\d+\.\d+/\d+$`).MatchString(s) {
-						return fmt.Errorf("invalid CIDR — expected format like 1.2.3.4/32")
+					Message: "Enter CIDR(s), comma-separated (e.g. 203.0.113.5/32, 10.0.0.0/8):",
+					Help:    "Use /32 for a single IP. Multiple CIDRs are OR-ed together in the security group.",
+				}, &customCIDRs, survey.WithValidator(func(ans interface{}) error {
+					parts := strings.Split(ans.(string), ",")
+					for _, p := range parts {
+						p = strings.TrimSpace(p)
+						if p == "" {
+							continue
+						}
+						if !cidrRe.MatchString(p) {
+							return fmt.Errorf("invalid CIDR %q — expected format like 1.2.3.4/32", p)
+						}
 					}
 					return nil
-				})); err == nil && strings.TrimSpace(customCIDR) != "" {
-					options.ALBIngressCIDRs = []string{strings.TrimSpace(customCIDR)}
-					fmt.Printf("✓ Access restricted to %s\n", customCIDR)
+				})); err == nil && strings.TrimSpace(customCIDRs) != "" {
+					var cidrs []string
+					for _, p := range strings.Split(customCIDRs, ",") {
+						p = strings.TrimSpace(p)
+						if p != "" {
+							cidrs = append(cidrs, p)
+						}
+					}
+					options.ALBIngressCIDRs = cidrs
+					fmt.Printf("✓ Access restricted to: %s\n", strings.Join(cidrs, ", "))
 				}
 			// "open": leave ALBIngressCIDRs nil — Terraform default handles it
 			}
