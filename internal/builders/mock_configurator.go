@@ -120,15 +120,15 @@ func (mc *MockConfigurator) EditRequestBody(exp *MockExpectation) error {
 	case kind == "REGEX":
 		var pattern string
 		if err := survey.AskOne(&survey.Input{
-			Message: "Enter regex pattern (Go/RE2):",
-			Default: "^(foo|bar)-\\d{3}$",
+			Message: "Enter regex pattern (Java regex, runs on MockServer JVM):",
+			Help:    "Use (?s) prefix to match newlines. e.g. (?s).*\"type\"\\s*:\\s*\"MOCK\".*",
 		}, &pattern, survey.WithValidator(survey.Required)); err != nil {
 			return err
 		}
-		// Optional pre-check: compile to catch bad patterns early (RE2 syntax)
-		if _, err := regexp.Compile(pattern); err != nil {
-			return fmt.Errorf("invalid regex: %w", err)
-		}
+		// Note: we intentionally skip Go/RE2 compile-check here because MockServer uses
+		// Java regex (java.util.regex.Pattern), which supports features RE2 rejects
+		// (e.g. (?s) DOTALL flag, lookaheads, backreferences). Validating with Go's
+		// regexp.Compile would give false errors on perfectly valid Java patterns.
 		exp.HttpRequest.Body = NewRegexBody(pattern)
 		return nil
 
@@ -188,6 +188,32 @@ func (mc *MockConfigurator) EditRequestBody(exp *MockExpectation) error {
 func (mc *MockConfigurator) CollectRequestBody(exp *MockExpectation, existing string) error {
 	// If a body text was derived earlier, optionally reuse it exactly.
 	existing = strings.TrimSpace(existing)
+
+	// Detect Bruno/Postman {{variable}} placeholders in the body template.
+	// These are never the real values sent at runtime (they get substituted before the request
+	// is made), so offering them as an exact match would produce a matcher that never fires.
+	doublebraceRe := regexp.MustCompile(`\{\{[^}]+\}\}`)
+	hasTemplatePlaceholders := existing != "" && doublebraceRe.MatchString(existing)
+
+	if hasTemplatePlaceholders {
+		// Show the body for reference so the user can copy/adapt it, but skip the exact-match offer.
+		fmt.Printf("⚠️  Request body contains template variables — cannot use as an exact match.\n")
+		fmt.Printf("   Body (for reference):\n%s\n", existing)
+
+		var needsBody bool
+		if err := survey.AskOne(&survey.Confirm{
+			Message: "Do you want to configure a custom body matcher?",
+			Default: false,
+			Help:    "Choose ‘Yes’ to set up a JSON, regex, or string matcher.",
+		}, &needsBody); err != nil {
+			return err
+		}
+		if !needsBody {
+			return nil
+		}
+		return mc.EditRequestBody(exp)
+	}
+
 	if existing != "" {
 		var useBody bool
 		if err := survey.AskOne(&survey.Confirm{
@@ -198,7 +224,7 @@ func (mc *MockConfigurator) CollectRequestBody(exp *MockExpectation, existing st
 			return err
 		}
 		if useBody {
-			// Prefer JSON STRICT if 'existing' is valid JSON; otherwise fall back to exact STRING
+			// Prefer JSON STRICT if ‘existing’ is valid JSON; otherwise fall back to exact STRING
 			trimmed := existing
 			if json.Valid([]byte(trimmed)) {
 				var v any
@@ -325,10 +351,21 @@ func (mc *MockConfigurator) ParsePathAndQueryParams(fullPath string) (cleanPath 
 
 	cleanPath = parsedURL.Path
 
-	// Extract query parameters
+	// Extract query parameters, skipping any whose values are Bruno/Postman template
+	// placeholders (e.g. {{page_number}}). Those are never the real runtime values
+	// and would produce matchers that never fire.
+	doublebraceRe := regexp.MustCompile(`\{\{[^}]+\}\}`)
 	for name, values := range parsedURL.Query() {
-		if len(values) > 0 {
-			queryParams[name] = values // Store all values
+		var filtered []string
+		for _, v := range values {
+			if doublebraceRe.MatchString(v) {
+				fmt.Printf("ℹ️  Skipping query param '%s={{...}}' — template placeholder, not a real value\n", name)
+				continue
+			}
+			filtered = append(filtered, v)
+		}
+		if len(filtered) > 0 {
+			queryParams[name] = filtered
 		}
 	}
 
@@ -341,6 +378,15 @@ func (mc *MockConfigurator) CollectPathMatchingStrategy(exp *MockExpectation) er
 	rawPath := strings.TrimSpace(exp.HttpRequest.Path)
 	if rawPath == "" {
 		return fmt.Errorf("path is empty")
+	}
+
+	// Normalize Bruno/Postman {{var}} double-brace syntax to MockServer {var} single-brace.
+	// e.g. /offer/aeid/{{aeid}}/imei/{{imei}} → /offer/aeid/{aeid}/imei/{imei}
+	doublebraceRe := regexp.MustCompile(`\{\{([^}]+)\}\}`)
+	if doublebraceRe.MatchString(rawPath) {
+		rawPath = doublebraceRe.ReplaceAllString(rawPath, "{$1}")
+		exp.HttpRequest.Path = rawPath
+		fmt.Printf("ℹ️  Normalized path variables: %s\n", rawPath)
 	}
 
 	hasBraces := strings.Contains(rawPath, "{") && strings.Contains(rawPath, "}")

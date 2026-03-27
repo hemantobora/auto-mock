@@ -364,12 +364,23 @@ func (cp *CollectionProcessor) configureIndividualMatching(nodes []ExecutionNode
 
 		var v any
 		if err := json.Unmarshal([]byte(node.Response.Body), &v); err != nil {
-			return nil, err
-		}
-		// Set body wrapper
-		expectation.HttpResponse.Body = map[string]any{
-			"type": "JSON",
-			"json": v,
+			// Response is not JSON (HTML error page, XML, plain text, etc.).
+			// Warn the user and store as a raw string rather than crashing.
+			fmt.Printf("   ⚠️  Response body for '%s' is not valid JSON (HTTP %d) — storing as plain text\n",
+				node.API.Name, node.Response.StatusCode)
+			if node.Response.StatusCode >= 400 {
+				fmt.Printf("   💡 The API returned an error response. The mock will replay this error status and body.\n")
+				fmt.Printf("   💡 You may want to re-run the collection once auth tokens are valid.\n")
+			}
+			expectation.HttpResponse.Body = map[string]any{
+				"type":   "STRING",
+				"string": node.Response.Body,
+			}
+		} else {
+			expectation.HttpResponse.Body = map[string]any{
+				"type": "JSON",
+				"json": v,
+			}
 		}
 		fmt.Println("✅ Configured response body")
 
