@@ -125,6 +125,19 @@ func (p *Provider) GetProviderType() string {
 	return "aws"
 }
 
+// GetBackendConfig returns an S3 backend block for Terraform.
+func (p *Provider) GetBackendConfig(stateKey string) string {
+	return fmt.Sprintf(`terraform {
+  backend "s3" {
+    bucket  = "%s"
+    key     = "%s"
+    region  = "%s"
+    encrypt = true
+  }
+}
+`, p.BucketName, stateKey, p.region)
+}
+
 func (p *Provider) ValidateProjectName(projectID string) error {
 	return p.naming.ValidateProjectID(projectID)
 }

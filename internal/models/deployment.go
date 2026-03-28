@@ -35,15 +35,20 @@ type InfrastructureOutputs struct {
 
 // DeploymentOptions configures the infrastructure deployment
 type DeploymentOptions struct {
-	// === Compute Configuration ===
+	// === Common ===
+	ProjectName string `json:"-"`
+	Region      string `json:"-"` // AWS: region; Azure: location (e.g. "eastus")
+	BucketName  string `json:"-"` // AWS: S3 bucket; Azure: storage account name
+	Provider    string `json:"provider,omitempty"`
+
+	// ── AWS-specific: Compute (ECS Fargate) ──────────────────────────────────
 	InstanceSize string `json:"instance_size"`
 	MinTasks     int    `json:"min_tasks"`
 	MaxTasks     int    `json:"max_tasks"`
 	MemoryUnits  int    `json:"memory_units"`
 	CPUUnits     int    `json:"cpu_units"`
 
-	// === NETWORKING (FeatNetworking) ===
-	// Most restricted in organizations - VPC/networking governance
+	// ── AWS-specific: Networking ──────────────────────────────────────────────
 	UseExistingVPC            bool     `json:"-"`
 	VpcID                     string   `json:"vpc_id,omitempty"`
 	PublicSubnetIDs           []string `json:"public_subnet_ids,omitempty"`
@@ -56,41 +61,45 @@ type DeploymentOptions struct {
 	NatGatewayIDs             []string `json:"nat_gateway_ids,omitempty"`
 	UseExistingSecurityGroups bool     `json:"-"`
 
-	// === IAM ROLES (FeatIAMWrite, FeatPassRole) ===
-	// Second most restricted - IAM governance
+	// ── AWS-specific: IAM ─────────────────────────────────────────────────────
 	UseExistingIAMRoles    bool    `json:"-"`
-	ExecutionRoleARN       string  `json:"execution_role_arn,omitempty"`       // ECS task execution role
-	TaskRoleARN            string  `json:"task_role_arn,omitempty"`            // ECS task role (app permissions)
-	IAMRolePath            *string `json:"iam_role_path,omitempty"`            // Optional path for created roles (e.g., "/auto-mock/")
-	IAMPermissionsBoundary *string `json:"iam_permissions_boundary,omitempty"` // Optional ARN for permissions boundary on created roles
+	ExecutionRoleARN       string  `json:"execution_role_arn,omitempty"`
+	TaskRoleARN            string  `json:"task_role_arn,omitempty"`
+	IAMRolePath            *string `json:"iam_role_path,omitempty"`
+	IAMPermissionsBoundary *string `json:"iam_permissions_boundary,omitempty"`
 
-	// === App Settings ===
-	ProjectName string `json:"-"`
-	Region      string `json:"-"`
-	BucketName  string `json:"-"`
-	Provider    string `json:"provider,omitempty"`
-
-	// === App LoadBalancer Settings ===
+	// ── AWS-specific: ALB / Custom Domain ────────────────────────────────────
 	PrivateALB          bool     `json:"enable_private_alb,omitempty"`
-	ALBIngressCIDRs     []string `json:"alb_ingress_cidr_blocks,omitempty"` // nil/empty = open (0.0.0.0/0)
+	ALBIngressCIDRs     []string `json:"alb_ingress_cidr_blocks,omitempty"`
+	CustomDomain        string   `json:"custom_domain,omitempty"`
+	CreateHostedZone    bool     `json:"create_hosted_zone,omitempty"`
 
-	// === Custom Domain (optional) ===
-	// When set, Terraform will look up (or create) the Route53 hosted zone for
-	// this domain, issue an ACM certificate for <ProjectName>.<CustomDomain>,
-	// and create an A-alias record pointing to the ALB.
-	// Leave empty to use self-signed cert.
-	CustomDomain     string `json:"custom_domain,omitempty"`
-	// CreateHostedZone controls whether Terraform creates a new Route53 hosted
-	// zone (true) or looks up an existing one (false, default).
-	CreateHostedZone bool   `json:"create_hosted_zone,omitempty"`
+	// ── Azure-specific: Identity / Storage ───────────────────────────────────
+	SubscriptionID       string `json:"subscription_id,omitempty"`
+	ResourceGroup        string `json:"resource_group,omitempty"`
+	StorageContainerName string `json:"container_name,omitempty"` // Blob container name
+	// ── Azure-specific: AKS Node Pool ────────────────────────────────────────
+	NodeVMSize string `json:"node_vm_size,omitempty"` // e.g. Standard_B2s
+	NodeCount  int    `json:"node_count,omitempty"`   // default 1
 }
 
 // CreateTerraformVars renders terraform.tfvars as HCL based on DeploymentOptions.
-// It supports both BYO and "tool creates" modes by emitting explicit use_existing_* flags.
+// The output format varies by provider — AWS (ECS) and Azure (AKS) use different
+// variable names and infrastructure primitives.
 func (d *DeploymentOptions) CreateTerraformVars() string {
+	switch d.Provider {
+	case "azure":
+		return d.createAzureTerraformVars()
+	default:
+		return d.createAWSTerraformVars()
+	}
+}
+
+// createAWSTerraformVars renders the ECS/S3 tfvars for AWS deployments.
+func (d *DeploymentOptions) createAWSTerraformVars() string {
 	var b strings.Builder
 
-	fmt.Fprintf(&b, `# AutoMock Terraform Variables
+	fmt.Fprintf(&b, `# AutoMock Terraform Variables (AWS)
 # Generated automatically - do not edit manually
 
 project_name         = "%s"
@@ -191,6 +200,45 @@ cloud_provider       = "%s"
 		}
 	}
 
+	return b.String()
+}
+
+// createAzureTerraformVars renders the AKS/Blob tfvars for Azure deployments.
+func (d *DeploymentOptions) createAzureTerraformVars() string {
+	nodeVMSize := d.NodeVMSize
+	if nodeVMSize == "" {
+		nodeVMSize = "Standard_B2s"
+	}
+	nodeCount := d.NodeCount
+	if nodeCount == 0 {
+		nodeCount = 1
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, `# AutoMock Terraform Variables (Azure)
+# Generated automatically - do not edit manually
+
+project_name         = "%s"
+location             = "%s"
+subscription_id      = "%s"
+resource_group       = "%s"
+storage_account_name = "%s"
+container_name       = "%s"
+cloud_provider       = "%s"
+
+node_vm_size         = "%s"
+node_count           = %d
+`,
+		d.ProjectName,
+		d.Region,
+		d.SubscriptionID,
+		d.ResourceGroup,
+		d.BucketName,
+		d.StorageContainerName,
+		d.Provider,
+		nodeVMSize,
+		nodeCount,
+	)
 	return b.String()
 }
 

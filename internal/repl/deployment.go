@@ -43,8 +43,12 @@ func (d *Deployment) DeployInfrastructureWithTerraform(skip_confirmation bool) e
 	}
 
 	options := d.Provider.CreateDeploymentConfiguration()
+	if options == nil {
+		// User cancelled the configuration prompts (e.g. Ctrl-C during survey)
+		return nil
+	}
 
-	// Optional: show cost estimate (AWS)
+	// Optional: show cost estimate
 	d.Provider.DisplayCostEstimate(options)
 	fmt.Println()
 

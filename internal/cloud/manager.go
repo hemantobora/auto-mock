@@ -77,12 +77,58 @@ func AutoDetectAndInit(profile string, cliContext *CLIContext) error {
 	return manager.Initialize(cliContext)
 }
 
+// providerIcon maps a provider type string to a display label with a brand-specific icon.
+var providerIcon = map[string]string{
+	"aws":   "☁️  AWS",   // AWS — the original cloud
+	"azure": "🔷  Azure", // Azure — Microsoft blue
+	"gcp":   "🌐  GCP",   // GCP — Google, internet-first
+}
+
 func (m *CloudManager) AutoDetectProvider(profile string) error {
-	// Lightweight spinner to improve perceived responsiveness during provider detection.
 	ctx := context.Background()
-	provider, err := m.factory.AutoDetectProvider(ctx, profile)
+
+	// Phase 1: lightweight credential check — no API calls.
+	available := m.factory.DetectAvailableProviders(ctx, profile)
+
+	if len(available) == 0 {
+		return fmt.Errorf("❌ No valid cloud provider credentials found.\n" +
+			"   AWS:   configure credentials or run 'aws configure'\n" +
+			"   Azure: run 'az login'\n" +
+			"   (GCP support is coming soon)")
+	}
+
+	// Phase 2: if multiple providers, let the user pick one.
+	chosen := available[0]
+	if len(available) > 1 {
+		labels := make([]string, len(available))
+		for i, pt := range available {
+			label, ok := providerIcon[pt]
+			if !ok {
+				label = pt
+			}
+			labels[i] = label
+		}
+
+		var selected string
+		if err := survey.AskOne(&survey.Select{
+			Message: "Multiple cloud providers detected. Which one would you like to use?",
+			Options: labels,
+		}, &selected); err != nil {
+			return err
+		}
+
+		for i, label := range labels {
+			if label == selected {
+				chosen = available[i]
+				break
+			}
+		}
+	}
+
+	// Phase 3: initialise the chosen provider (makes actual cloud API calls).
+	provider, err := m.factory.CreateProvider(ctx, chosen, WithProfile(profile))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to initialise %s provider: %w", chosen, err)
 	}
 	m.Provider = provider
 	return nil
@@ -300,7 +346,8 @@ func (m *CloudManager) handleInteractiveProject() (models.ActionType, error) {
 	}
 
 	if strings.TrimSpace(selectedProject.ProjectID) == "Exit-Auto-Mock" {
-		return models.ActionExit, fmt.Errorf("👋 Good bye!!!")
+		fmt.Println("👋 Good bye!!!")
+		return models.ActionExit, nil
 	}
 
 	m.Provider.SetProjectName(selectedProject.ProjectID)
