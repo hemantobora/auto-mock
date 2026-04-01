@@ -56,7 +56,7 @@ def _load_user_data(base_dir: Optional[str] = None):
             if os.path.exists(candidate):
                 path = candidate
                 break
-    if not os.path.exists(path):
+    if not path or not os.path.exists(path):
         if path:
             print(f"[data] User data file not found: {path}")
         return
@@ -409,3 +409,35 @@ for ep in EPS:
     _tasks[fn] = w if w > 0 else 1
 
 AutoMockUser.tasks = _tasks
+
+# -------------------------------------------------------------------
+# Entry-point guard
+# -------------------------------------------------------------------
+# Locust files are NOT run directly with `python3 locustfile.py`.
+# Running this way only executes module-level setup (data loading etc.)
+# and then exits — no load test is actually started.
+#
+# Use the provided runner scripts instead:
+#   macOS / Linux:   ./run_locust_ui.sh          (opens web UI at :8089)
+#                    ./run_locust_headless.sh     (headless, set vars inside)
+#   Windows:         .\run_locust_ui.ps1
+#                    .\run_locust_headless.ps1
+#
+# Or run Locust directly:
+#   locust -f locustfile.py --host http://your-target-host
+#   locust -f locustfile.py --host http://your-target-host --headless -u 10 -r 2 --run-time 60s
+
+if __name__ == "__main__":
+    import sys
+    print()
+    print("⚠️  This file must be run via Locust, not directly via Python.")
+    print()
+    print("Run the load test with:")
+    print("  locust -f locustfile.py --host http://your-target-host")
+    print()
+    print("Or use the provided scripts:")
+    print("  ./run_locust_ui.sh           # web UI at http://localhost:8089")
+    print("  ./run_locust_headless.sh     # headless mode (edit script to set params)")
+    print("  .\\run_locust_ui.ps1          # Windows PowerShell equivalent")
+    print()
+    sys.exit(1)

@@ -4,7 +4,7 @@
 [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go)](https://golang.org/)
 [![AWS](https://img.shields.io/badge/AWS-Supported-FF9900?logo=amazon-aws)](https://aws.amazon.com/)
 
-**AutoMock** is a cloud-native CLI tool that generates and deploys production-ready mock API servers from natural language descriptions, API collections, or an interactive builder. Spin up fully managed mock servers on AWS with auto-scaling, monitoring, and built-in load testing support.
+**AutoMock** is a cloud-native CLI tool that generates and deploys production-ready mock API servers from natural language descriptions, API collections, or an interactive builder. Spin up fully managed mock servers on AWS (ECS Fargate) with auto-scaling, monitoring, and built-in load testing support.
 
 > Cloud provider support is currently AWS-only. GCP and Azure are planned but not yet available.
 
@@ -13,14 +13,14 @@
 ## 🌟 Highlights
 
 - 🤖 **AI-Generated Mocks** — Describe your API in natural language, get complete MockServer configurations
-- ☁️ **Cloud-Native Deployment** — One command deploys ECS Fargate + ALB + Auto-scaling
-- 📦 **Multi-Format Import** — Postman, Bruno, Insomnia collections → MockServer expectations
+- ☁️ **AWS Deployment** — ECS Fargate + ALB — fully managed, auto-scaling
+- 📦 **Multi-Format Import** — Postman, Bruno, Insomnia, OpenCollection → MockServer expectations and Locust bundles
 - 🔧 **Interactive Builder** — 7-step guided builder for precise control
-- ⚡ **Auto-Scaling** — CPU/Memory/Request-based (configurable; defaults: 10–200 tasks)
-- 💾 **Cloud Storage** — S3-backed, versioned, team-accessible expectations
+- ⚡ **Auto-Scaling** — CPU/Memory/Request-based (10–200 tasks by default)
+- 💾 **S3 Storage** — Versioned, team-accessible expectations
 - 🎭 **Advanced Features** — Progressive delays, GraphQL, response templates, response limits
-- 🧪 **Load Testing** — Locust bundle generation and managed AWS deployment
-- 🔐 **Production-Ready** — ALB health checks, CloudWatch monitoring, IAM best practices
+- 🧪 **Load Testing** — Locust bundle generation and managed cloud deployment (AWS ECS)
+- 🔐 **Production-Ready** — Health checks, monitoring, IAM best practices
 
 ---
 
@@ -81,14 +81,17 @@ go build -o automock ./cmd/auto-mock
 export ANTHROPIC_API_KEY="sk-ant-..."
 export OPENAI_API_KEY="sk-..."
 
-# Generate mock expectations
+# Configure AWS credentials (or use existing profile)
+aws configure
+
+# Generate and initialise a project
 automock init --project user-api --provider anthropic
 
 # Deploy to AWS
 automock deploy --project user-api
 ```
 
-Your mock API is now live at the ALB endpoint shown after deploy.
+Your mock API is now live at the endpoint shown after deploy.
 
 ---
 
@@ -131,7 +134,7 @@ automock init --project my-api --provider anthropic
 
 ### 📦 Collection Import
 
-Import existing API definitions from popular tools:
+Import existing API definitions from popular tools — for both mock generation and load test bundles:
 
 ```bash
 # Postman
@@ -148,10 +151,15 @@ automock init \
 ```
 
 **Supported Formats:**
-- **Postman** Collection v2.1 (.json) — `--collection-type postman`
-- **Bruno** Collection JSON export (.json) — `--collection-type bruno`
-- **Bruno** OpenCollection v3 bundled YAML (.yml) — `--collection-type opencollection`
-- **Insomnia** Workspace (.json) — `--collection-type insomnia`
+
+| Format | Flag | Notes |
+|--------|------|-------|
+| Postman Collection v2.1 | `--collection-type postman` | .json export |
+| Bruno JSON export | `--collection-type bruno` | .json export |
+| Bruno OpenCollection v3 | `--collection-type opencollection` | bundled .yml |
+| Insomnia Workspace | `--collection-type insomnia` | .json export |
+
+All four formats are supported in both `automock init` (mock generation) and `automock load` (Locust bundle generation).
 
 **Features:**
 - Sequential API execution with variable resolution
@@ -212,7 +220,8 @@ Deploy production-ready infrastructure with one command:
 automock deploy --project my-api
 ```
 
-**What Gets Deployed:**
+#### AWS — ECS Fargate + ALB
+
 ```
 ┌─────────────────────────────────────────┐
 │  Application Load Balancer (Public)     │
@@ -240,7 +249,7 @@ automock deploy --project my-api
     └─────────────────────┘
 ```
 
-**Infrastructure Features:**
+**Infrastructure features:**
 - Auto-Scaling — CPU/Memory/Request-based (10–200 tasks by default)
 - Monitoring — CloudWatch metrics, logs, alarms
 - Health Checks — ALB target health, `/mockserver/status`
@@ -249,13 +258,9 @@ automock deploy --project my-api
 - Private ALB — Optional internal ALB for VPC-internal clients (e.g., Locust)
 - BYO Networking — Use existing VPC, subnets, IGW, NAT, IAM roles, and security groups
 
-**Accessing Your Mock:**
+**Authenticating:**
 ```bash
-# API endpoint
-curl https://automock-my-api-123.us-east-1.elb.amazonaws.com/api/users
-
-# MockServer Dashboard
-open https://automock-my-api-123.us-east-1.elb.amazonaws.com/mockserver/dashboard
+aws configure                  # or use an existing named profile
 ```
 
 ---
@@ -284,12 +289,12 @@ automock init --project my-api
 
 ### 🧪 Load Testing — Local
 
-Generate Locust load testing bundles from a collection:
+Generate a ready-to-run Locust bundle from any supported collection format:
 
 ```bash
 automock load \
   --collection-file api.json \
-  --collection-type postman \
+  --collection-type postman \   # postman | insomnia | bruno | opencollection
   --dir ./load-tests \
   --distributed
 
@@ -298,63 +303,67 @@ cd load-tests
 # Browser opens at http://localhost:8089
 ```
 
-**Generated Files:**
-- `locustfile.py` — Test scenarios
+**Generated files:**
+- `locustfile.py` — Test scenarios (run via Locust, not Python directly)
+- `locust_endpoints.json` — Endpoint config — edit to tune behaviour
+- `user_data.yaml` — Per-user test data rows
 - `requirements.txt` — Python dependencies
 - `run_locust_ui.sh` / `.ps1` — Start with web UI
 - `run_locust_headless.sh` / `.ps1` — Run without UI
 - `run_locust_master.sh` / `.ps1` — Distributed master
 - `run_locust_worker.sh` / `.ps1` — Distributed worker
 
+**Running the load test:**
+
+```bash
+cd load-tests
+
+# UI mode — opens http://localhost:8089 to set users/rate interactively
+export AM_HOST="http://your-target-host"
+./run_locust_ui.sh
+
+# Headless mode — set params via env vars
+export AM_HOST="http://your-target-host"
+export AM_USERS=20
+export AM_SPAWN_RATE=5
+export AM_DURATION=5m
+./run_locust_headless.sh
+```
+
+> **Note:** Run via the shell scripts or `locust -f locustfile.py`. Running `python3 locustfile.py` directly only loads configuration and prints the data row count — no test starts.
+
 **Variable substitution:**
-- `${env.VAR}` — Expanded at load-time across the spec
+- `${env.VAR}` — Expanded at load-time from environment / `.env` file
 - `${data.<field>}` and `${user.id|index}` — Expanded at runtime in path, headers, params, and body
 - In `auth.mode: shared`, only `${env.*}` expands; in `auth.mode: per_user`, `${data.*}` and `${user.*}` also expand in the login path/headers/body
 
 ---
 
-### ☁️ Managed Locust on AWS
+### ☁️ Managed Locust — AWS
 
-Deploy a Locust cluster to AWS via the same `deploy` command. The stack provisions an ECS Fargate cluster (master + configurable workers), an ALB for the Locust UI, and Cloud Map service discovery between master and workers.
+Deploy a Locust cluster to AWS via the same `deploy` command. AutoMock provisions an ECS Fargate cluster (master + workers), an ALB for the Locust UI, and Cloud Map service discovery.
 
-**Deploy:**
 ```bash
-# Upload your load test bundle first
+# 1. Upload your load test bundle
 automock load --project my-api --upload --dir ./load-tests
 
-# Deploy infrastructure (prompts for sizing and optional BYO networking)
+# 2. Deploy infrastructure (prompts for sizing)
 automock deploy --project my-api
-```
 
-**Scale workers:**
-```bash
+# 3. Scale workers
 automock deploy --project my-api
-# → When already deployed, prompts for new worker count
-```
+# → prompts for new worker count when already deployed
 
-**Destroy:**
-```bash
+# 4. Tear down
 automock destroy --project my-api
-# → Select: mocks, loadtest, or both
+# → select: mocks, loadtest, or both
 ```
 
 **What you get:**
-- Public ALB with HTTP and HTTPS access to the Locust master UI (self-signed cert)
-- ECS task definitions for master and workers
+- Public ALB with HTTP/HTTPS access to the Locust master UI
+- ECS task definitions for master and workers (configurable CPU/memory)
 - Cloud Map private namespace for master–worker discovery
-- CloudWatch log groups with configurable retention
-- Security groups with least-privilege rules
-
-**Custom Locust image (optional):**
-
-By default the module uses public images (`locustio/locust:2.31.2` + `python:3.11-slim` init sidecar). If you prefer faster cold-starts without runtime installs, build a derived image with Locust and `boto3` pre-installed and set the `locust_container_image` Terraform variable before deploying.
-
-**Troubleshooting — `locustfile.py` not found:**
-
-If Locust logs show `Could not find '/workspace/locustfile.py'`, check:
-1. No bundle has been uploaded yet — run `automock load --project <name> --upload --dir ./load-tests`
-2. The pointer file `current.json` is missing — re-uploading a bundle recreates it
-3. IAM permissions missing: the task role needs `s3:GetObject` and `s3:ListBucket` on the project bucket
+- CloudWatch log groups
 
 ---
 
@@ -400,9 +409,9 @@ automock deploy --project prod-api
 
 ## 💰 Cost Estimates
 
-### Default AWS Infrastructure (10 tasks, 24/7)
+### AWS (default: 10 tasks, 24/7)
 
-`min_tasks` and `max_tasks` are both configurable at deploy time. The table below reflects the defaults. Using BYO networking (existing VPC, subnets, and NAT) eliminates the NAT Gateway cost.
+`min_tasks` and `max_tasks` are configurable at deploy time. Using BYO networking (existing VPC, subnets, NAT) eliminates the NAT Gateway cost.
 
 | Component | Monthly Cost |
 |-----------|--------------|
@@ -414,7 +423,7 @@ automock deploy --project prod-api
 | S3 Storage | ~$0.30 |
 | **Total** | **~$93** |
 
-> Rough estimates; varies by region, traffic, and log volume. Validate with the [AWS Pricing Calculator](https://calculator.aws).
+> Rough East US estimates; varies by region and traffic. Validate with the [AWS Pricing Calculator](https://calculator.aws).
 
 **Hourly rate (10 tasks):** ~$0.13/hour
 
@@ -431,7 +440,7 @@ automock deploy --project prod-api
 
 ## 🏗️ Infrastructure Details
 
-### Auto-Scaling Policies
+### Auto-Scaling
 
 **Scale Up (Aggressive):**
 - CPU 70–80% → +50% tasks
@@ -455,8 +464,8 @@ automock deploy --project prod-api
 ### Security
 
 - **IAM** — Least-privilege, separate task execution and task roles, no hardcoded credentials; optional permissions boundary and custom role path
-- **Networking** — ECS tasks in private subnets, NAT for outbound only, security groups restrict traffic to ALB
-- **Data** — S3 server-side encryption (AES-256), versioning enabled, CloudWatch Logs retention: 30 days
+- **Networking** — ECS tasks in private subnets behind ALB
+- **Data** — S3 server-side encryption (AES-256) with versioning enabled
 
 ---
 
@@ -523,13 +532,16 @@ auto-mock/
 │   ├── cloud/               # Cloud provider abstraction
 │   │   ├── aws/             # AWS implementation (S3, ECS, IAM)
 │   │   ├── factory.go       # Provider detection & initialization
-│   │   └── manager.go       # Orchestration & workflows
+│   │   └── manager.go       # Orchestration
 │   ├── mcp/                 # AI provider integration (Anthropic, OpenAI)
 │   ├── builders/            # Interactive expectation builders
-│   ├── collections/         # Collection parsers (Postman, Bruno, Insomnia)
+│   ├── collections/         # Collection parsers (Postman, Bruno, Insomnia, OpenCollection)
 │   ├── expectations/        # Expectation CRUD operations
 │   ├── repl/                # Interactive CLI flows
 │   ├── terraform/           # Embedded infrastructure modules
+│   │   └── infra/
+│   │       ├── mock/aws/    # ECS Fargate MockServer
+│   │       └── loadtest/aws/   # ECS Fargate Locust
 │   └── models/              # Data structures
 ├── go.mod
 ├── build.sh
@@ -543,7 +555,8 @@ auto-mock/
 
 - [x] AWS support (S3, ECS, ALB)
 - [x] AI-powered mock generation (Claude, GPT-4)
-- [x] Collection import (Postman, Bruno, Insomnia)
+- [x] Collection import (Postman, Bruno, Insomnia, OpenCollection)
+- [x] OpenCollection support in load test bundle generation
 - [x] Interactive builder
 - [x] Auto-scaling infrastructure
 - [x] CloudWatch monitoring
@@ -601,6 +614,7 @@ This project is licensed under the **MIT License** — see the [LICENSE](LICENSE
 - **OpenAI** — GPT-4 for intelligent mock generation
 - **AWS** — Cloud infrastructure platform
 - **Terraform** — Infrastructure as Code
+- **Locust** — Load testing framework
 
 ---
 

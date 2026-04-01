@@ -87,8 +87,9 @@ func GenerateLoadtestBundle(opts Options) error {
 	if opts.CollectionType == "" {
 		if err := survey.AskOne(&survey.Select{
 			Message: "Collection type:",
-			Options: []string{"Postman", "Insomnia", "Bruno"},
+			Options: []string{"Postman", "Insomnia", "Bruno", "OpenCollection"},
 			Default: "Postman",
+			Help:    "OpenCollection is Bruno's bundled export format (.yaml). Use it when you exported all requests into a single YAML file from Bruno.",
 		}, &opts.CollectionType); err != nil {
 			return err
 		}
