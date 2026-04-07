@@ -7,12 +7,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/hemantobora/auto-mock/internal/collections"
 )
+
+// _collectionVarRe matches unresolved collection variables like {{varName}}
+var _collectionVarRe = regexp.MustCompile(`\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}`)
+
+// convertCollectionVars rewrites any remaining {{varName}} placeholders (Postman/Bruno
+// collection syntax) to ${data.varName} so the locustfile can substitute them at
+// runtime from user_data.yaml. Call this after replaceVariables so already-resolved
+// variables are not double-converted.
+func convertCollectionVars(s string) string {
+	return _collectionVarRe.ReplaceAllStringFunc(s, func(match string) string {
+		name := match[2 : len(match)-2] // strip {{ and }}
+		return "${data." + name + "}"
+	})
+}
 
 /* =========================
    Embedded templates
@@ -155,7 +170,10 @@ func GenerateLoadtestBundle(opts Options) error {
 		auth = map[string]any{
 			"mode":            authMode, // shared | per_user
 			"method":          strings.ToUpper(r.Method),
-			"path":            toPath(r.URL),
+			// Store the full URL (including host) so locust issues the auth request
+			// to the correct host — which may differ from AM_HOST (e.g. an external
+			// token provider). Locust treats URLs starting with http(s):// as absolute.
+			"path":            r.URL,
 			"headers":         r.Headers,
 			"body":            r.Body,
 			"token_json_path": tokenPath,
@@ -163,7 +181,7 @@ func GenerateLoadtestBundle(opts Options) error {
 			"header_prefix":   headerPrefix,
 		}
 		// Remove auth endpoint from load targets
-		eps = filterOut(eps, r.Method, toPath(r.URL))
+		eps = filterOut(eps, r.Method, r.URL)
 	}
 
 	// Final spec JSON
@@ -294,7 +312,7 @@ func resolveVariables(neededVars []string, variables map[string]string) error {
 			fmt.Printf("✅ %s (from environment)\n", varName)
 			continue
 		}
-		fmt.Printf("ℹ️  Skipping '%s' (no env); leaving placeholder for runtime.\n", varName)
+		fmt.Printf("ℹ️  Skipping '%s' (no env); will map to ${data.%s} — add to user_data.yaml.\n", varName, varName)
 	}
 	return nil
 }
@@ -384,17 +402,20 @@ func extractAndResolveVariables(reqs []collections.APIRequest, cp *collections.C
 			return fmt.Errorf("resolve variables: %w", err)
 		}
 
-		// Persist replacements back to the element
-		r.URL = replaceVariables(r.URL, variables)
+		// Persist replacements back to the element.
+		// convertCollectionVars rewrites any {{var}} that couldn't be resolved from the
+		// environment into ${data.var} so the locustfile can substitute them at runtime
+		// from user_data.yaml — no manual editing needed.
+		r.URL = convertCollectionVars(replaceVariables(r.URL, variables))
 
 		if r.Body != "" {
-			r.Body = replaceVariables(r.Body, variables)
+			r.Body = convertCollectionVars(replaceVariables(r.Body, variables))
 		}
 		for k, v := range r.Headers {
 			if strings.EqualFold(k, "Authorization") || strings.EqualFold(k, "authorization") {
-				continue // Skip Authorization header
+				continue // Skip Authorization header; injected at runtime by the auth flow
 			}
-			r.Headers[k] = replaceVariables(v, variables)
+			r.Headers[k] = convertCollectionVars(replaceVariables(v, variables))
 		}
 	}
 	return nil
@@ -475,8 +496,11 @@ func buildEndpointsFromAPIRequestsWithHost(reqs []collections.APIRequest, keep m
 func filterOut(eps []Endpoint, method, path string) []Endpoint {
 	keep := eps[:0]
 	m := strings.ToUpper(method)
+	// Normalize path-only for comparison so that endpoints stored as full URLs
+	// (when the user opted to retain host) are still matched and excluded.
+	normPath := toPath(path)
 	for _, e := range eps {
-		if !(strings.EqualFold(e.Path, path) && strings.EqualFold(e.Method, m)) {
+		if !(strings.EqualFold(toPath(e.Path), normPath) && strings.EqualFold(e.Method, m)) {
 			keep = append(keep, e)
 		}
 	}

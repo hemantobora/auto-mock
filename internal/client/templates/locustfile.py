@@ -1,4 +1,4 @@
-import os, json, re, math, random, csv, threading
+import os, json, re, random, csv, threading
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs
 from locust import HttpUser, between, constant, events
@@ -42,7 +42,6 @@ except Exception:
 # -------------------------------------------------------------------
 
 USER_DATA: List[Dict[str, Any]] = []
-_USER_DATA_INDEX = 0
 _DATA_LOCK = threading.Lock()
 _USER_COUNTER = 0
 
@@ -202,12 +201,10 @@ def _do_auth(client, ctx: Optional[Dict[str, Any]] = None):
         path    = _expand_runtime(path, ctx)
 
     kwargs = {"headers": headers, "timeout": REQUEST_TIMEOUT, "verify": VERIFY_TLS}
-    if body is not None:
+    if body:
         kwargs["json" if isinstance(body, (dict, list)) else "data"] = body
 
-    url_or_path = path if (path.startswith("http://") or path.startswith("https://")) else path
-
-    r = client.request(method, url_or_path, name="AUTH "+path, **kwargs)
+    r = client.request(method, path, name="AUTH "+path, **kwargs)
     if r.status_code >= 400:
         print(f"[auth] failed: HTTP {r.status_code} - {r.text[:200]}")
         return None
@@ -254,7 +251,11 @@ def _on_test_start(environment, **_):
 
         if client is not None:
             client.verify = VERIFY_TLS
-            _SHARED_TOKEN = _do_auth(client)
+            # Pass the shared data row so ${data.*} placeholders in auth headers/path/body
+            # are substituted before the request is sent.
+            shared_data = USER_DATA[DATA_SHARED_INDEX % len(USER_DATA)] if USER_DATA else {}
+            shared_ctx = {"data": shared_data, "user": {"id": 0, "index": 0}}
+            _SHARED_TOKEN = _do_auth(client, shared_ctx)
         if _SHARED_TOKEN:
             print("🔐 Auth OK (shared token)")
 
@@ -319,9 +320,10 @@ class AutoMockUser(HttpUser):
             if getattr(self, "host", None):
                 with _SHARED_TOKEN_LOCK:
                     if not _SHARED_TOKEN:
-                        tok = _do_auth(self.client)
+                        shared_data = USER_DATA[DATA_SHARED_INDEX % len(USER_DATA)] if USER_DATA else {}
+                        shared_ctx = {"data": shared_data, "user": {"id": 0, "index": 0}}
+                        tok = _do_auth(self.client, shared_ctx)
                         if tok:
-                            # Assign after successful retrieval
                             globals()["_SHARED_TOKEN"] = tok
                             print("🔐 Auth OK (shared token, lazy)")
 
@@ -369,11 +371,8 @@ class AutoMockUser(HttpUser):
         if body is not None:
             kwargs["json" if isinstance(body, (dict, list)) else "data"] = body
 
-        # Absolute URL supported; otherwise path is relative to host/UI
-        url_or_path = path if (path.startswith("http://") or path.startswith("https://")) else path
-
-        # Perform request
-        with self.client.request(method, url_or_path, name=name, **kwargs, catch_response=True) as resp:
+        # Perform request (path may be absolute URL or relative — Locust handles both)
+        with self.client.request(method, path, name=name, **kwargs, catch_response=True) as resp:
             if 200 <= resp.status_code < 400:
                 resp.success()
             else:
