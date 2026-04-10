@@ -99,7 +99,11 @@ func displaySingleExpectation(expectation *models.MockExpectation) error {
 	}
 	fmt.Printf("🏷️  Name: %s\n", name)
 	fmt.Printf("🔗 Method: %s %s\n", expectation.HttpRequest.Method, expectation.HttpRequest.Path)
-	fmt.Printf("📊 Status: %d\n", expectation.HttpResponse.StatusCode)
+	if expectation.HttpResponseTemplate != nil {
+		fmt.Printf("📊 Type: %s template\n", expectation.HttpResponseTemplate.TemplateType)
+	} else if expectation.HttpResponse != nil {
+		fmt.Printf("📊 Status: %d\n", expectation.HttpResponse.StatusCode)
+	}
 
 	return nil
 }
@@ -200,7 +204,10 @@ func buildAPIList(expectations []models.MockExpectation) []string {
 	for _, exp := range expectations {
 		method := exp.HttpRequest.Method
 		path := exp.HttpRequest.Path
-		statusCode := exp.HttpResponse.StatusCode
+		var statusCode int
+		if exp.HttpResponse != nil {
+			statusCode = exp.HttpResponse.StatusCode
+		}
 		name := exp.Description
 
 		queryInfo := ""
@@ -214,13 +221,17 @@ func buildAPIList(expectations []models.MockExpectation) []string {
 			}
 		}
 
+		statusLabel := fmt.Sprintf("%d", statusCode)
+		if exp.HttpResponseTemplate != nil {
+			statusLabel = exp.HttpResponseTemplate.TemplateType
+		}
 		var displayName string
 		if name != "" && queryInfo != "" {
-			displayName = fmt.Sprintf("%s %s %s%s (%d)", name, method, path, queryInfo, statusCode)
+			displayName = fmt.Sprintf("%s %s %s%s (%s)", name, method, path, queryInfo, statusLabel)
 		} else if name != "" {
-			displayName = fmt.Sprintf("%s %s %s (%d)", name, method, path, statusCode)
+			displayName = fmt.Sprintf("%s %s %s (%s)", name, method, path, statusLabel)
 		} else {
-			displayName = fmt.Sprintf("%s %s%s (%d)", method, path, queryInfo, statusCode)
+			displayName = fmt.Sprintf("%s %s%s (%s)", method, path, queryInfo, statusLabel)
 		}
 
 		apiList = append(apiList, displayName)
@@ -451,9 +462,13 @@ func editSingleExpectation(exp *models.MockExpectation) error {
 			Name: "Response",
 			Open: true,
 			Items: []item{
-				{"Status", editStatusCode, nil},
-				{"Headers", editResponseHeaders, nil},
-				{"Body", editResponseBody, nil},
+				{"Status", editStatusCode, func(e *models.MockExpectation) bool { return e.HttpResponseTemplate == nil }},
+				{"Headers", editResponseHeaders, func(e *models.MockExpectation) bool { return e.HttpResponseTemplate == nil }},
+				{"Body", editResponseBody, func(e *models.MockExpectation) bool { return e.HttpResponseTemplate == nil }},
+				{"Template (read-only)", func(e *models.MockExpectation) {
+					fmt.Printf("\n📄 Template type: %s\n", e.HttpResponseTemplate.TemplateType)
+					fmt.Printf("Edit the raw JSON file to modify the template.\n")
+				}, func(e *models.MockExpectation) bool { return e.HttpResponseTemplate != nil }},
 			},
 		},
 		{

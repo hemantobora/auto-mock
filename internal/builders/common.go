@@ -196,6 +196,12 @@ func CloneExpectation(src *MockExpectation) *MockExpectation {
 		}
 	}
 
+	// ---- HttpResponseTemplate ----
+	if src.HttpResponseTemplate != nil {
+		tmp := *src.HttpResponseTemplate
+		dst.HttpResponseTemplate = &tmp
+	}
+
 	// ---- Other pointers ----
 	if src.Times != nil {
 		tmp := *src.Times

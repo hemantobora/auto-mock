@@ -1,4 +1,4 @@
-import os, json, re, random, csv, threading
+import os, json, re, random, csv, threading, uuid, string
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs
 from locust import HttpUser, between, constant, events
@@ -107,6 +107,43 @@ def _expand_runtime(v: Any, ctx: Dict[str, Any]):
     if isinstance(v, list):
         return [_expand_runtime(x, ctx) for x in v]
     return v
+
+_GEN_RE = re.compile(r'^!(uuid|digits|alpha|alphanum|hex)(?::(\d+))?$')
+
+def _resolve_generators(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Replace generator placeholders in a user data row with freshly generated values.
+
+    Called once per virtual user at on_start, so each user gets their own stable
+    generated values that remain consistent for the duration of their session.
+
+    Supported syntax (values in user_data.yaml):
+      !uuid          → random UUID4  e.g. f47ac10b-58cc-4372-a567-0e02b2c3d479
+      !digits:N      → N random decimal digits  e.g. !digits:10 → 3847201938
+      !alpha:N       → N random ASCII letters   e.g. !alpha:8  → kjhTpwQz
+      !alphanum:N    → N random alphanumeric    e.g. !alphanum:12 → aB3kP9xQr2Tz
+      !hex:N         → N random hex chars       e.g. !hex:16 → 3f9a2b8c...
+    """
+    if not row:
+        return row
+    out = {}
+    for k, v in row.items():
+        if isinstance(v, str):
+            m = _GEN_RE.match(v.strip())
+            if m:
+                kind = m.group(1)
+                n    = int(m.group(2)) if m.group(2) else None
+                if kind == "uuid":
+                    v = str(uuid.uuid4())
+                elif kind == "digits" and n:
+                    v = "".join(random.choices("0123456789", k=n))
+                elif kind == "alpha" and n:
+                    v = "".join(random.choices(string.ascii_letters, k=n))
+                elif kind == "alphanum" and n:
+                    v = "".join(random.choices(string.ascii_letters + string.digits, k=n))
+                elif kind == "hex" and n:
+                    v = "".join(random.choices("0123456789abcdef", k=n))
+        out[k] = v
+    return out
 
 def _claim_user_index() -> int:
     global _USER_COUNTER
@@ -307,7 +344,7 @@ class AutoMockUser(HttpUser):
         self._token = None
         # Assign deterministic user index and optional data row
         self._user_index = _claim_user_index()
-        self._data = _assign_user_data(self._user_index)
+        self._data = _resolve_generators(dict(_assign_user_data(self._user_index) or {}))
         if (AUTH.get("mode") or "none").lower() == "per_user":
             ctx = {"data": self._data or {}, "user": {"id": self._user_index, "index": self._user_index}}
             self._token = _do_auth(self.client, ctx)

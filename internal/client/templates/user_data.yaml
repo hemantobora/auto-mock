@@ -1,8 +1,28 @@
 # Sample per-user data file for Locust runtime parameterization
 # Edit or replace this file. The generator will copy it into your loadtest bundle as 'user_data.yaml'.
 #
-# Use ${data.<field>} placeholders in locust_endpoints.json (headers/params/body) to substitute values
-# for each virtual user. See LOADTEST_README.md for details.
+# Use ${data.<field>} placeholders in locust_endpoints.json (path/headers/params/body) to substitute
+# values for each virtual user. See LOADTEST_README.md for details.
+#
+# ── Static values ────────────────────────────────────────────────────────────
+# Plain strings, numbers, or booleans used as-is for every request that user makes.
+#
+# ── Generator placeholders ───────────────────────────────────────────────────
+# Instead of a static value, use a generator expression. Each virtual user gets
+# its own freshly generated value at startup; that value stays consistent for the
+# duration of the user's session.
+#
+#   !uuid          → random UUID4  e.g. f47ac10b-58cc-4372-a567-0e02b2c3d479
+#   !digits:N      → N random decimal digits        e.g. !digits:10  → 3847201938
+#   !alpha:N       → N random ASCII letters         e.g. !alpha:8    → kjhTpwQz
+#   !alphanum:N    → N random alphanumeric chars    e.g. !alphanum:12 → aB3kP9xQr2Tz
+#   !hex:N         → N random lowercase hex chars   e.g. !hex:16     → 3f9a2b8c1d4e5f6a
+#
+# Example mixing static and generated fields:
+#   - account_id: "!digits:10"
+#     session_id:  "!uuid"
+#     username:    "loadtest-user"
+# ─────────────────────────────────────────────────────────────────────────────
 -
   account_number: "111111"
   username: "user1"

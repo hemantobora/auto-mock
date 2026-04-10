@@ -98,10 +98,10 @@ func ValidateConfiguration(config *MockConfiguration) error {
 				Message: "HTTP request is required",
 			}
 		}
-		if exp.HttpResponse == nil {
+		if exp.HttpResponse == nil && exp.HttpResponseTemplate == nil {
 			return ValidationError{
 				Field:   fmt.Sprintf("expectations[%d].httpResponse", i),
-				Message: "HTTP response is required",
+				Message: "HTTP response or httpResponseTemplate is required",
 			}
 		}
 		if exp.HttpRequest.Method == "" {
@@ -116,7 +116,7 @@ func ValidateConfiguration(config *MockConfiguration) error {
 				Message: "HTTP path is required",
 			}
 		}
-		if exp.HttpResponse.StatusCode == 0 {
+		if exp.HttpResponse != nil && exp.HttpResponse.StatusCode == 0 {
 			return ValidationError{
 				Field:   fmt.Sprintf("expectations[%d].httpResponse.statusCode", i),
 				Message: "HTTP status code is required",

@@ -48,7 +48,9 @@ func configureUploadedExpectationWithMenu(projectName string) (string, error) {
 	// Validate
 	validCount := 0
 	for i, exp := range expectations {
-		if exp.HttpRequest.Method != "" && exp.HttpRequest.Path != "" && exp.HttpResponse.StatusCode != 0 {
+		hasResponse := exp.HttpResponse != nil && exp.HttpResponse.StatusCode != 0
+		hasTemplate := exp.HttpResponseTemplate != nil
+		if exp.HttpRequest.Method != "" && exp.HttpRequest.Path != "" && (hasResponse || hasTemplate) {
 			validCount++
 		} else {
 			fmt.Printf("⚠️  Warning: Expectation %d is missing required fields\n", i+1)

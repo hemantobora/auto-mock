@@ -13,9 +13,10 @@ type MockExpectation struct {
 	Description string `json:"description,omitempty"` // Optional detailed description
 	Priority    int    `json:"priority,omitempty"`
 
-	HttpRequest  *HttpRequest  `json:"httpRequest,omitempty"`
-	HttpResponse *HttpResponse `json:"httpResponse,omitempty"`
-	Forward      *HttpForward  `json:"httpForward,omitempty"`
+	HttpRequest          *HttpRequest          `json:"httpRequest,omitempty"`
+	HttpResponse         *HttpResponse         `json:"httpResponse,omitempty"`
+	HttpResponseTemplate *HttpResponseTemplate `json:"httpResponseTemplate,omitempty"`
+	Forward              *HttpForward          `json:"httpForward,omitempty"`
 
 	Times       *Times       `json:"times,omitempty"`
 	Progressive *Progressive `json:"-"`
@@ -54,6 +55,14 @@ type HttpForward struct {
 	Scheme string `json:"scheme,omitempty"` // "HTTP", "HTTPS"
 	Host   string `json:"host,omitempty"`
 	Port   int    `json:"port,omitempty"`
+}
+
+// HttpResponseTemplate represents a MockServer dynamic response template.
+// TemplateType is "JAVASCRIPT" or "VELOCITY".
+// Template is the raw template string executed by MockServer at request time.
+type HttpResponseTemplate struct {
+	TemplateType string `json:"templateType"`
+	Template     string `json:"template"`
 }
 
 // Times represents MockServer times configuration

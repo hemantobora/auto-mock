@@ -62,6 +62,42 @@ Alternatively, set `AM_USER_DATA=/path/to/file` to override.
 
 CSV header becomes field names; YAML/JSON should be a list of objects.
 
+## Generator placeholders in user data
+
+Instead of static values in `user_data.yaml`, you can use generator expressions. Each virtual user
+gets its own freshly generated value when it starts, and that value stays consistent for the entire
+session — the same generated `account_id` is used across every request that user makes.
+
+| Expression | Example output | Use for |
+|---|---|---|
+| `!uuid` | `f47ac10b-58cc-4372-a567-0e02b2c3d479` | session IDs, correlation IDs |
+| `!digits:N` | `3847201938` (N=10) | account numbers, phone numbers |
+| `!alpha:N` | `kjhTpwQz` (N=8) | codes, short tokens |
+| `!alphanum:N` | `aB3kP9xQr2Tz` (N=12) | API keys, identifiers |
+| `!hex:N` | `3f9a2b8c1d4e5f6a` (N=16) | trace IDs, fingerprints |
+
+Example `user_data.yaml` mixing static and generated fields:
+
+```yaml
+- account_id: "!digits:10"
+  session_id:  "!uuid"
+  username:    "loadtest-user-1"
+- account_id: "!digits:10"
+  session_id:  "!uuid"
+  username:    "loadtest-user-2"
+```
+
+And the corresponding `locust_endpoints.json` path usage:
+
+```json
+{
+  "path": "/v2/accounts/${data.account_id}/orders",
+  "headers": { "X-Session-Id": "${data.session_id}" }
+}
+```
+
+Static values (plain strings/numbers) in the same row are passed through unchanged.
+
 ## Data assignment options
 
 Configure in `locust_endpoints.json` under the `config` block:
