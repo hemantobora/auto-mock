@@ -54,25 +54,13 @@ func (m *Manager) createTerraformVars(options *models.DeploymentOptions) error {
 
 func (m *Manager) createBackendConfig() error {
 	if m.ExistingBucketName == "" {
-		return fmt.Errorf("no S3 bucket configured")
+		return fmt.Errorf("no storage bucket/container configured for project")
 	}
-
-	// NO leading spaces in the template string!
-	backendConfig := fmt.Sprintf(`terraform {
-  backend "s3" {
-    bucket  = "%s"
-    key     = "terraform/state/terraform.tfstate"
-    region  = "%s"
-    encrypt = true
-  }
-}
-`, m.ExistingBucketName, m.Region)
-
+	backendConfig := m.Provider.GetBackendConfig("terraform/state/terraform.tfstate")
 	backendFile := filepath.Join(m.WorkingDir, "backend.tf")
 	if err := os.WriteFile(backendFile, []byte(backendConfig), 0644); err != nil {
 		return fmt.Errorf("failed to write backend config: %w", err)
 	}
-
 	return nil
 }
 
@@ -159,8 +147,11 @@ func (m *Manager) prepareWorkspace() error {
 		return fmt.Errorf("failed to create working directory: %w", err)
 	}
 
-	// Materialize embedded Terraform templates into the working directory.
-	if err := writeEmbeddedTemplates(mockTemplates, m.WorkingDir); err != nil {
+	templates, err := getMockTemplates(m.Provider.GetProviderType())
+	if err != nil {
+		return fmt.Errorf("failed to select terraform templates: %w", err)
+	}
+	if err := writeEmbeddedTemplates(templates, m.WorkingDir); err != nil {
 		return fmt.Errorf("failed to materialize terraform templates: %w", err)
 	}
 
@@ -295,14 +286,18 @@ func (m *Manager) getOutputs() (*InfrastructureOutputs, error) {
 func (m *Manager) getTerraformEnv() []string {
 	env := []string{}
 
-	if m.Profile != "" {
-		switch m.Provider.GetProviderType() {
-		case "aws":
+	switch m.Provider.GetProviderType() {
+	case "aws":
+		if m.Profile != "" {
 			env = append(env, fmt.Sprintf("AWS_PROFILE=%s", m.Profile))
-		case "gcp":
+		}
+	case "azure":
+		// ARM_USE_CLI=true tells the azurerm provider to authenticate via `az login`.
+		// subscription_id flows through terraform.tfvars — no need to set it here.
+		env = append(env, "ARM_USE_CLI=true")
+	case "gcp":
+		if m.Profile != "" {
 			env = append(env, fmt.Sprintf("GOOGLE_CLOUD_PROJECT=%s", m.Profile))
-		case "azure":
-			env = append(env, fmt.Sprintf("AZURE_SUBSCRIPTION_ID=%s", m.Profile))
 		}
 	}
 	env = append(env, "TF_CLI_CONFIG_FILE=/dev/null")

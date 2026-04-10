@@ -80,6 +80,9 @@ func (m *LoadTestManager) Deploy(opts *models.LoadTestDeploymentOptions) (*model
 	if opts.MemoryUnits == 0 {
 		opts.MemoryUnits = 512
 	}
+	// Let the provider inject any provider-specific fields (e.g. Azure adds
+	// subscription ID, resource group, storage account name, container name).
+	m.Provider.FillLoadTestOptions(opts)
 
 	if err := m.createLoadTestVars(opts); err != nil {
 		return nil, err
@@ -120,8 +123,9 @@ func (m *LoadTestManager) Destroy() error {
 	if err := m.createBackendConfigWithKey("terraform/loadtest/state/terraform.tfstate"); err != nil {
 		return err
 	}
-	// Provide required variables to avoid interactive prompts during destroy
-	if err := m.createLoadTestVars(&models.LoadTestDeploymentOptions{
+	// Provide required variables to avoid interactive prompts during destroy.
+	// FillLoadTestOptions lets the provider inject extras (Azure subscription, etc.).
+	destroyOpts := &models.LoadTestDeploymentOptions{
 		ProjectName:        m.ProjectName,
 		Region:             m.Region,
 		BucketName:         m.BucketName,
@@ -129,7 +133,9 @@ func (m *LoadTestManager) Destroy() error {
 		CPUUnits:           256,
 		MemoryUnits:        512,
 		WorkerDesiredCount: 0,
-	}); err != nil {
+	}
+	m.Provider.FillLoadTestOptions(destroyOpts)
+	if err := m.createLoadTestVars(destroyOpts); err != nil {
 		return err
 	}
 	if err := m.initTerraform(); err != nil {
@@ -151,8 +157,11 @@ func (m *LoadTestManager) prepareWorkspace() error {
 	if err := os.MkdirAll(m.WorkingDir, 0755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
-	// Materialize embedded loadtest terraform templates into WorkingDir.
-	if err := writeEmbeddedTemplates(loadtestTemplates, m.WorkingDir); err != nil {
+	templates, err := getLoadtestTemplates(m.Provider.GetProviderType())
+	if err != nil {
+		return fmt.Errorf("select loadtest templates: %w", err)
+	}
+	if err := writeEmbeddedTemplates(templates, m.WorkingDir); err != nil {
 		return fmt.Errorf("prepare workspace: %w", err)
 	}
 	return nil
@@ -165,24 +174,25 @@ func (m *LoadTestManager) cleanup() {
 
 func (m *LoadTestManager) createBackendConfigWithKey(key string) error {
 	if m.BucketName == "" {
-		return fmt.Errorf("no S3 bucket configured")
+		return fmt.Errorf("no storage bucket configured for project")
 	}
-	backend := fmt.Sprintf(`terraform {
-  backend "s3" {
-    bucket  = "%s"
-    key     = "%s"
-    region  = "%s"
-    encrypt = true
-  }
-}
-`, m.BucketName, key, m.Region)
+	backend := m.Provider.GetBackendConfig(key)
 	return osWriteFile(filepath.Join(m.WorkingDir, "backend.tf"), []byte(backend), 0644)
 }
 
 func (m *LoadTestManager) terraformEnv() []string {
 	env := os.Environ()
-	if m.Profile != "" && m.Provider.GetProviderType() == "aws" {
-		env = append(env, fmt.Sprintf("AWS_PROFILE=%s", m.Profile))
+	switch m.Provider.GetProviderType() {
+	case "aws":
+		if m.Profile != "" {
+			env = append(env, fmt.Sprintf("AWS_PROFILE=%s", m.Profile))
+		}
+	case "azure":
+		env = append(env, "ARM_USE_CLI=true")
+	case "gcp":
+		if m.Profile != "" {
+			env = append(env, fmt.Sprintf("GOOGLE_CLOUD_PROJECT=%s", m.Profile))
+		}
 	}
 	env = append(env, "TF_CLI_CONFIG_FILE=/dev/null")
 	return env

@@ -143,3 +143,8 @@ func (p *Provider) DeleteLoadTestDeploymentMetadata() error {
 	})
 	return err
 }
+
+// FillLoadTestOptions is a no-op for AWS: the manager already populates all
+// required fields (ProjectName, Region, BucketName) from the standard provider
+// accessors, and there are no AWS-specific extras needed in terraform.tfvars.
+func (p *Provider) FillLoadTestOptions(opts *models.LoadTestDeploymentOptions) {}

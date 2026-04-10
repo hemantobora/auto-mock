@@ -30,6 +30,11 @@ type Provider interface {
 	// Provider info
 	GetProviderType() string // Returns "aws", "gcp", "azure", etc.
 
+	// GetBackendConfig returns the complete Terraform backend HCL block for
+	// this provider, ready to write as backend.tf. The stateKey argument is
+	// the object/blob path for the state file (e.g. "terraform/state/terraform.tfstate").
+	GetBackendConfig(stateKey string) string
+
 	// Ensure resources
 	InitProject(ctx context.Context, projectID string) error
 	ValidateProjectName(projectID string) error
@@ -70,6 +75,15 @@ type Provider interface {
 	SaveLoadTestDeploymentMetadata(metadata *models.LoadTestDeploymentOutputs) error
 	GetLoadTestDeploymentMetadata() (*models.LoadTestDeploymentMetadata, error)
 	DeleteLoadTestDeploymentMetadata() error
+
+	// FillLoadTestOptions lets each provider inject provider-specific fields
+	// (subscription ID, resource group, storage account name, VM size, etc.)
+	// into a LoadTestDeploymentOptions before terraform.tfvars is rendered.
+	// Common fields (ProjectName, Region, BucketName, Provider) are already
+	// populated by the manager before this is called; the provider only needs
+	// to set/override what is specific to it (e.g. Azure overwrites BucketName
+	// with the storage account name and adds SubscriptionID / ResourceGroup).
+	FillLoadTestOptions(opts *models.LoadTestDeploymentOptions)
 }
 
 // NamingStrategy defines how project names are converted to storage names

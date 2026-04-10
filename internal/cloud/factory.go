@@ -6,6 +6,7 @@ import (
 
 	"github.com/hemantobora/auto-mock/internal"
 	"github.com/hemantobora/auto-mock/internal/cloud/aws"
+	"github.com/hemantobora/auto-mock/internal/cloud/azure"
 	"github.com/hemantobora/auto-mock/internal/cloud/naming"
 )
 
@@ -38,7 +39,7 @@ func (f *Factory) CreateProvider(ctx context.Context, providerType string, optio
 	case "gcp":
 		return nil, fmt.Errorf("GCP storage provider not yet implemented")
 	case "azure":
-		return nil, fmt.Errorf("Azure storage provider not yet implemented")
+		return f.createAzureProvider(ctx, opts)
 	default:
 		return nil, fmt.Errorf("unsupported provider type: %s", providerType)
 	}
@@ -46,6 +47,10 @@ func (f *Factory) CreateProvider(ctx context.Context, providerType string, optio
 
 func (f *Factory) createAWSProvider(ctx context.Context, opts *factoryOptions) (internal.Provider, error) {
 	return aws.NewProvider(ctx, aws.WithProfile(opts.profile))
+}
+
+func (f *Factory) createAzureProvider(ctx context.Context, _ *factoryOptions) (internal.Provider, error) {
+	return azure.NewProvider(ctx)
 }
 
 // Option is a functional option for factory configuration
@@ -62,21 +67,23 @@ func WithProfile(profile string) Option {
 	}
 }
 
-// AutoDetectProvider attempts to detect available storage providers
-// Returns the first available provider type
-func (f *Factory) AutoDetectProvider(ctx context.Context, profile string) (internal.Provider, error) {
-	// Try AWS
-	var available []internal.Provider
+// DetectAvailableProviders returns the provider type strings for every cloud
+// provider whose credentials are locally present (e.g. ~/.aws/credentials or
+// ~/.azure/azureProfile.json). This is intentionally lightweight — no API
+// calls are made. The actual provider (resource group, storage account, etc.)
+// is initialised later via CreateProvider, once the user has chosen.
+func (f *Factory) DetectAvailableProviders(ctx context.Context, profile string) []string {
+	var available []string
+
 	if _, err := aws.ValidateCredentials(ctx, profile); err == nil {
-		provider, _ := aws.NewProvider(ctx, aws.WithProfile(profile))
-		available = append(available, provider)
+		available = append(available, "aws")
 	}
 
-	// TODO: Try GCP
-	// TODO: Try Azure
-
-	if len(available) == 0 {
-		return nil, fmt.Errorf("❌ No valid cloud provider credentials found. Please configure AWS, GCP, or Azure credentials. (Currently, only AWS is supported, other providers are coming soon!)")
+	if _, err := azure.ValidateCredentials(ctx); err == nil {
+		available = append(available, "azure")
 	}
-	return available[0], nil
+
+	// TODO: GCP
+
+	return available
 }
