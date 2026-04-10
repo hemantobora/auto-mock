@@ -115,6 +115,7 @@ module "ecs_infrastructure" {
   iam_permissions_boundary      = var.iam_permissions_boundary
 
   enable_private_alb           = var.enable_private_alb
+  alb_ingress_cidr_blocks      = var.alb_ingress_cidr_blocks
 
   # Custom domain — empty string means self-signed cert (default)
   custom_domain      = var.custom_domain
