@@ -167,15 +167,25 @@ func GenerateLoadtestBundle(opts Options) error {
 	auth := map[string]any{"mode": "none"}
 	if authIndex >= 0 {
 		r := apiReqs[authIndex]
+		// Parse auth body as JSON object if possible (same reason as endpoint bodies).
+		var authBody any
+		if r.Body != "" {
+			var parsed any
+			if json.Unmarshal([]byte(r.Body), &parsed) == nil {
+				authBody = parsed
+			} else {
+				authBody = r.Body
+			}
+		}
 		auth = map[string]any{
-			"mode":            authMode, // shared | per_user
-			"method":          strings.ToUpper(r.Method),
+			"mode":   authMode, // shared | per_user
+			"method": strings.ToUpper(r.Method),
 			// Store the full URL (including host) so locust issues the auth request
 			// to the correct host — which may differ from AM_HOST (e.g. an external
 			// token provider). Locust treats URLs starting with http(s):// as absolute.
 			"path":            r.URL,
 			"headers":         r.Headers,
-			"body":            r.Body,
+			"body":            authBody,
 			"token_json_path": tokenPath,
 			"header_name":     headerName,
 			"header_prefix":   headerPrefix,
@@ -481,12 +491,26 @@ func buildEndpointsFromAPIRequestsWithHost(reqs []collections.APIRequest, keep m
 			filteredHeaders[hk] = hv
 		}
 
+		// Try to parse the body as JSON so it is stored as an object in
+		// locust_endpoints.json. This is required for GraphQL (and any JSON
+		// body) so that locustfile.py sends it as json= (application/json)
+		// rather than data= (form-encoded). Raw non-JSON strings are kept as-is.
+		var bodyVal any
+		if r.Body != "" {
+			var parsed any
+			if json.Unmarshal([]byte(r.Body), &parsed) == nil {
+				bodyVal = parsed
+			} else {
+				bodyVal = r.Body
+			}
+		}
+
 		out = append(out, Endpoint{
 			Name:    name,
 			Method:  method,
 			Path:    path,
 			Headers: filteredHeaders,
-			Body:    r.Body,
+			Body:    bodyVal,
 			Weight:  1,
 		})
 	}

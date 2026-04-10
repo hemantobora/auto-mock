@@ -1,7 +1,7 @@
-import os, json, re, random, csv, threading, uuid, string
+import os, json, re, random, csv, threading, uuid, string, time
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs
-from locust import HttpUser, between, constant, events
+from locust import HttpUser, SequentialTaskSet, between, constant, events
 
 # -------------------------------------------------------------------
 # Config / Spec Loading
@@ -29,6 +29,7 @@ with open(JSON_PATH, "r", encoding="utf-8") as f:
 AUTH   = SPEC.get("auth") or {"mode": "none"}
 CFG    = SPEC.get("config") or {}
 EPS    = SPEC.get("endpoints") or []
+FLOWS  = SPEC.get("flows") or []
 
 # Data assignment config
 DATA_ASSIGNMENT: str = (CFG.get("data_assignment") or "round_robin").lower()  # shared | round_robin | random
@@ -331,6 +332,59 @@ def _should_include(endpoint: Dict[str, Any]) -> bool:
         return False
     return True
 
+def _make_flow_taskset(flow: Dict[str, Any]):
+    """Dynamically build a SequentialTaskSet for a flow definition.
+
+    Each step calls self.user._do(endpoint) so auth tokens, user data, and
+    request logic are identical to flat endpoints.  After the last step the
+    TaskSet calls self.interrupt() so the virtual user returns to the top-level
+    task pool and the next task (flow or flat endpoint) is chosen by weight.
+
+    Wait behaviour:
+      - wait_time = constant(0) is set on the TaskSet so Locust does not add
+        its own inter-step pause automatically.
+      - Steps WITHOUT delay_ms: the user-level wait strategy fires after the
+        step (replicates the normal between-task pause).
+      - Steps WITH delay_ms: that fixed sleep replaces the user-level wait for
+        that step only.  Useful for polling or async-init scenarios.
+    """
+    flow_name = flow.get("name", "UnnamedFlow")
+    steps     = flow.get("steps") or []
+
+    step_fns: List[Any] = []
+
+    for ep in steps:
+        delay_ms = ep.get("delay_ms")
+
+        def _make_step(endpoint: Dict[str, Any], post_delay):
+            def _step(self):
+                self.user._do(endpoint)
+                if post_delay is not None:
+                    time.sleep(post_delay / 1000.0)
+                else:
+                    # Mirror the user-level wait strategy between steps
+                    secs = self.user.wait_time()
+                    if secs > 0:
+                        time.sleep(secs)
+            nm = endpoint.get("name") or f"{endpoint.get('method','GET')} {endpoint.get('path','/')}"
+            _step.__name__ = "step_" + re.sub(r"[^A-Za-z0-9_]+", "_", nm)[:60]
+            return _step
+
+        step_fns.append(_make_step(ep, delay_ms))
+
+    # Final pseudo-step: return the user to the top-level task pool
+    def _done(self):
+        self.interrupt()
+    _done.__name__ = "_done_" + re.sub(r"[^A-Za-z0-9_]+", "_", flow_name)[:40]
+    step_fns.append(_done)
+
+    cls_name = "Flow_" + re.sub(r"[^A-Za-z0-9_]+", "_", flow_name)[:60]
+    return type(cls_name, (SequentialTaskSet,), {
+        "tasks":     step_fns,
+        "wait_time": constant(0),   # inter-step waits handled manually above
+    })
+
+
 class AutoMockUser(HttpUser):
     wait_time = _select_wait_strategy()
     if HOST_ENV:
@@ -405,7 +459,7 @@ class AutoMockUser(HttpUser):
             "params": params,
             "timeout": REQUEST_TIMEOUT,
         }
-        if body is not None:
+        if body:
             kwargs["json" if isinstance(body, (dict, list)) else "data"] = body
 
         # Perform request (path may be absolute URL or relative — Locust handles both)
@@ -413,16 +467,24 @@ class AutoMockUser(HttpUser):
             if 200 <= resp.status_code < 400:
                 resp.success()
             else:
-                # Debug logging for failures
                 try:
-                    body_text = resp.text or ""
+                    resp_text = resp.text or ""
                 except Exception:
-                    body_text = "<no text>"
+                    resp_text = "<no text>"
 
-                snippet = body_text.replace("\n", " ")[:200]
+                # Build a concise but complete failure line
+                snippet = resp_text.replace("\n", " ").strip()[:500]
+                req_body_hint = ""
+                if body:
+                    try:
+                        raw = json.dumps(body) if isinstance(body, (dict, list)) else str(body)
+                        req_body_hint = f" | req_body={raw[:200]}"
+                    except Exception:
+                        req_body_hint = " | req_body=<unserializable>"
                 print(
-                    f"[locust] {method} {path} failed: "
-                    f"HTTP {resp.status_code} - {snippet}"
+                    f"[FAIL] {name} | {method} {path}"
+                    f" | HTTP {resp.status_code}{req_body_hint}"
+                    f" | resp={snippet}"
                 )
                 resp.failure(f"HTTP {resp.status_code}")
 
@@ -443,6 +505,16 @@ for ep in EPS:
 
     fn = make_task(ep)
     _tasks[fn] = w if w > 0 else 1
+
+for flow in FLOWS:
+    if not _should_include(flow):
+        continue
+    steps = flow.get("steps") or []
+    if not steps:
+        continue
+    w = int(flow.get("weight", 1))
+    FlowCls = _make_flow_taskset(flow)
+    _tasks[FlowCls] = w if w > 0 else 1
 
 AutoMockUser.tasks = _tasks
 

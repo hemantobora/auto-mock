@@ -1,0 +1,182 @@
+{
+  "_comment": "sample_locust_endpoints.json — complete reference for all supported locust_endpoints.json options.",
+
+  "auth": {
+    "_comment_modes": "none | shared | per_user",
+
+    "mode": "per_user",
+
+    "_comment_shared": "shared: one token fetched at test start, reused by all users. ${data.*} not available.",
+    "_comment_per_user": "per_user: each user fetches their own token in on_start. ${data.*} available.",
+
+    "method": "POST",
+    "path": "https://auth.example.com/v2/token",
+
+    "headers": {
+      "X-Client-Id":     "${data.client_id}",
+      "X-Client-Secret": "${data.client_secret}",
+      "Content-Type":    "application/x-www-form-urlencoded"
+    },
+
+    "body": "grant_type=client_credentials",
+
+    "token_json_path": "access_token",
+
+    "header_name":   "Authorization",
+    "header_prefix": "Bearer "
+  },
+
+  "config": {
+    "_comment_wait": "Wait strategy between tasks (flows and flat endpoints). Applies between steps within a flow too.",
+    "wait_strategy":         "between",
+    "min_wait_seconds":      0.2,
+    "max_wait_seconds":      1.0,
+
+    "_comment_constant": "Used only when wait_strategy = constant.",
+    "constant_wait_seconds": 1.0,
+
+    "_comment_data": "How user data rows are assigned across virtual users.",
+    "data_assignment":       "round_robin",
+    "data_shared_index":     0,
+
+    "_comment_tags": "Run only endpoints/steps tagged with include_tags; skip those in exclude_tags.",
+    "include_tags":          [],
+    "exclude_tags":          [],
+
+    "request_timeout_seconds": 30.0,
+    "verify_tls":              true,
+
+    "_comment_defaults": "Merged into every request (endpoints and flow steps) unless overridden per-item.",
+    "default_headers": {
+      "Accept": "application/json"
+    },
+    "default_params": {}
+  },
+
+  "flows": [
+    {
+      "_comment": "A flow is a sequence of steps that run in order for a single user iteration.",
+
+      "name":   "FeatureA — Session Lifecycle",
+      "weight": 3,
+
+      "steps": [
+        {
+          "name":   "Create Session",
+          "method": "POST",
+          "path":   "/v2/session/create",
+          "headers": {
+            "X-Account-Id": "${data.account_id}"
+          },
+          "body": {
+            "type": "standard"
+          },
+          "tags": ["session", "write"]
+        },
+        {
+          "name":   "Do Something with Session",
+          "method": "GET",
+          "path":   "/v2/session/action",
+          "params": {
+            "accountId": "${data.account_id}"
+          },
+          "tags": ["session", "read"]
+        },
+        {
+          "_comment_delay": "delay_ms overrides the config-level wait for this step only.",
+          "name":     "Poll Until Ready",
+          "method":   "GET",
+          "path":     "/v2/session/status",
+          "delay_ms": 3000,
+          "tags":     ["session", "poll"]
+        },
+        {
+          "name":   "Close Session",
+          "method": "DELETE",
+          "path":   "/v2/session",
+          "tags":   ["session", "write"]
+        }
+      ]
+    },
+    {
+      "name":   "FeatureB — Async Workflow",
+      "weight": 1,
+
+      "steps": [
+        {
+          "name":   "Upstream Preflight",
+          "method": "GET",
+          "path":   "/v2/upstream/check"
+        },
+        {
+          "name":   "Create Async Session",
+          "method": "POST",
+          "path":   "/v2/async/session",
+          "headers": {
+            "X-User-Id": "${user.id}"
+          }
+        },
+        {
+          "name":     "Wait for Async Init",
+          "method":   "GET",
+          "path":     "/v2/async/status",
+          "delay_ms": 2000
+        },
+        {
+          "name":   "Perform Async Action",
+          "method": "POST",
+          "path":   "/v2/async/action"
+        },
+        {
+          "name":   "Close Async Session",
+          "method": "DELETE",
+          "path":   "/v2/async/session"
+        }
+      ]
+    }
+  ],
+
+  "endpoints": [
+    {
+      "_comment": "Flat endpoints run as independent tasks. Each is weighted individually.",
+
+      "name":   "Get Offers",
+      "method": "GET",
+      "path":   "/v2/offers/${data.account_id}",
+      "weight": 5,
+      "tags":   ["offers", "read"]
+    },
+    {
+      "name":   "Get Recommendations",
+      "method": "GET",
+      "path":   "/v2/recommendations",
+      "params": {
+        "accountId": "${data.account_id}",
+        "limit":     "10"
+      },
+      "weight": 3,
+      "tags":   ["recommendations", "read"]
+    },
+    {
+      "name":   "Submit Order",
+      "method": "POST",
+      "path":   "/v2/orders",
+      "headers": {
+        "X-Idempotency-Key": "${data.session_id}"
+      },
+      "body": {
+        "accountId": "${data.account_id}",
+        "offerId":   "offer-123"
+      },
+      "weight": 1,
+      "tags":   ["orders", "write"]
+    },
+    {
+      "_comment_env": "${env.VAR} reads from environment variables or .env file.",
+      "name":   "Health Check",
+      "method": "GET",
+      "path":   "/health",
+      "weight": 1
+    }
+  ]
+}
