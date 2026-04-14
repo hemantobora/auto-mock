@@ -234,15 +234,16 @@ def _json_get(d: Any, path: str, default=None):
         cur = cur[part]
     return cur
 
-def _do_auth(client, ctx: Optional[Dict[str, Any]] = None):
-    mode = (AUTH.get("mode") or "none").lower()
-    if mode == "none":
-        return None
+def _do_auth_from_spec(client, auth_spec: Dict[str, Any], ctx: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """Fetch an auth token using an arbitrary auth spec dict.
 
-    method  = (AUTH.get("method") or "POST").upper()
-    path    = AUTH.get("path") or "/"
-    headers = AUTH.get("headers") or {}
-    body    = AUTH.get("body")
+    Used for both the global AUTH config and per-flow auth overrides.
+    Returns the extracted token string, or None on failure.
+    """
+    method  = (auth_spec.get("method") or "POST").upper()
+    path    = auth_spec.get("path") or "/"
+    headers = auth_spec.get("headers") or {}
+    body    = auth_spec.get("body")
     if ctx is not None:
         headers = _expand_runtime(headers, ctx)
         body    = _expand_runtime(body, ctx)
@@ -257,17 +258,15 @@ def _do_auth(client, ctx: Optional[Dict[str, Any]] = None):
         print(f"[auth] failed: HTTP {r.status_code} - {r.text[:200]}")
         return None
 
-    # Try JSON first
-    token_path = AUTH.get("token_json_path", "access_token")
+    token_path = auth_spec.get("token_json_path", "access_token")
     token = None
     try:
         data = r.json()
         token = _json_get(data, token_path)
     except Exception:
-        # Fallback: try URL-encoded
+        # Fallback: try URL-encoded body
         try:
             kv = parse_qs(r.text or "")
-            # parse_qs returns lists; pick the first value
             token_list = kv.get(token_path, []) or kv.get("access_token", [])
             token = token_list[0] if token_list else None
         except Exception:
@@ -277,6 +276,14 @@ def _do_auth(client, ctx: Optional[Dict[str, Any]] = None):
         print(f"[auth] token not found at path '{token_path}'. Raw body (truncated): {r.text[:200]}")
         return None
     return token
+
+
+def _do_auth(client, ctx: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """Fetch a token using the global AUTH spec. Returns None when mode is 'none'."""
+    mode = (AUTH.get("mode") or "none").lower()
+    if mode == "none":
+        return None
+    return _do_auth_from_spec(client, AUTH, ctx)
 
 @events.test_start.add_listener
 def _on_test_start(environment, **_):
@@ -350,6 +357,24 @@ def _make_flow_taskset(flow: Dict[str, Any]):
     TaskSet calls self.interrupt() so the virtual user returns to the top-level
     task pool and the next task (flow or flat endpoint) is chosen by weight.
 
+    Flow-level auth override:
+      If the flow defines its own "auth" block, the flow fetches a fresh token
+      at the start of every iteration and injects it into all steps, overriding
+      the global auth token for the duration of that flow run only.
+
+      Example:
+        {
+          "name": "BYO Flow",
+          "auth": {
+            "method": "GET",
+            "path": "https://auth.example.com/token/${data.account_id}",
+            "token_json_path": "serviceAccessToken",
+            "header_name": "Authorization",
+            "header_prefix": "Bearer "
+          },
+          "steps": [ ... ]
+        }
+
     Wait behaviour:
       - wait_time = constant(0) is set on the TaskSet so Locust does not add
         its own inter-step pause automatically.
@@ -358,17 +383,33 @@ def _make_flow_taskset(flow: Dict[str, Any]):
       - Steps WITH delay_ms: that fixed sleep replaces the user-level wait for
         that step only.  Useful for polling or async-init scenarios.
     """
-    flow_name = flow.get("name", "UnnamedFlow")
-    steps     = flow.get("steps") or []
+    flow_name  = flow.get("name", "UnnamedFlow")
+    steps      = flow.get("steps") or []
+    flow_auth  = flow.get("auth") or None   # optional per-flow auth spec
 
     step_fns: List[Any] = []
 
+    # ── Optional flow-level auth step (runs first, every iteration) ──────────
+    if flow_auth:
+        def _flow_auth_step(self):
+            ctx = {
+                "data": self.user._data or {},
+                "user": {"id": self.user._user_index, "index": self.user._user_index},
+            }
+            self._flow_token = _do_auth_from_spec(self.user.client, flow_auth, ctx)
+        _flow_auth_step.__name__ = "auth_" + re.sub(r"[^A-Za-z0-9_]+", "_", flow_name)[:50]
+        step_fns.append(_flow_auth_step)
+
+    # ── Regular steps ─────────────────────────────────────────────────────────
     for ep in steps:
         delay_ms = ep.get("delay_ms")
 
-        def _make_step(endpoint: Dict[str, Any], post_delay):
+        def _make_step(endpoint: Dict[str, Any], post_delay, auth_spec):
             def _step(self):
-                self.user._do(endpoint)
+                # Pass flow token when this flow has its own auth; otherwise None
+                # falls back to the global token inside _do / _apply_token.
+                ft   = getattr(self, "_flow_token", None) if auth_spec else None
+                self.user._do(endpoint, flow_token=ft, flow_auth_spec=auth_spec)
                 if post_delay is not None:
                     time.sleep(post_delay / 1000.0)
                 else:
@@ -380,9 +421,9 @@ def _make_flow_taskset(flow: Dict[str, Any]):
             _step.__name__ = "step_" + re.sub(r"[^A-Za-z0-9_]+", "_", nm)[:60]
             return _step
 
-        step_fns.append(_make_step(ep, delay_ms))
+        step_fns.append(_make_step(ep, delay_ms, flow_auth))
 
-    # Final pseudo-step: return the user to the top-level task pool
+    # ── Final pseudo-step: return to the top-level task pool ─────────────────
     def _done(self):
         self.interrupt()
     _done.__name__ = "_done_" + re.sub(r"[^A-Za-z0-9_]+", "_", flow_name)[:40]
@@ -428,7 +469,21 @@ class AutoMockUser(HttpUser):
                             globals()["_SHARED_TOKEN"] = tok
                             print("🔐 Auth OK (shared token, lazy)")
 
-    def _apply_token(self, headers: Dict[str, str]) -> Dict[str, str]:
+    def _apply_token(
+        self,
+        headers: Dict[str, str],
+        flow_token: Optional[str] = None,
+        flow_auth_spec: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, str]:
+        # Flow-level token takes precedence over the global auth token.
+        # The flow's own auth spec supplies the header name/prefix.
+        if flow_token is not None and flow_auth_spec is not None:
+            name   = flow_auth_spec.get("header_name", "Authorization")
+            prefix = flow_auth_spec.get("header_prefix", "Bearer ")
+            merged = dict(headers or {})
+            merged[name] = f"{prefix}{flow_token}" if prefix else flow_token
+            return merged
+
         mode = (AUTH.get("mode") or "none").lower()
         if mode == "none":
             return headers or {}
@@ -444,7 +499,12 @@ class AutoMockUser(HttpUser):
         merged[name] = f"{prefix}{token}" if prefix else token
         return merged
 
-    def _do(self, ep: Dict[str, Any]):
+    def _do(
+        self,
+        ep: Dict[str, Any],
+        flow_token: Optional[str] = None,
+        flow_auth_spec: Optional[Dict[str, Any]] = None,
+    ):
         method = (ep["method"] or "GET").upper()
         path   = ep["path"]
         name   = ep.get("name") or f"{method} {path}"
@@ -461,8 +521,8 @@ class AutoMockUser(HttpUser):
         params  = _expand_runtime(params, ctx)
         body    = _expand_runtime(body, ctx)
 
-        # Apply Authorization from auth flow (overrides same header if present)
-        headers = self._apply_token(headers)
+        # Apply Authorization — flow-level token wins over global when provided
+        headers = self._apply_token(headers, flow_token=flow_token, flow_auth_spec=flow_auth_spec)
 
         kwargs = {
             "headers": headers,

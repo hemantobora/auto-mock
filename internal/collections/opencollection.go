@@ -1,6 +1,7 @@
 package collections
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -71,7 +72,7 @@ func (cp *CollectionProcessor) parseOpenCollectionFile(filePath string) ([]APIRe
 	var parsed []seqDoc
 	for _, chunk := range chunks {
 		doc := parseOCYAML([]byte(strings.Join(chunk, "\n")))
-		if doc.infoType == "http" {
+		if doc.infoType == "http" || doc.infoType == "graphql" {
 			parsed = append(parsed, seqDoc{doc: doc, seq: doc.infoSeq})
 		}
 	}
@@ -99,7 +100,7 @@ func (cp *CollectionProcessor) parseOpenCollectionFile(filePath string) ([]APIRe
 	}
 
 	if len(apis) == 0 {
-		return nil, fmt.Errorf("no HTTP requests found in OpenCollection file")
+		return nil, fmt.Errorf("no HTTP or GraphQL requests found in OpenCollection file")
 	}
 
 	fmt.Printf("✅ Parsed %d OpenCollection requests\n", len(apis))
@@ -120,6 +121,10 @@ type ocDoc struct {
 	bodyData   string
 	preScript  string
 	postScript string
+
+	// GraphQL-specific (populated when infoType == "graphql")
+	gqlQuery string // raw query string (may have real newlines from block scalar or multi-line YAML)
+	gqlVars  string // raw variables string (may contain YAML escape sequences if from quoted value)
 }
 
 // toAPIRequest converts the parsed YAML doc into the common APIRequest type.
@@ -128,6 +133,15 @@ func (d *ocDoc) toAPIRequest(idx int) APIRequest {
 	if name == "" {
 		name = fmt.Sprintf("Request %d", idx)
 	}
+
+	// Unescape YAML double-quoted string sequences (e.g. \n, \t, \") from the
+	// HTTP body. This is a no-op when the body came from a block scalar (|-),
+	// since block scalars contain real bytes rather than escape sequences.
+	body := unescapeYAMLString(d.bodyData)
+	if d.infoType == "graphql" {
+		body = buildGraphQLBody(d.gqlQuery, d.gqlVars)
+	}
+
 	return APIRequest{
 		ID:          fmt.Sprintf("oc_%d", idx),
 		Name:        name,
@@ -135,11 +149,95 @@ func (d *ocDoc) toAPIRequest(idx int) APIRequest {
 		URL:         d.url,
 		Headers:     d.headers,
 		QueryParams: d.query,
-		Body:        d.bodyData,
+		Body:        body,
 		PreScript:   d.preScript,
 		PostScript:  d.postScript,
 		Variables:   make(map[string]string),
 	}
+}
+
+// buildGraphQLBody assembles the JSON body {"query": ..., "variables": ...} from
+// the raw query string and raw variables string captured by the YAML parser.
+// It handles:
+//   - YAML double-quoted escape sequences in variables (\n, \t, \", \\)
+//   - JS-style // line comments inside the variables block (Bruno habit)
+func buildGraphQLBody(query, variables string) string {
+	body := map[string]any{
+		"query": strings.TrimSpace(query),
+	}
+
+	vars := strings.TrimSpace(unescapeYAMLString(variables))
+	vars = stripLineComments(vars)
+	vars = strings.TrimSpace(vars)
+
+	if vars != "" {
+		var varsObj any
+		if err := json.Unmarshal([]byte(vars), &varsObj); err == nil {
+			body["variables"] = varsObj
+		} else {
+			// Keep as raw string if it can't be parsed as JSON
+			body["variables"] = vars
+		}
+	}
+
+	b, err := json.Marshal(body)
+	if err != nil {
+		return `{"query":` + string(mustMarshalStr(query)) + `}`
+	}
+	return string(b)
+}
+
+// unescapeYAMLString converts YAML double-quoted string escape sequences to their
+// actual characters. Safe to call on block-scalar content (no-op).
+func unescapeYAMLString(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case 'n':
+				b.WriteByte('\n')
+				i++
+				continue
+			case 't':
+				b.WriteByte('\t')
+				i++
+				continue
+			case '"':
+				b.WriteByte('"')
+				i++
+				continue
+			case '\\':
+				b.WriteByte('\\')
+				i++
+				continue
+			case 'r':
+				b.WriteByte('\r')
+				i++
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// stripLineComments removes lines whose trimmed content starts with // (JS-style comment).
+func stripLineComments(s string) string {
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), "//") {
+			continue
+		}
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n")
+}
+
+func mustMarshalStr(s string) []byte {
+	b, _ := json.Marshal(s)
+	return b
 }
 
 // ── Minimal YAML parser ───────────────────────────────────────────────────────
@@ -181,6 +279,25 @@ func parseOCYAML(data []byte) *ocDoc {
 		blockIndent = 0
 	}
 
+	// Multi-line YAML double-quoted string collection state.
+	// Bruno sometimes emits a GraphQL query as a double-quoted scalar that spans
+	// many physical lines in the file.  Standard YAML libraries handle this, but
+	// our hand-rolled parser needs an explicit accumulation mode.
+	var (
+		mlQDest  *string
+		mlQLines []string
+		inMLQStr bool
+	)
+
+	flushMLQ := func() {
+		if mlQDest != nil {
+			*mlQDest = strings.Join(mlQLines, "\n")
+		}
+		mlQLines = nil
+		mlQDest = nil
+		inMLQStr = false
+	}
+
 	indentOf := func(s string) int {
 		return len(s) - len(strings.TrimLeft(s, " \t"))
 	}
@@ -198,6 +315,26 @@ func parseOCYAML(data []byte) *ocDoc {
 			}
 			flushBlock()
 			// Fall through to process this line normally
+		}
+
+		// ── Multi-line double-quoted string collection ────────────────────────
+		// A value like: query: "query Foo { ... }\n..." where the closing " is
+		// on a later line.  We accumulate each trimmed line; the closing " is
+		// detected as the last character of a line that does NOT end with \".
+		if inMLQStr {
+			// Empty lines are valid content inside a GQL query
+			if trimmed == "" {
+				mlQLines = append(mlQLines, "")
+				continue
+			}
+			if strings.HasSuffix(trimmed, `"`) && !strings.HasSuffix(trimmed, `\"`) {
+				// Closing quote — add content up to (not including) the quote
+				mlQLines = append(mlQLines, trimmed[:len(trimmed)-1])
+				flushMLQ()
+			} else {
+				mlQLines = append(mlQLines, trimmed)
+			}
+			continue
 		}
 
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
@@ -322,6 +459,57 @@ func parseOCYAML(data []byte) *ocDoc {
 		case s0 == "http" && s1 == "body" && s2 == "data" && key == "enabled":
 			liEnabled = val != "false"
 
+		// ── graphql top-level fields ──────────────────────────────────────────────
+		case s0 == "graphql" && s1 == "" && key == "method":
+			doc.method = strings.ToUpper(val)
+		case s0 == "graphql" && s1 == "" && key == "url":
+			doc.url = val
+
+		// ── graphql.headers list items ────────────────────────────────────────────
+		case s0 == "graphql" && s1 == "headers" && key == "name":
+			liName = val
+		case s0 == "graphql" && s1 == "headers" && key == "value" && liName != "":
+			if liEnabled {
+				doc.headers[liName] = val
+			}
+		case s0 == "graphql" && s1 == "headers" && key == "enabled":
+			liEnabled = val != "false"
+
+		// ── graphql.body.query ────────────────────────────────────────────────────
+		// Supports three forms:
+		//   query: |-           → block scalar
+		//   query: "short..."   → single-line double-quoted string (already unquoted above)
+		//   query: "first line  → multi-line double-quoted string (closing " on a later line)
+		case s0 == "graphql" && s1 == "body" && key == "query":
+			if isBlock {
+				inBlock = true
+				blockIndent = ind + 2
+				blockDest = &doc.gqlQuery
+			} else if val != "" {
+				// val still carries the opening " when the closing " is on a later line
+				if val[0] == '"' && val[len(val)-1] != '"' {
+					inMLQStr = true
+					mlQDest = &doc.gqlQuery
+					mlQLines = []string{val[1:]} // strip opening quote; content starts here
+				} else {
+					doc.gqlQuery = val
+				}
+			}
+
+		// ── graphql.body.variables ────────────────────────────────────────────────
+		// Variables are a JSON object stored as:
+		//   variables: "{\n\t...}"   → single-line quoted (needs YAML unescape later)
+		//   variables: |-\n  {...}   → block scalar (raw JSON, may have // comments)
+		// Both forms stored raw; buildGraphQLBody handles unescaping & comment stripping.
+		case s0 == "graphql" && s1 == "body" && key == "variables":
+			if isBlock {
+				inBlock = true
+				blockIndent = ind + 2
+				blockDest = &doc.gqlVars
+			} else if val != "" {
+				doc.gqlVars = val
+			}
+
 		// ── runtime.scripts list items ────────────────────────────────────────
 		case s0 == "runtime" && s1 == "scripts" && key == "type":
 			liName = val // repurpose: tracks which script type we're in
@@ -343,9 +531,12 @@ func parseOCYAML(data []byte) *ocDoc {
 		}
 	}
 
-	// Flush any pending block scalar at EOF
+	// Flush any pending block scalar or multi-line string at EOF
 	if inBlock {
 		flushBlock()
+	}
+	if inMLQStr {
+		flushMLQ()
 	}
 
 	return doc

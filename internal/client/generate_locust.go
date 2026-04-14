@@ -45,6 +45,9 @@ var userDataYaml []byte
 //go:embed templates/LOADTEST_README.md
 var loadtestReadme []byte
 
+//go:embed templates/sample_locust_endpoints.json
+var sampleLocustEndpoints []byte
+
 // macOS/Linux
 //
 //go:embed templates/run_locust_headless.sh
@@ -233,6 +236,11 @@ func GenerateLoadtestBundle(opts Options) error {
 		if err := os.WriteFile(readmePath, loadtestReadme, 0o644); err != nil {
 			return err
 		}
+	}
+
+	// Always write the sample reference so users can compare against their locust_endpoints.json
+	if err := os.WriteFile(filepath.Join(opts.OutDir, "sample_locust_endpoints.json"), sampleLocustEndpoints, 0o644); err != nil {
+		return err
 	}
 
 	// Runner scripts — write both headless and UI scripts for portability

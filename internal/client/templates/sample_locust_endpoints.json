@@ -79,6 +79,8 @@
     {
       "_comment": "A flow is a sequence of steps that run in order for a single virtual user iteration. Steps have no tags — they always run as a unit when the flow is selected.",
 
+      "_comment_flow_auth": "Optional: add an 'auth' block to a flow to fetch a fresh token at the start of every iteration. The flow token overrides the global auth token for all steps in this flow only — useful when different flows need different tokens (e.g. per-account SAT tokens). Supports the same fields as the top-level auth block.",
+
       "name":   "FeatureA — Session Lifecycle",
       "weight": 3,
       "tags":   ["feature-a"],
@@ -114,6 +116,33 @@
           "name":   "Close Session",
           "method": "DELETE",
           "path":   "/v2/session"
+        }
+      ]
+    },
+    {
+      "name":   "FeatureB — Flow with Per-Flow Auth",
+      "weight": 2,
+      "tags":   ["feature-b"],
+
+      "_comment_auth": "This flow fetches its own token before every iteration. The token is injected into each step's Authorization header, replacing the global auth token for this flow only.",
+      "auth": {
+        "method":           "GET",
+        "path":             "https://auth.example.com/v2/getSAT/${data.account_id}",
+        "token_json_path":  "serviceAccessToken",
+        "header_name":      "Authorization",
+        "header_prefix":    "Bearer "
+      },
+
+      "steps": [
+        {
+          "name":   "GraphQL Query",
+          "method": "POST",
+          "path":   "/graphql",
+          "headers": { "Content-Type": "application/json" },
+          "body": {
+            "query":     "query GetPage($input: PageInput) { page(input: $input) { id title } }",
+            "variables": { "input": { "lang": "en_US" } }
+          }
         }
       ]
     },
