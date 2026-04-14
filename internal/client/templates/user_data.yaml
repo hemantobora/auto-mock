@@ -12,14 +12,20 @@
 # its own freshly generated value at startup; that value stays consistent for the
 # duration of the user's session.
 #
-#   !uuid          → random UUID4  e.g. f47ac10b-58cc-4372-a567-0e02b2c3d479
-#   !digits:N      → N random decimal digits        e.g. !digits:10  → 3847201938
-#   !alpha:N       → N random ASCII letters         e.g. !alpha:8    → kjhTpwQz
-#   !alphanum:N    → N random alphanumeric chars    e.g. !alphanum:12 → aB3kP9xQr2Tz
-#   !hex:N         → N random lowercase hex chars   e.g. !hex:16     → 3f9a2b8c1d4e5f6a
+#   !uuid              → random UUID4                  e.g. f47ac10b-58cc-4372-a567-0e02b2c3d479
+#   !digits:N          → N random decimal digits        e.g. !digits:10      → 3847201938
+#   !digits:N:PREFIX   → N digits starting with PREFIX  e.g. !digits:10:80   → 8034729183
+#   !alpha:N           → N random ASCII letters         e.g. !alpha:8        → kjhTpwQz
+#   !alphanum:N        → N random alphanumeric chars    e.g. !alphanum:12    → aB3kP9xQr2Tz
+#   !alphanum:N:PREFIX → N alphanumeric with prefix     e.g. !alphanum:8:USR → USRaB3kP
+#   !hex:N             → N random lowercase hex chars   e.g. !hex:16         → 3f9a2b8c1d4e5f6a
+#
+# PREFIX rules:
+#   - The prefix counts toward N (total length stays N)
+#   - If PREFIX is longer than N, the result is truncated to N chars
 #
 # Example mixing static and generated fields:
-#   - account_id: "!digits:10"
+#   - account_id: "!digits:10:80"   # 10-digit number starting with 80
 #     session_id:  "!uuid"
 #     username:    "loadtest-user"
 # ─────────────────────────────────────────────────────────────────────────────

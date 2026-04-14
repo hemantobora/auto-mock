@@ -39,7 +39,7 @@
     "data_assignment":       "round_robin",
     "data_shared_index":     0,
 
-    "_comment_tags": "Run only endpoints/steps tagged with include_tags; skip those in exclude_tags.",
+    "_comment_tags": "Global tag filters — applied only when cohorts are NOT defined. Run only flows/endpoints tagged with include_tags; skip those in exclude_tags.",
     "include_tags":          [],
     "exclude_tags":          [],
 
@@ -53,12 +53,35 @@
     "default_params": {}
   },
 
+  "_comment_cohorts": "Cohorts assign virtual users permanently to a feature subset. Each cohort becomes a separate Locust User class. VUs are distributed across cohorts by weight. When cohorts are defined, global include_tags/exclude_tags in config are ignored — each cohort has its own tag filters. If cohorts are omitted, all VUs share a single task pool filtered by config include_tags/exclude_tags.",
+  "cohorts": [
+    {
+      "name":         "FeatureAUsers",
+      "weight":       3,
+      "include_tags": ["feature-a"],
+      "_comment":     "30% of VUs — only run flows/endpoints tagged feature-a"
+    },
+    {
+      "name":         "FeatureBUsers",
+      "weight":       2,
+      "include_tags": ["feature-b"],
+      "_comment":     "20% of VUs — only run flows/endpoints tagged feature-b"
+    },
+    {
+      "name":         "FeatureCUsers",
+      "weight":       5,
+      "include_tags": ["feature-c"],
+      "_comment":     "50% of VUs — only run flows/endpoints tagged feature-c"
+    }
+  ],
+
   "flows": [
     {
-      "_comment": "A flow is a sequence of steps that run in order for a single user iteration.",
+      "_comment": "A flow is a sequence of steps that run in order for a single virtual user iteration. Steps have no tags — they always run as a unit when the flow is selected.",
 
       "name":   "FeatureA — Session Lifecycle",
       "weight": 3,
+      "tags":   ["feature-a"],
 
       "steps": [
         {
@@ -70,8 +93,7 @@
           },
           "body": {
             "type": "standard"
-          },
-          "tags": ["session", "write"]
+          }
         },
         {
           "name":   "Do Something with Session",
@@ -79,58 +101,52 @@
           "path":   "/v2/session/action",
           "params": {
             "accountId": "${data.account_id}"
-          },
-          "tags": ["session", "read"]
+          }
         },
         {
           "_comment_delay": "delay_ms overrides the config-level wait for this step only.",
           "name":     "Poll Until Ready",
           "method":   "GET",
           "path":     "/v2/session/status",
-          "delay_ms": 3000,
-          "tags":     ["session", "poll"]
+          "delay_ms": 3000
         },
         {
           "name":   "Close Session",
           "method": "DELETE",
-          "path":   "/v2/session",
-          "tags":   ["session", "write"]
+          "path":   "/v2/session"
         }
       ]
     },
     {
-      "name":   "FeatureB — Async Workflow",
-      "weight": 1,
+      "name":   "FeatureC — GraphQL Session Flow",
+      "weight": 2,
+      "tags":   ["feature-c"],
 
       "steps": [
         {
-          "name":   "Upstream Preflight",
-          "method": "GET",
-          "path":   "/v2/upstream/check"
-        },
-        {
-          "name":   "Create Async Session",
+          "name":   "Create Session",
           "method": "POST",
-          "path":   "/v2/async/session",
+          "path":   "/v2/session/create",
           "headers": {
-            "X-User-Id": "${user.id}"
+            "X-Account-Id": "${data.account_id}"
           }
         },
         {
-          "name":     "Wait for Async Init",
-          "method":   "GET",
-          "path":     "/v2/async/status",
-          "delay_ms": 2000
-        },
-        {
-          "name":   "Perform Async Action",
+          "name":   "GraphQL Catalog Check",
           "method": "POST",
-          "path":   "/v2/async/action"
+          "path":   "/graphql",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "query":     "query GetCatalog($accountId: String!) { catalog(accountId: $accountId) { id name } }",
+            "variables": { "accountId": "${data.account_id}" }
+          }
         },
         {
-          "name":   "Close Async Session",
+          "name":   "Close Session",
           "method": "DELETE",
-          "path":   "/v2/async/session"
+          "path":   "/v2/session"
         }
       ]
     }
@@ -140,39 +156,31 @@
     {
       "_comment": "Flat endpoints run as independent tasks. Each is weighted individually.",
 
-      "name":   "Get Offers",
-      "method": "GET",
-      "path":   "/v2/offers/${data.account_id}",
-      "weight": 5,
-      "tags":   ["offers", "read"]
-    },
-    {
-      "name":   "Get Recommendations",
-      "method": "GET",
-      "path":   "/v2/recommendations",
-      "params": {
-        "accountId": "${data.account_id}",
-        "limit":     "10"
-      },
-      "weight": 3,
-      "tags":   ["recommendations", "read"]
-    },
-    {
-      "name":   "Submit Order",
+      "name":   "Catalog - By Category",
       "method": "POST",
-      "path":   "/v2/orders",
-      "headers": {
-        "X-Idempotency-Key": "${data.session_id}"
-      },
+      "path":   "/graphql",
+      "weight": 3,
+      "tags":   ["feature-b"],
+      "headers": { "Content-Type": "application/json" },
       "body": {
-        "accountId": "${data.account_id}",
-        "offerId":   "offer-123"
-      },
-      "weight": 1,
-      "tags":   ["orders", "write"]
+        "query":     "query GetCatalog($filter: String!) { catalog(filter: $filter) { id name } }",
+        "variables": { "filter": "category" }
+      }
     },
     {
-      "_comment_env": "${env.VAR} reads from environment variables or .env file.",
+      "name":   "Catalog - By Price",
+      "method": "POST",
+      "path":   "/graphql",
+      "weight": 2,
+      "tags":   ["feature-b"],
+      "headers": { "Content-Type": "application/json" },
+      "body": {
+        "query":     "query GetCatalog($filter: String!) { catalog(filter: $filter) { id price } }",
+        "variables": { "filter": "price" }
+      }
+    },
+    {
+      "_comment_env": "${env.VAR} reads from environment variables.",
       "name":   "Health Check",
       "method": "GET",
       "path":   "/health",

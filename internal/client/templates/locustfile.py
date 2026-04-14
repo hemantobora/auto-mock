@@ -26,10 +26,11 @@ def _expand_env(v: Any):
 with open(JSON_PATH, "r", encoding="utf-8") as f:
     SPEC = _expand_env(json.load(f))
 
-AUTH   = SPEC.get("auth") or {"mode": "none"}
-CFG    = SPEC.get("config") or {}
-EPS    = SPEC.get("endpoints") or []
-FLOWS  = SPEC.get("flows") or []
+AUTH    = SPEC.get("auth") or {"mode": "none"}
+CFG     = SPEC.get("config") or {}
+EPS     = SPEC.get("endpoints") or []
+FLOWS   = SPEC.get("flows") or []
+COHORTS = SPEC.get("cohorts") or []
 
 # Data assignment config
 DATA_ASSIGNMENT: str = (CFG.get("data_assignment") or "round_robin").lower()  # shared | round_robin | random
@@ -109,7 +110,7 @@ def _expand_runtime(v: Any, ctx: Dict[str, Any]):
         return [_expand_runtime(x, ctx) for x in v]
     return v
 
-_GEN_RE = re.compile(r'^!(uuid|digits|alpha|alphanum|hex)(?::(\d+))?$')
+_GEN_RE = re.compile(r'^!(uuid|digits|alpha|alphanum|hex)(?::(\d+))?(?::([A-Za-z0-9]+))?$')
 
 def _resolve_generators(row: Dict[str, Any]) -> Dict[str, Any]:
     """Replace generator placeholders in a user data row with freshly generated values.
@@ -118,11 +119,15 @@ def _resolve_generators(row: Dict[str, Any]) -> Dict[str, Any]:
     generated values that remain consistent for the duration of their session.
 
     Supported syntax (values in user_data.yaml):
-      !uuid          → random UUID4  e.g. f47ac10b-58cc-4372-a567-0e02b2c3d479
-      !digits:N      → N random decimal digits  e.g. !digits:10 → 3847201938
-      !alpha:N       → N random ASCII letters   e.g. !alpha:8  → kjhTpwQz
-      !alphanum:N    → N random alphanumeric    e.g. !alphanum:12 → aB3kP9xQr2Tz
-      !hex:N         → N random hex chars       e.g. !hex:16 → 3f9a2b8c...
+      !uuid              → random UUID4           e.g. f47ac10b-58cc-4372-a567-0e02b2c3d479
+      !digits:N          → N random digits        e.g. !digits:10  → 3847201938
+      !digits:N:PREFIX   → N digits, starts with PREFIX
+                                                  e.g. !digits:10:80 → 8034729183
+      !alpha:N           → N random letters       e.g. !alpha:8   → kjhTpwQz
+      !alphanum:N        → N random alphanumeric  e.g. !alphanum:12 → aB3kP9xQr2Tz
+      !alphanum:N:PREFIX → N alphanumeric, starts with PREFIX
+                                                  e.g. !alphanum:8:USR → USRaB3kP
+      !hex:N             → N random hex chars     e.g. !hex:16 → 3f9a2b8c1d4e7f0a
     """
     if not row:
         return row
@@ -131,18 +136,23 @@ def _resolve_generators(row: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(v, str):
             m = _GEN_RE.match(v.strip())
             if m:
-                kind = m.group(1)
-                n    = int(m.group(2)) if m.group(2) else None
+                kind   = m.group(1)
+                n      = int(m.group(2)) if m.group(2) else None
+                prefix = m.group(3) or ""
                 if kind == "uuid":
                     v = str(uuid.uuid4())
                 elif kind == "digits" and n:
-                    v = "".join(random.choices("0123456789", k=n))
+                    remaining = max(0, n - len(prefix))
+                    v = (prefix + "".join(random.choices("0123456789", k=remaining)))[:n]
                 elif kind == "alpha" and n:
-                    v = "".join(random.choices(string.ascii_letters, k=n))
+                    remaining = max(0, n - len(prefix))
+                    v = (prefix + "".join(random.choices(string.ascii_letters, k=remaining)))[:n]
                 elif kind == "alphanum" and n:
-                    v = "".join(random.choices(string.ascii_letters + string.digits, k=n))
+                    remaining = max(0, n - len(prefix))
+                    v = (prefix + "".join(random.choices(string.ascii_letters + string.digits, k=remaining)))[:n]
                 elif kind == "hex" and n:
-                    v = "".join(random.choices("0123456789abcdef", k=n))
+                    remaining = max(0, n - len(prefix))
+                    v = (prefix + "".join(random.choices("0123456789abcdef", k=remaining)))[:n]
         out[k] = v
     return out
 
@@ -488,35 +498,86 @@ class AutoMockUser(HttpUser):
                 )
                 resp.failure(f"HTTP {resp.status_code}")
 
-# Build weighted tasks dynamically, honoring include/exclude tags
-_tasks: Dict[Any, int] = {}
-for ep in EPS:
-    if not _should_include(ep):
-        continue
-    w = int(ep.get("weight", 1))
+# -------------------------------------------------------------------
+# Task building helpers
+# -------------------------------------------------------------------
 
-    def make_task(endpoint: Dict[str, Any]):
-        def _t(self: AutoMockUser):
-            self._do(endpoint)
-        # Stable python method name
-        nm = endpoint.get("name") or f"{endpoint.get('method','GET')} {endpoint.get('path','/')}"
-        _t.__name__ = "task_" + re.sub(r"[^A-Za-z0-9_]+", "_", nm)[:80]
-        return _t
+def _make_endpoint_task(endpoint: Dict[str, Any]):
+    """Wrap a single endpoint dict into a Locust task function."""
+    def _t(self: AutoMockUser):
+        self._do(endpoint)
+    nm = endpoint.get("name") or f"{endpoint.get('method','GET')} {endpoint.get('path','/')}"
+    _t.__name__ = "task_" + re.sub(r"[^A-Za-z0-9_]+", "_", nm)[:80]
+    return _t
 
-    fn = make_task(ep)
-    _tasks[fn] = w if w > 0 else 1
 
-for flow in FLOWS:
-    if not _should_include(flow):
-        continue
-    steps = flow.get("steps") or []
-    if not steps:
-        continue
-    w = int(flow.get("weight", 1))
-    FlowCls = _make_flow_taskset(flow)
-    _tasks[FlowCls] = w if w > 0 else 1
+def _build_task_pool(
+    eps: List[Dict[str, Any]],
+    flows: List[Dict[str, Any]],
+    include_tags: set,
+    exclude_tags: set,
+) -> Dict[Any, int]:
+    """Build a weighted task dict from endpoints and flows, filtered by tags."""
 
-AutoMockUser.tasks = _tasks
+    def _ok(item: Dict[str, Any]) -> bool:
+        tags = set(item.get("tags") or [])
+        if include_tags and not (tags & include_tags):
+            return False
+        if exclude_tags and (tags & exclude_tags):
+            return False
+        return True
+
+    pool: Dict[Any, int] = {}
+
+    for ep in eps:
+        if not _ok(ep):
+            continue
+        w = int(ep.get("weight", 1))
+        pool[_make_endpoint_task(ep)] = w if w > 0 else 1
+
+    for flow in flows:
+        if not _ok(flow):
+            continue
+        if not (flow.get("steps") or []):
+            continue
+        w = int(flow.get("weight", 1))
+        pool[_make_flow_taskset(flow)] = w if w > 0 else 1
+
+    return pool
+
+
+# -------------------------------------------------------------------
+# Register User classes — cohort mode or single-class mode
+# -------------------------------------------------------------------
+
+if COHORTS:
+    # Each cohort becomes its own Locust User class with a permanent,
+    # filtered task pool. AutoMockUser itself is marked abstract so
+    # Locust does not try to spawn it directly.
+    AutoMockUser.abstract = True
+
+    for _cohort in COHORTS:
+        _inc  = set(_cohort.get("include_tags") or [])
+        _exc  = set(_cohort.get("exclude_tags") or [])
+        _w    = int(_cohort.get("weight", 1))
+        _name = _cohort.get("name") or "UnnamedCohort"
+
+        _pool = _build_task_pool(EPS, FLOWS, _inc, _exc)
+
+        _cls_name = re.sub(r"[^A-Za-z0-9_]+", "_", _name)
+        _CohortCls = type(_cls_name, (AutoMockUser,), {
+            "weight":   _w,
+            "tasks":    _pool,
+            "abstract": False,
+        })
+        # Register in module globals so Locust discovers the class
+        globals()[_cls_name] = _CohortCls
+
+else:
+    # No cohorts — single task pool for all VUs, filtered by global tags
+    AutoMockUser.tasks = _build_task_pool(
+        EPS, FLOWS, INCLUDE_TAGS, EXCLUDE_TAGS
+    )
 
 # -------------------------------------------------------------------
 # Entry-point guard
