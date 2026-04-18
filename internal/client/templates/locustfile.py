@@ -616,22 +616,48 @@ if COHORTS:
     # Locust does not try to spawn it directly.
     AutoMockUser.abstract = True
 
-    for _cohort in COHORTS:
-        _inc  = set(_cohort.get("include_tags") or [])
-        _exc  = set(_cohort.get("exclude_tags") or [])
-        _w    = int(_cohort.get("weight", 1))
-        _name = _cohort.get("name") or "UnnamedCohort"
+    # Wrap cohort registration in a function so loop variables (especially
+    # the class-typed `cohort_cls`) are scoped locally and never appear in
+    # module globals.  Locust's user-class discovery scans vars(module) for
+    # all non-abstract User subclasses; any leaked class variable would be
+    # found twice — once under its real name and once under the loop alias —
+    # triggering Locust's duplicate-name validation error.
+    def _register_cohorts():
+        seen_cls_names: set = set()
+        for i, cohort in enumerate(COHORTS):
+            inc  = set(cohort.get("include_tags") or [])
+            exc  = set(cohort.get("exclude_tags") or [])
+            w    = int(cohort.get("weight", 1))
+            name = cohort.get("name") or "UnnamedCohort"
 
-        _pool = _build_task_pool(EPS, FLOWS, _inc, _exc)
+            pool = _build_task_pool(EPS, FLOWS, inc, exc)
 
-        _cls_name = re.sub(r"[^A-Za-z0-9_]+", "_", _name)
-        _CohortCls = type(_cls_name, (AutoMockUser,), {
-            "weight":   _w,
-            "tasks":    _pool,
-            "abstract": False,
-        })
-        # Register in module globals so Locust discovers the class
-        globals()[_cls_name] = _CohortCls
+            # Build the human-readable display name, deduplicating if two
+            # cohort names sanitize to the same Python identifier.
+            base_cls_name = re.sub(r"[^A-Za-z0-9_]+", "_", name).strip("_") or "Cohort"
+            display_name = base_cls_name
+            suffix = 2
+            while display_name in seen_cls_names:
+                display_name = f"{base_cls_name}_{suffix}"
+                suffix += 1
+            seen_cls_names.add(display_name)
+
+            # Use an index-based internal name for type() so Locust's
+            # UserMeta never sees two calls with the same name.  Patch
+            # __name__/__qualname__ afterward for human-readable UI labels.
+            cohort_cls = type(f"_AMCohort_{i}", (AutoMockUser,), {
+                "weight":   w,
+                "tasks":    pool,
+                "abstract": False,
+            })
+            cohort_cls.__name__     = display_name
+            cohort_cls.__qualname__ = display_name
+            # globals() inside a function still refers to the module globals,
+            # so this registers the class where Locust can discover it.
+            globals()[display_name] = cohort_cls
+
+    _register_cohorts()
+    del _register_cohorts  # remove the helper itself from module globals
 
 else:
     # No cohorts — single task pool for all VUs, filtered by global tags
